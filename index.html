@@ -1671,6 +1671,53 @@ let weatherState = null;
 function weatherIcon(code){ return WEATHER_ICONS[code] || '🌤'; }
 function weatherName(code){ return WEATHER_NAMES[code] || '天气'; }
 
+/* Open-Meteo 后备天气源（全球 CDN、内地可直连、无需密钥） */
+function wmoWeather(code){
+  const MAP = {
+    0:['☀️','晴朗'], 1:['🌤','大致晴朗'], 2:['⛅️','局部多云'], 3:['☁️','阴天'],
+    45:['🌫','有雾'], 48:['🌫','雾凇'],
+    51:['🌦','小毛毛雨'], 53:['🌦','毛毛雨'], 55:['🌧','大毛毛雨'],
+    56:['🌧','冻毛毛雨'], 57:['🌧','冻毛毛雨'],
+    61:['🌦','小雨'], 63:['🌧','中雨'], 65:['🌧','大雨'],
+    66:['🌧','冻雨'], 67:['🌧','冻雨'],
+    71:['🌨','小雪'], 73:['🌨','中雪'], 75:['❄️','大雪'], 77:['🌨','雪粒'],
+    80:['🌦','阵雨'], 81:['🌧','强阵雨'], 82:['⛈','暴雨阵雨'],
+    85:['🌨','阵雪'], 86:['🌨','强阵雪'],
+    95:['⛈','雷暴'], 96:['⛈','雷暴伴冰雹'], 99:['⛈','强雷暴伴冰雹']
+  };
+  const hit = MAP[code];
+  return hit ? {emoji:hit[0], desc:hit[1]} : {emoji:'🌡', desc:'天气'};
+}
+
+async function fetchOpenMeteo(){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 8000);
+  try{
+    const url = 'https://api.open-meteo.com/v1/forecast?latitude=22.3193&longitude=114.1694&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=Asia%2FHong_Kong';
+    const res = await fetch(url, {signal: controller.signal});
+    clearTimeout(timer);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    const c = data.current || {};
+    const w = wmoWeather(c.weather_code);
+    return {
+      ok:true,
+      temp: c.temperature_2m!=null ? Math.round(c.temperature_2m) : null,
+      tempUnit:'C',
+      humidity: c.relative_humidity_2m!=null ? c.relative_humidity_2m : null,
+      humidityUnit:'%',
+      icon: c.weather_code,
+      emoji: w.emoji,
+      desc: w.desc,
+      source:'Open-Meteo',
+      updateTime: c.time || null
+    };
+  }catch(e){
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
 function getCachedWeather(){
   try{
     const raw = localStorage.getItem(WEATHER_KEY);
@@ -1722,6 +1769,17 @@ async function fetchHKWeather(force){
   }catch(e){
     clearTimeout(timer);
     console.error('fetchHKWeather error:', e && e.message);
+    // 后备数据源：Open-Meteo（HKO 失败/超时时自动接管）
+    try{
+      const alt = await fetchOpenMeteo();
+      weatherState = alt;
+      setCachedWeather(alt);
+      renderWeather();
+      return alt;
+    }catch(e2){
+      console.error('fetchOpenMeteo error:', e2 && e2.message);
+    }
+    // 后备也失败，退回缓存
     const fallback = getCachedWeather();
     if(fallback && fallback.ok){
       weatherState = fallback;
@@ -1768,10 +1826,10 @@ function renderWeather(){
     return;
   }
   card.classList.remove('offline');
-  iconEl.textContent = weatherIcon(weatherState.icon);
+  iconEl.textContent = weatherState.emoji || weatherIcon(weatherState.icon);
   tempEl.textContent = (weatherState.temp!==null ? weatherState.temp : '--') + '°C';
   descEl.textContent = weatherState.desc;
-  let meta = '香港天文台';
+  let meta = (weatherState.source === 'Open-Meteo' ? 'Open-Meteo 数据' : '香港天文台');
   if(weatherState.humidity!==null) meta = '湿度 ' + weatherState.humidity + '%';
   if(weatherState.updateTime){
     const t = new Date(weatherState.updateTime);
@@ -4947,17 +5005,11 @@ init();
   }catch(e){ console.warn('PDF worker inline setup failed:', e); }
 })();
 <script>
-/* PWA: 注册 service worker（仅 HTTPS/localhost 生效；file:// 直接打开时静默跳过，不影响原功能） */
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', function(){
-    navigator.serviceWorker.register('sw.js').then(function(reg){
-      console.log('PWA service worker 已注册, scope:', reg.scope);
-    }).catch(function(err){
-      console.warn('PWA service worker 注册失败（可忽略）:', err);
-    });
+    navigator.serviceWorker.register('sw.js').then(function(reg){ console.log('PWA service worker 已注册'); }).catch(function(err){ console.warn('SW 注册失败(可忽略):', err); });
   });
 }
 </script>
-
 </body>
 </html>
