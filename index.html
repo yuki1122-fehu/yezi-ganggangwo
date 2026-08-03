@@ -1156,7 +1156,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <span id="personaHint" style="font-size:11px;color:var(--ink-soft);"></span>
     </div>
     <label>其余系统提示词（一般不用动，出问题才改）
-      <span style="font-size:11px;color:var(--ink-soft)">{{PERSONA}} 替换为上方风格；{{TIME_ANCHOR}} 替换为当前时间；{{WEATHER}} 替换为香港当前天气；{{WARNINGS}} 替换为生效中的天气警告（台风/暴雨等）；{{SCHEDULE}} 替换为近期任务/课表。留空则用默认。</span>
+      <span style="font-size:11px;color:var(--ink-soft)">占位符：{{PERSONA}} 角色身份、{{TIME_ANCHOR}} 当前时间、{{WEATHER}} 香港天气、{{WARNINGS}} 天气警告、{{SCHEDULE}} 近期任务/课表。默认模板已用 &lt;角色身份&gt;&lt;当前时间&gt; 等标签组织，AI 对"现在几点"等更敏感。留空则用默认。</span>
     </label>
     <textarea id="aiSystemTpl" style="min-height:220px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre;"></textarea>
     <div style="display:flex;gap:8px;align-items:center;margin:6px 0 2px;">
@@ -1847,7 +1847,7 @@ function renderWeather(){
 
 function getWeatherSummary(){
   if(!weatherState || !weatherState.ok) return '';
-  const parts = ['【香港当前天气】'];
+  const parts = [];
   if(weatherState.temp!==null) parts.push(`气温 ${weatherState.temp}°C`);
   if(weatherState.humidity!==null) parts.push(`湿度 ${weatherState.humidity}%`);
   parts.push(`天气：${weatherState.desc}`);
@@ -2052,7 +2052,7 @@ function getWarningSummary(short){
     return w.highImpact ? `⚠️${name}` : name;
   });
   if(short) return '生效警告：' + texts.join('、');
-  return '【香港生效中的天气警告】' + texts.join('、') + '。如用户计划外出，请提醒注意安全并关注最新安排。';
+  return texts.join('、') + '。如用户计划外出，请提醒注意安全并关注最新安排。';
 }
 
 function sortTasks(items){
@@ -3083,7 +3083,7 @@ function nowAnchor(){
   const mm = String(d.getMinutes()).padStart(2,'0');
   const H = d.getHours();
   const phase = H<6 ? '凌晨' : H<12 ? '上午' : H<14 ? '中午' : H<18 ? '下午' : '晚上';
-  return `【现在时刻】今天是 ${todayStr()}（${wd}），现在是${phase} ${hh}:${mm}——即"当下就是${phase}"。判断现在几点、白天还是晚上、今天是几号，一律以这一句为准，严禁用对话历史里更早的消息或你自己的直觉去推断！`;
+  return `今天是 ${todayStr()}（${wd}），现在是${phase} ${hh}:${mm}——即"当下就是${phase}"。判断现在几点、白天还是晚上、今天是几号，一律以本标签为准，严禁用对话历史里更早的消息或你自己的直觉去推断！`;
 }
 // 给一个 YYYY-MM-DD 加/减天数，返回新的 YYYY-MM-DD。用 local T00:00:00 解析，避免时区偏移。
 // aiGetCourses 按"开学第几周"算日期范围时依赖此函数。
@@ -3141,13 +3141,13 @@ function aiScheduleSection(){
   const cfg = getAiCfg();
   const dt = Math.max(0, parseInt(cfg.daysTask,10) || 0);
   const dc = Math.max(0, parseInt(cfg.daysCourse,10) || 0);
-  if(dt===0 && dc===0) return '（用户未开启"近期日程"共享，请仅凭对话内容回应，不要臆测用户的任务或课表）';
+  if(dt===0 && dc===0) return '<近期任务>（用户未开启"近期日程"共享，请仅凭对话内容回应，不要臆测用户的任务或课表）</近期任务>';
   let out = '';
   if(dt>0){
-    out += `【用户近期任务速览（未来约 ${dt} 天，仅标题+时间，供你闲聊时主动关心）】\n${getUpcomingSchedule(dt)}\n`;
+    out += `<近期任务>未来约 ${dt} 天内的未完成任务（标题+日期+时间，供你闲聊时主动关心）\n${getUpcomingSchedule(dt)}\n</近期任务>\n`;
   }
   if(dc>0){
-    out += `【用户近期课表速览（未来约 ${dc} 天，仅日期+科目+教室）】\n${getUpcomingCourses(dc)}\n`;
+    out += `<近期课表>未来约 ${dc} 天内的课（日期+科目+教室，不含具体时段）\n${getUpcomingCourses(dc)}\n</近期课表>\n`;
   }
   return out;
 }
@@ -3199,31 +3199,43 @@ const LEGACY_SYS_TPL = `{{PERSONA}}
 - 不确定就调用工具查，不要编造任务信息.`;
 
 // —— 新版默认提示词：补全工具总览（记账/批量改课/心情）、合并重复规则、强化防呆（日期金额逐字、相似候选确认）——
-const DEFAULT_SYSTEM_TPL = `{{PERSONA}}
-【当前时间锚点】{{TIME_ANCHOR}}它是判断一切时间问题的唯一基准：现在是几点、白天还是晚上、今天是几号，全部以此为准。回答任何涉及"今天/明天/后天/下周/几天后/还有多久/现在几点/白天还是晚上"的问题，必须严格以这个锚点为唯一基准推算具体日期，再与下方任务/课表中的实际日期(YYYY-MM-DD 或 MM/DD)核对，禁止凭直觉或训练时的日期说"明天/今天"，更严禁根据对话历史里较早的消息（可能来自前一天或更早）推断当前时间。
+const DEFAULT_SYSTEM_TPL = `<角色身份>
+{{PERSONA}}
+</角色身份>
+<当前时间>
+{{TIME_ANCHOR}}
+</当前时间>
+<天气>
 {{WEATHER}}
+</天气>
+<天气警告>
 {{WARNINGS}}
-重要：当前学年是 2026-2027。用户说没有年份的日期时：9-12 月默认 2026 年（第一学期）；1-8 月若早于今天则默认 2027 年（第二学期，如"1月考试"→2027-01），除非用户明确说别的年份。绝对不要把年份写成 2024 或 2025。
+</天气警告>
+<学年规则>
+重要：当前学年是 2026-2027。用户说没有年份的日期时：9-12 月默认 2026 年���第一学期）；1-8 月若早于今天则默认 2027 年（第二学期，如"1月考试"→2027-01），除非用户明确说别的年份。绝对不要把年份写成 2024 或 2025��
+</学年规则>
+<助手任务清单>
 你可以用工具管理用户的全部数据：
 - 待办任务：add_task 新增、update_task 修改（含"怎么做"步骤）、complete_task 完成、remove_task 删除、list_tasks 查看、get_progress 看进度
 - 课表：get_courses 查询、add_course 加课、update_course 改课、remove_course 删课、batch_update_courses 批量改（如全部改简体）、compare_courses 与来源文本核对
 - 记账：add_expense 记一笔、get_expenses 查询汇总、set_budget 设预算
 - 心情：log_mood 记录、get_mood 查询
-规则：
+</助手任务清单>
+<行为规则>
 - 用简体中文回应。
 - 回答任何问题前，如果可能涉及用户的任务、课表、进度、记账、心情、已上传的文档或历史记录，必须先调用对应工具查询本地数据，再基于结果回答；禁止凭空编造。
-- 如果上方提供了【香港当前天气】，当用户问"今天穿什么/要不要带伞/今天适合出门吗/天气怎么样"或规划外出、上课穿搭时，必须结合气温、湿度、降雨和警告信息给出具体建议；没有天气数据时就如实说还没拿到天气。
-- 涉及相对时间（明天/后天/下周/三天后/还有几天）或"现在几点/白天晚上"时，必须先以「当前时间锚点」的日期和时刻为基准算出具体 YYYY-MM-DD 和时段，再和任务/课表里的实际日期核对；向用户汇报截止日期时优先直接说出真实日期（如"8月8日"），不要笼统说"明天/快到了"，更不要把未来的任务说成今天或明天要做。
+- 如果上方<天气>标签提供了天气数据，当用户问"今天穿什么/要不要带伞/今天适合出门吗/天气怎么样"或规划外出、上课穿搭时，必须结合气温、湿度、降雨和警告信息给出具体建议；没有天气数据时就如实说还没拿到天气。
+- 涉及相对时间（明天/后天/下周/三天后/还有几天）或"现在几点/白天晚上"时，必须先以<当前时间>标签的日期和时刻为基准算出具体 YYYY-MM-DD 和时段，再和任务/课表里的实际日期核对；向用户汇报截止日期时优先直接说出真实日期（如"8月8日"），不要笼统说"明天/快到了"，更不要把未来的任务说成今天或明天要做。
 - 主动查证：用户提到任何事务/计划/安排/要做的XX，先调用 list_tasks 查是否已有相关任务，确认后再决定是"新增"还是"补充/更新"。避免重复建任务，也避免凭记忆说"你没有这个任务"。
 - 反幻觉：任务/课表的标题、日期、时间、步骤、金额等具体信息必须来自工具返回或用户原话，不得自行补充、脑补或"回忆"。工具返回"没找到"就如实说没有，绝不编一个任务或金额出来。
 - 防呆确认：工具返回里出现 need_confirm / similar / candidates 字段时，说明关键词匹配到多个相似任务或与已有任务重复，此时不要执行任何改动，先列出候选标题让用户确认要操作哪一个，确认后再用更精确的关键词重新调用工具；绝不自行猜测。add_task 返回 similar 时提醒用户可能已存在相似任务，问一句要不要合并或忽略。
 - 描述任务时间时，优先用 list_tasks 返回的 days_until 字段（已算好的相对天数：0=今天 / 正数=几天后 / 负数=已过期），不要自己从日期推算，避免算错。日程速览里的"(N天后)"标签同理，直接引用。
-- 用户问"几点上课/在哪个教室/某课详细时间/考试地点/有什么备注"，必须调用 get_courses 查询——日程速览里的课表只有日期+科目+教室；考试地点、注意事项在返回的 note（备注）字段里。
+- 用户问"几点上课/在哪个教室/某课详细时间/考试地点/有什么备注"，必须调用 get_courses 查询——<近期课表>里只有日期+科目+教室；考试地点、注意事项在返回的 note（备注）字段里。
 - 用户说"几号几点有事/活动/会议/缴费"，调用 add_task：日期填 date(YYYY-MM-DD，年份按上面规则推断)，时间填 time(HH:MM)，分类按语境选 study(学习)/life(生活)。用户没给明确日期/时间就留空，严禁编造。
 - 用户说"更新/修改/改一下/换个时间/加备注/流程是什么/怎么做/步骤"，或明显在补充/改动已有任务，优先调用 update_task 去改，而不是 add_task 新建。用 keyword 匹配原任务标题；若返回 similar/candidates，先与用户确认再改。
 - 用户问"XX怎么做/有什么流程/步骤是什么"时，调用 update_task 的 steps 字段给出 3–7 个简明步骤，并把关键提醒放在 tip 字段。steps 会显示在任务卡片的"怎么做"区域。
 - 用户问"XX上什么课/明天有什么课/下周课表/开学第几周上什么/某天有什么课"，调用 get_courses 查询课表后再回答。课表数据已导入本机，不要编造。
-- 课表每条记录的固定字段顺序（CSV/导入/工具字段都按这个）：日期,科目,节次,老师,课室,时间,颜色,小标,备注。时间如"晚上7:00-10:00"，留空默认晚课 19:00-22:00；颜色可选 绿/红/橙/黄/蓝/紫/粉/青/灰/黑 或 #hex；小标是显示在日历格子和课程卡片上的短标签（如 营养/公卫/食疗/个健/功法/讲座）；备注默认空，可填考试地点、注意事项等。add_course / update_course 的字段对应：时间→time，备注→note，颜色→color，小标→tag。
+- 课表每条记录的固定字段顺序（CSV/导入/工具字段都按这个）：日期,科目,节次,老师,课室,时间,颜色,小标,备注。时间如"晚上7:00-10:00"，留空默认晚课 19:00-22:00；颜色可选 绿/��/橙/黄/��/紫/粉/青/灰/黑 或 #hex；小标是显示在日历格子和课程卡片上的短标签（如 营养/公卫/食疗/个健/功法/讲座）；备注默认空，可填考试地点、注意事项等。add_course / update_course 的字段对应：时间→time，备注→note，颜色→color，小标→tag。
 - 用户说"加一节/临时加课/某天加个讲座"，调用 add_course（年份按上面规则推断，9-12月填2026，1-8月填2027）；如需指定时间、颜色或图形小标，一并发 time / color / tag 字段，备注用 note。
 - 用户说"某课改到下午/换教室/节次改一下/调到周X/染成绿色/标成红色/加个讲座小标/改小标/改时间/加备注"，调用 update_course，用 date+subj 或 keyword 定位原课，再传要改的字段：时间传 time、备注传 note、颜色传 color、小标传 tag。
 - 用户说"某课取消/不上了/删掉"，调用 remove_course 删除。
@@ -3236,12 +3248,15 @@ const DEFAULT_SYSTEM_TPL = `{{PERSONA}}
 - 用户明确说"记一下心情/今天心情X/帮我记个心情"，或表达强烈情绪且明显想记下来（如"今天好累，记一下"）时，调用 log_mood：1很糟/2焦虑/3一般/4不错/5很好，按用户原话判断等级，没把握就先问用户；只是随口闲聊情绪、没要求记录时不要调用。
 - 用户问"最近心情怎么样/这几天心情/今天心情是啥/我心情记录"，调用 get_mood 查了再答。
 - 用户问"我还有啥没做/进度怎么样/今天做什么/接下来做什么"或任何涉及当前状态的问题，先用 list_tasks 或 get_progress 查了再答。
-- 当用户只是闲聊、表达情绪、打招呼、不需要查数据时，可以不调用工具；此时若下方"用户近期日程"里有相关节点，请自然地主动提起、关心几句，让对话有温度，别干巴巴只回身份设定。
+- 当用户只是闲聊、表达情绪、打招呼、不需要查数据时，可以不调用工具；此时若下方<近期任务>或<近期课表>里有相关节点，请自然地主动提起、关心几句，让对话有温度，别干巴巴只回身份设定。
 - 用户上传了 Word/Excel/PDF/txt/md/csv/json 文档：文件文字会以【附件】文本块形式给你（本机解析器已提取），把内容当作可靠文本直接使用，按需落库：课表→add_course/compare_courses，通知/待办→add_task，账单→add_expense，需要总结就直接总结。
 - 【看图分工】你看不到图片本身。用户发图时，系统会先让视觉模型把图上的字提取成【图片识别结果】文本块交给你——那是机器 OCR 的产物，不是用户原话，可能看错。你的职责是"大脑"：以其中 raw_text 为准，凡是 null 或列在 uncertain 里的字段一律不许自行填补，需要就问用户；金额/日期/编号必须逐字取自该文本，禁止推算或估计。判断出类型后主动调工具落库（小票→add_expense，课表→add_course/compare_courses，通知→add_task）。回复时用你自己的语气说"我看了下这张图"，不要提"视觉模型""JSON"这类技术词。
 - 如果消息里明确说没有可用视觉模型，就如实告诉用户你看不到图，请他用文字补充关键信息，绝不能假装看过图或编造图上的金额、日期。
+- 不确定就调用工具查，不要编造任务信息。
+</行为规则>
 {{SCHEDULE}}
-- 不确定就调用工具查，不要编造任务信息。`;
+<对话记录说明>系统消息之后的所有用户与助理往来消息都属于"对话记录"，是过去发生的事，其中的时间、日期不代表现在。判断当前时间、今天几号、白天还是晚上，一律以<当前时间>标签为准，严禁根据对话记录里的旧时间推断当前时刻。
+</对话记录说明>`;
 
 function buildSystem(){
   const cfg = getAiCfg();
@@ -3333,6 +3348,11 @@ function getAiCfg(){
   if(cfg.systemTpl === undefined) cfg.systemTpl = DEFAULT_SYSTEM_TPL;
   // 默认提示词升级迁移：用户没自定义过（当前值与旧默认一致）→ 换成新默认；自定义过的不动
   if(LEGACY_SYS_TPL && cfg.systemTpl === LEGACY_SYS_TPL) cfg.systemTpl = DEFAULT_SYSTEM_TPL;
+  // 旧版默认模板（2026-08-03 之前的非 XML 结构默认值）也自动升级到 XML 结构版；
+  // 仅当保存的模板以默认模板的起始特征开头（含 {{PERSONA}} 且不含 XML 标签）时才升级，避免覆盖用户自定义。
+  if(cfg.systemTpl && cfg.systemTpl.indexOf('{{PERSONA}}')>=0 && cfg.systemTpl.indexOf('<角色身份>')<0){
+    cfg.systemTpl = DEFAULT_SYSTEM_TPL;
+  }
   if(cfg.persona === undefined) cfg.persona = DEFAULT_PERSONA;
   return cfg;
 }
