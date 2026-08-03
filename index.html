@@ -3365,7 +3365,10 @@ function trimMessagesForSend(messages){
   const rest = messages.slice(1);
   const rounds = Math.max(0, parseInt((getAiCfg().roundsConv),10) || 0);
   const KEEP = rounds * 2; // 最近 N 轮（每轮 2 条）
-  if(KEEP<=0) return [sys, messages[messages.length-1]]; // 0 轮历史：仍保留最新一条（当前用户消息）
+  if(KEEP<=0){
+    const single = [sys, messages[messages.length-1]]; // 0 轮历史：仍保留最新一条（当前用户消息）
+    return injectTimeAnchor(single);
+  }
   const tail = rest.length > KEEP ? rest.slice(rest.length - KEEP) : rest.slice();
   const lastIdx = tail.length - 1;
   const out = tail.map((m, i)=>{
@@ -3375,7 +3378,20 @@ function trimMessagesForSend(messages){
     }
     return m;
   });
-  return [sys, ...out];
+  return injectTimeAnchor([sys, ...out]);
+}
+// 给 messages 里最新一条用户消息注入当前时间锚点（权重最高的对话末尾位置），
+// 压过历史消息（如昨晚"晚安"）的时段惯性；只作用于发送副本，不改本地记录。
+function injectTimeAnchor(result){
+  const last = result && result[result.length-1];
+  if(!last || last.role!=='user') return result;
+  const anchor = nowAnchor(); // 含时段：上午/中午/下午/晚上
+  if(typeof last.content === 'string'){
+    last.content = anchor + '\n' + last.content;
+  } else if(Array.isArray(last.content)){
+    last.content = [{type:'text', text: anchor}, ...last.content];
+  }
+  return result;
 }
 // 粗略判断模型是否支持图片输入（多模态）
 function isVisionModel(model){
