@@ -982,7 +982,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <div class="tab active" data-cat="today" onclick="switchTab('today')"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.2v2.6M12 19.2v2.6M2.2 12h2.6M19.2 12h2.6M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg></span>今天</div>
     <div class="tab" data-cat="study" onclick="switchTab('study')"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 6.2C10.3 5 8 4.6 4.8 4.8 4 5 3.6 5.7 3.6 6.5v11c0 .8.4 1.5 1.2 1.7 3.2.2 5.5.6 8.4-1.6M12 6.2C13.7 5 16 4.6 19.2 4.8c.8.2 1.2.9 1.2 1.7v11c0 .8-.4 1.5-1.2 1.7-3.2.2-5.5.6-8.4-1.6M12 6.2v11"/></svg></span>学习</div>
     <div class="tab" data-cat="life" onclick="switchTab('life')"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 11.4 12 4l8 7.4"/><path d="M6 10.2V19h12v-8.8"/><path d="M10 19v-4.6h4V19"/></svg></span>生活</div>
-    <div class="tab" data-cat="cal" onclick="switchTab('cal')"><span class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="5.2" width="16" height="14.6" rx="2.6"/><path d="M4 9.6h16"/><path d="M8 3.2v3.2M16 3.2v3.2"/><path d="M8.5 13h2.6M13 13h2.6M8.5 16.2h2.6"/></svg></span>课表</div>
+    <div class="tab" data-cat="cal" onclick="switchTab('cal')"><span class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="5.2" width="16" height="14.6" rx="2.6"/><path d="M4 9.6h16"/><path d="M8 3.2v3.2M16 3.2v3.2"/><path d="M8.5 13h2.6M13 13h2.6M8.5 16.2h2.6"/></svg></span>日历</div>
   </nav>
 </div>
 
@@ -2411,7 +2411,7 @@ function renderTodayClass(){
 
 /* ====== 日历 ====== */
 function renderCalendar(){
-  document.getElementById('viewName').textContent = '课表';
+  document.getElementById('viewName').textContent = '日历';
   document.getElementById('viewCount').textContent = '';
   const list = document.getElementById('list');
   const today = new Date();
