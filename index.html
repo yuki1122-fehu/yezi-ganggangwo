@@ -1985,6 +1985,8 @@ function renderWarningBar(){
     const parts = [];
     if(primary.issueTime){ const t = fmtWarnTime(primary.issueTime); if(t) parts.push('生效 ' + t); }
     if(primary.updateTime){ const t = fmtWarnTime(primary.updateTime); if(t) parts.push('更新 ' + t); }
+    const c = fmtWarnTime(warningState.updateTime); // App 最近一次向天文台确认的时间
+    if(c) parts.push('检查 ' + c);
     timeEl.textContent = parts.length ? parts.join(' · ') : '';
   }else{
     timeEl.textContent = '';
@@ -2001,7 +2003,13 @@ function fmtWarnTime(iso){
 /* 点击警告条：先看当前详情，同时强制刷新（天文台数据变化快，每次点击都拉最新） */
 function tapWarningBar(){
   showWarningDetails();
-  fetchHKWarnings(true);
+  fetchHKWarnings(true).then(()=>{
+    // 刷新完成后：若详情弹窗仍开着，自动更新内容（检查时间会刷新）
+    const mask = document.getElementById('dialogMask');
+    if(mask && mask.classList.contains('show') && warningState && warningState.ok && warningState.list.length){
+      showWarningDetails();
+    }
+  });
 }
 
 function showWarningDetails(){
@@ -2016,7 +2024,9 @@ function showWarningDetails(){
     if(times.length) s += `<br><small style="color:var(--ink-faint)">${times.join(' · ')}</small>`;
     return `<div style="margin:10px 0;line-height:1.5;">${s}</div>`;
   }).join('');
-  showDialog('当前天气警告', lines + '<div style="font-size:11px;color:var(--ink-faint);margin-top:10px;">数据来源：香港天文台</div>', [{label:'知道了', cls:'ghost'}], true);
+  const checked = fmtWarnTime(warningState.updateTime);
+  const checkLine = checked ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:10px;">最近检查：${checked} · 数据来源：香港天文台</div>` : '<div style="font-size:11px;color:var(--ink-faint);margin-top:10px;">数据来源：香港天文台</div>';
+  showDialog('当前天气警告', lines + checkLine, [{label:'知道了', cls:'ghost'}], true);
 }
 
 function alertImportantWarnings(list){
