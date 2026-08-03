@@ -929,7 +929,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     </div>
   </header>
 
-  <div class="warning-bar" id="warningBar" style="display:none;" onclick="showWarningDetails()">
+  <div class="warning-bar" id="warningBar" style="display:none;" onclick="tapWarningBar()">
     <div class="w-icon" id="warningIcon">⚠️</div>
     <div class="w-main">
       <div class="w-title" id="warningTitle">天气警告</div>
@@ -1979,15 +1979,29 @@ function renderWarningBar(){
   const countText = warns.length > 1 ? ` 等 ${warns.length} 个警告` : '';
   titleEl.textContent = primary.levelName ? `${primary.label} · ${primary.levelName}${countText}` : primary.label + countText;
   descEl.textContent = warns.length > 1
-    ? '当前有 ' + warns.length + ' 个天气警告生效，点击查看详情'
-    : '香港天文台已发出警告，点击查看详情';
+    ? '当前有 ' + warns.length + ' 个天气警告生效，点击刷新并查看详情'
+    : '香港天文台已发出警告，点击刷新并查看详情';
   if(primary.updateTime || primary.issueTime){
-    const t = new Date(primary.updateTime || primary.issueTime);
-    if(!isNaN(t.getTime())) timeEl.textContent = '更新/生效：' + String(t.getMonth()+1) + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
-    else timeEl.textContent = '';
+    const parts = [];
+    if(primary.issueTime){ const t = fmtWarnTime(primary.issueTime); if(t) parts.push('生效 ' + t); }
+    if(primary.updateTime){ const t = fmtWarnTime(primary.updateTime); if(t) parts.push('更新 ' + t); }
+    timeEl.textContent = parts.length ? parts.join(' · ') : '';
   }else{
     timeEl.textContent = '';
   }
+}
+/* 格式化天气警告时间（ISO → 月/日 时:分，本地时区）；无效返回空串 */
+function fmtWarnTime(iso){
+  if(!iso) return '';
+  const t = new Date(iso);
+  if(isNaN(t.getTime())) return '';
+  return String(t.getMonth()+1) + '/' + t.getDate() + ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+}
+
+/* 点击警告条：先看当前详情，同时强制刷新（天文台数据变化快，每次点击都拉最新） */
+function tapWarningBar(){
+  showWarningDetails();
+  fetchHKWarnings(true);
 }
 
 function showWarningDetails(){
@@ -1996,6 +2010,10 @@ function showWarningDetails(){
     let s = `${w.icon} <b>${w.label}</b>`;
     if(w.levelName) s += ` · ${w.levelName}`;
     if(w.name) s += `<br><small style="color:var(--ink-soft)">${escHtml(w.name)}</small>`;
+    const times = [];
+    if(w.issueTime){ const t = fmtWarnTime(w.issueTime); if(t) times.push('生效 ' + t); }
+    if(w.updateTime){ const t = fmtWarnTime(w.updateTime); if(t) times.push('更新 ' + t); }
+    if(times.length) s += `<br><small style="color:var(--ink-faint)">${times.join(' · ')}</small>`;
     return `<div style="margin:10px 0;line-height:1.5;">${s}</div>`;
   }).join('');
   showDialog('当前天气警告', lines + '<div style="font-size:11px;color:var(--ink-faint);margin-top:10px;">数据来源：香港天文台</div>', [{label:'知道了', cls:'ghost'}], true);
