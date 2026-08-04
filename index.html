@@ -2891,6 +2891,15 @@ function initBackButton(){
 /* =====================================================================
    自定义 API 助理（function calling 管理任务）
    ===================================================================== */
+// 工具名 → 中文短标签（用于 agent 过程气泡展示，如"正在查询课表…"）
+const TOOL_LABEL = {
+  add_task:'添加任务', update_task:'更新任务', complete_task:'完成任务',
+  remove_task:'删除任务', list_tasks:'查询任务', get_progress:'统计进度',
+  get_courses:'查询课表', add_course:'添加课程', update_course:'修改课程',
+  remove_course:'删除课程', compare_courses:'核对课表', batch_update_courses:'批量修改课表',
+  add_expense:'记账', get_expenses:'查询账目', set_budget:'设置预算',
+  log_mood:'记录心情', get_mood:'查询心情'
+};
 const AI_TOOLS = [
   { type:'function', function:{
     name:'add_task',
@@ -3328,7 +3337,7 @@ function renderConvFromState(){
   }
 }
 function convUserText(content){
-  if(typeof content==='string') return content;
+  if(typeof content==='string') return stripInjectedAnchor(content);
   if(Array.isArray(content)){
     let txt='', img=false, file=false;
     for(const p of content){
@@ -3337,7 +3346,7 @@ function convUserText(content){
       else if(p.type==='file') file=true;
     }
     const extra = (img?' 📷':'') + (file?' 📎':'');
-    return (txt||'') + extra;
+    return stripInjectedAnchor((txt||'') + extra);
   }
   return '';
 }
@@ -3383,15 +3392,25 @@ function trimMessagesForSend(messages){
 // 给 messages 里最新一条用户消息注入当前时间锚点（权重最高的对话末尾位置），
 // 压过历史消息（如昨晚"晚安"）的时段惯性；只作用于发送副本，不改本地记录。
 function injectTimeAnchor(result){
-  const last = result && result[result.length-1];
+  const idx = result.length - 1;
+  const last = result[idx];
   if(!last || last.role!=='user') return result;
   const anchor = nowAnchor(); // 含时段：上午/中午/下午/晚上
-  if(typeof last.content === 'string'){
-    last.content = anchor + '\n' + last.content;
-  } else if(Array.isArray(last.content)){
-    last.content = [{type:'text', text: anchor}, ...last.content];
+  // 浅拷贝消息对象后再改 content，避免污染 aiConv 里的原始消息（否则会随 saveConv 存进历史）
+  const copy = Object.assign({}, last);
+  if(typeof copy.content === 'string'){
+    copy.content = anchor + '\n' + copy.content;
+  } else if(Array.isArray(copy.content)){
+    copy.content = [{type:'text', text: anchor}, ...copy.content];
   }
+  result[idx] = copy;
   return result;
+}
+// 清理历史消息里误存的时间锚点前缀（旧版本 bug 曾把注入内容写进存档；显示时剥掉，兼容已污染数据）
+function stripInjectedAnchor(text){
+  if(typeof text !== 'string') return text;
+  const m = text.match(/^今天是 \d{4}-\d{2}-\d{2}（周[日一二三四五六]），现在是(凌晨|上午|中午|下午|晚上) \d{2}:\d{2}——即"当下就是(凌晨|上午|中午|下午|晚上)"。判断现在几点、白天还是晚上、今天是几号，一律以本标签为准，严禁用对话历史里更早的消息或你自己的直觉去推断！\n?/);
+  return m ? text.slice(m[0].length) : text;
 }
 // 粗略判断模型是否支持图片输入（多模态）
 function isVisionModel(model){
@@ -4274,7 +4293,11 @@ function aiRemoveAttach(i){ aiPendingFiles.splice(i,1); renderAiAttach(); }
       任一环失败 → 逐级降级，最差也如实告知，绝不假装看到了图
    ══════════════════════════════════════════════════════════════════ */
 async function sendAI(){
-  if(aiBusy) return;
+  if(aiBusy){
+    // agent 模式上一条可能还在"思考+调工具"，这里不静默丢弃，提示用户稍等
+    toast('上一条还在处理中，稍等片刻…');
+    return;
+  }
   const input = document.getElementById('aiInput');
   const text = input.value.trim();
   if(!text && !aiPendingFiles.length) return;
@@ -4389,6 +4412,7 @@ async function aiRun(){
   setAIBusy(true);
   try{
     let loop = 0;
+    let stepEl = null;
     while(loop++ < 6){
       const r = await aiCall(aiConv, cfg);
       if(r.error){
@@ -4407,18 +4431,29 @@ async function aiRun(){
       if(!msg.id) msg.id = 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
       aiConv.push(msg);
       if(msg.tool_calls && msg.tool_calls.length){
+        // agent 模式：模型请求调用工具（如查课表/建任务），执行后还要再问一轮。
+        // 用步骤气泡提示用户"正在处理"，避免误以为卡死。
+        const names = msg.tool_calls.map(tc=>{
+          const n = (tc.function && tc.function.name) || '';
+          return TOOL_LABEL[n] || n;
+        }).filter(Boolean);
+        const label = names.length ? '正在' + names.join('、') + '…' : '正在处理…';
+        if(!stepEl) stepEl = addSysStep('🧭 ' + label);
+        else stepEl.textContent = '🧭 ' + label;
         for(const tc of msg.tool_calls){
           const res = execTool(tc.function.name, tc.function.arguments);
           aiConv.push({role:'tool', tool_call_id: tc.id, content: JSON.stringify(res)});
         }
         continue;
       } else {
+        if(stepEl) stepEl.remove(); // 工具步骤完成，去掉过程提示
         // 部分多模态接口返回的 content 是数组，防御性判断后再展示
         const content = (typeof msg.content === 'string') ? msg.content : (Array.isArray(msg.content) ? msg.content.map(p=>p&&p.text?p.text:'').join(' ').trim() : '');
         if(content) addAIMsg('ai', content, msg.id);
         break;
       }
     }
+    if(loop > 6 && stepEl) stepEl.remove(); // 超出循环上限时清理步骤气泡
   }catch(e){
     addAIMsg('ai','出错了：'+(e.message||'未知错误'), aiMsgId());
   }finally{
