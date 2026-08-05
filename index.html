@@ -2931,23 +2931,27 @@ const AI_TOOLS = [
   }},
   { type:'function', function:{
     name:'complete_task',
-    description:'把某个未完成的任务标记为已完成，用标题或关键词匹配。',
+    description:'把某个未完成的任务标记为已完成，用标题或关键词匹配。用户说"全做完/都完成/批量完成"时传 all=true 一次完成所有匹配的任务。',
     parameters:{ type:'object', properties:{
-      keyword:{type:'string', description:'任务标题里的关键词，如"学费""迎新"'}
+      keyword:{type:'string', description:'任务标题里的关键词，如"学费""迎新"'},
+      all:{type:'boolean', description:'true=完成所有匹配该关键词的任务（含重复的）；false/不填=只完成一个，匹配到多个时先向用户确认'}
     }, required:['keyword']}
   }},
   { type:'function', function:{
     name:'remove_task',
-    description:'删除某个任务，用标题或关键词匹配。',
+    description:'删除任务，用标题或关键词匹配。用户说"全删/都删掉/把重复的删掉"时传 all=true 一次删除所有匹配任务（含一模一样的重复项）；要删已完成任务时传 include_done=true。',
     parameters:{ type:'object', properties:{
-      keyword:{type:'string', description:'任务标题里的关键词'}
+      keyword:{type:'string', description:'任务标题里的关键词'},
+      all:{type:'boolean', description:'true=删除所有匹配该关键词的任务（含重复的）；false/不填=只删一个，匹配到多个时先向用户确认'},
+      include_done:{type:'boolean', description:'true=也允许删除已完成的任务；默认只删未完成'}
     }, required:['keyword']}
   }},
   { type:'function', function:{
     name:'list_tasks',
-    description:'列出当前未完成的任务，可按分类筛选，便于确认或回答"我还有啥没做"。',
+    description:'列出当前未完成的任务，可按分类筛选，便于确认或回答"我还有啥没做"。limit 控制返回条数（默认 20）。',
     parameters:{ type:'object', properties:{
-      cat:{type:'string', enum:['all','study','life'], description:'分类，默认 all'}
+      cat:{type:'string', enum:['all','study','life'], description:'分类，默认 all'},
+      limit:{type:'integer', description:'返回条数，默认 20'}
     }}
   }},
   { type:'function', function:{
@@ -3001,11 +3005,12 @@ const AI_TOOLS = [
   }},
   { type:'function', function:{
     name:'remove_course',
-    description:'从课表里删除一节课（如某节课取消）。用 date+subj 或 keyword 定位。',
+    description:'从课表里删除一节课（如某节课取消）。用 date+subj 或 keyword 定位。用户说"删掉所有XX课/批量删除"时传 all=true 删除所有匹配的课。',
     parameters:{ type:'object', properties:{
       date:{type:'string', description:'课日期 YYYY-MM-DD（没给日期则按关键词在全表找）'},
       subj:{type:'string', description:'科目名'},
-      keyword:{type:'string', description:'课表里出现的关键词，如"讲座""食疗"'}
+      keyword:{type:'string', description:'课表里出现的关键词，如"讲座""食疗"'},
+      all:{type:'boolean', description:'true=删除所有匹配的课；false/不填=只删一个'}
     }, required:[]}
   }},
   { type:'function', function:{
@@ -3018,12 +3023,17 @@ const AI_TOOLS = [
   }},
   { type:'function', function:{
     name:'add_expense',
-    description:'记一笔开销（记账）。用户说"花了/用了/买了/消费 XX 元/港币"，或"今天吃饭花了45""交学费15万"时调用。金额是数字，单位是港币 HK$。',
+    description:'记一笔开销（记账）。用户说"花了/用了/买了/消费 XX 元/港币"，或"今天吃饭花了45""交学费15万"时调用。金额是数字，单位是港币 HK$。用户一次报多笔（如"午饭45打车30"）时传 items 数组批量记。',
     parameters:{ type:'object', properties:{
       amount:{type:'number', description:'金额（港币），如 45、5000'},
       cat:{type:'string', enum:['餐饮','交通','购物','学习','住宿','医疗','其他'], description:'分类，根据内容判断：吃饭→餐饮，车费→交通，买日用品/衣服→购物，书/课/学费→学习，房租/水电→住宿，看病/药→医疗，不确定→其他'},
       note:{type:'string', description:'备注，如"午饭烧腊饭""第一期学费"'},
-      date:{type:'string', description:'日期 YYYY-MM-DD，没说就留空（默认今天）'}
+      date:{type:'string', description:'日期 YYYY-MM-DD，没说就留空（默认今天）'},
+      items:{type:'array', items:{type:'object', properties:{
+        amount:{type:'number', description:'该笔金额（港币）'},
+        cat:{type:'string', enum:['餐饮','交通','购物','学习','住宿','医疗','其他'], description:'该笔分类'},
+        note:{type:'string', description:'该笔备注'}
+      }, required:['amount']}, description:'一次记多笔时用（如"午饭45、打车30"），每笔含 amount/cat/note'}
     }, required:['amount']}
   }},
   { type:'function', function:{
@@ -3195,7 +3205,8 @@ const LEGACY_SYS_TPL = `{{PERSONA}}
 - 用户说"某课取消/不上了/删掉"，调用 remove_course 删除。
 - 用户要求批量改课表（如"全部改简体""繁体转简体""批量换教室"），调用 batch_update_courses 一次性完成，把每项的 subj 填原科目名、new_subj 填转换后的新科目名，不要逐条调 update_course。你作为语言模型本身就擅长繁简转换，直接生成映射传入即可。
 - 用户要求"和本地课表核对/比对/检查/校对/看有没有错/找差异"，或上传了 PDF/图片说"核对一下"，必须调用 compare_courses，不要自己说"无法读取附件"。source_text 可留空，工具会自动读取最近解析或发送过的文档缓存。比对时要逐条对照本机课表与来源文本，列出日期、科目、节次、时间、地点的差异，指出缺课或错课，不要只说"逻辑自洽"。
-- 用户说"XX做完了/完成了/搞定"，调用 complete_task 用关键词匹配。
+- 用户说"XX做完了/完成了/搞定"，调用 complete_task 用关键词匹配；说"全做完/都完成/重复的都完成"时传 all=true 批量完成所有匹配任务。
+- 用户说"删掉/删除XX"或发现任务重复（出现多个一模一样）时，调用 remove_task：说"全删/都删掉/把重复的删掉"传 all=true 一次删除全部匹配项（含重复）；要删已完成任务传 include_done=true。
 - 用户说"花了/用了/买了/消费 XX 元/港币/块"（如"今天吃饭花了45"），调用 add_expense 记账：金额填数字，分类按内容判断，用户没说日期就留空（默认今天）。
 - 用户问"这个月花了多少/钱花哪了/记账汇总/预算剩多少"，调用 get_expenses 查了再答。
 - 用户说"预算设成 X/每月预算 X 港币"，调用 set_budget 设置。
@@ -3250,7 +3261,8 @@ const DEFAULT_SYSTEM_TPL = `<角色身份>
 - 用户说"某课取消/不上了/删掉"，调用 remove_course 删除。
 - 用户要求批量改课表（如"全部改简体""繁体转简体""批量换教室"），调用 batch_update_courses 一次性完成，把每项的 subj 填原科目名、new_subj 填转换后的新科目名，不要逐条调 update_course。你作为语言模型本身就擅长繁简转换，直接生成映射传入即可。
 - 用户要求"和本地课表核对/比对/检查/校对/看有没有错/找差异"，或上传了 PDF/图片说"核对一下"，必须调用 compare_courses，不要自己说"无法读取附件"。source_text 可留空，工具会自动读取最近解析或发送过的文档缓存。比对时要逐条对照本机课表与来源文本，列出日期、科目、节次、时间、地点的差异，指出缺课或错课，不要只说"逻辑自洽"。
-- 用户说"XX做完了/完成了/搞定"，调用 complete_task 用关键词匹配。
+- 用户说"XX做完了/完成了/搞定"，调用 complete_task 用关键词匹配；说"全做完/都完成/重复的都完成"时传 all=true 批量完成所有匹配任务。
+- 用户说"删掉/删除XX"或发现任务重复（出现多个一模一样）时，调用 remove_task：说"全删/都删掉/把重复的删掉"传 all=true 一次删除全部匹配项（含重复）；要删已完成任务传 include_done=true。
 - 用户说"花了/用了/买了/消费 XX 元/港币/块"（如"今天吃饭花了45"），调用 add_expense 记账：金额必须逐字来自用户原话（"45块"→45，"15万"→150000），禁止估算、四舍五入或换算；分类按内容判断，用户没说日期就留空（默认今天）。
 - 用户问"这个月花了多少/钱花哪了/记账汇总/预算剩多少"，调用 get_expenses 查了再答。
 - 用户说"预算设成 X/每月预算 X 港币"，调用 set_budget 设置。
@@ -4453,7 +4465,11 @@ async function aiRun(){
         break;
       }
     }
-    if(loop > 6 && stepEl) stepEl.remove(); // 超出循环上限时清理步骤气泡
+    if(loop > 6){
+      if(stepEl) stepEl.remove();
+      // 明确告知：本轮涉及的操作较多，已尽力处理，超出的部分请用户再说一次
+      addAIMsg('ai','🔄 这一步涉及的改动比较多，我连续处理了几轮后达到了单次上限。已经完成的部分都保存好了；如果还有没做完的，你直接再说一遍（例如"继续删剩下的"），我会接着处理。', aiMsgId());
+    }
   }catch(e){
     addAIMsg('ai','出错了：'+(e.message||'未知错误'), aiMsgId());
   }finally{
@@ -4501,14 +4517,14 @@ async function aiCall(messages, cfg, attempt, opts){
   // 记录实际发给模型的内容，供「查看发送给助理的内容」排查
   window.__lastAIPayload = { time: new Date(), mode: cfg.mode, model: payload.model, url, messages: payload.messages };
   const ctrl = new AbortController();
-  const timer = setTimeout(()=>ctrl.abort(), 20000);
+  const timer = setTimeout(()=>ctrl.abort(), 30000); // 30 秒超时：慢网络/模型高峰更宽容
   let resp;
   try{
     resp = await fetch(url, {method:'POST', headers: headers, body: JSON.stringify(payload), signal: ctrl.signal});
   }catch(err){
     clearTimeout(timer);
     if(err && err.name==='AbortError'){
-      return {error: '连接超时（20 秒无响应）：网络慢或被拦截。若用 OpenRouter 连不通，可能是网络访问受限，或当前在 WorkBuddy 内置预览沙箱里测（沙箱禁网）——请把本文件下载/传到手机或电脑真实浏览器打开再试。'};
+      return {error: '连接超时（30 秒无响应）：网络慢或被拦截。若用 OpenRouter 连不通，可能是网络访问受限，或当前在 WorkBuddy 内置预览沙箱里测（沙箱禁网）——请把本文件下载/传到手机或电脑真实浏览器打开再试。'};
     }
     if(attempt<2){ // 网络/跨域偶发错误，重试一次
       await new Promise(r=>setTimeout(r, 1000));
@@ -4759,33 +4775,81 @@ function aiUpdateTask(a){
 function aiCompleteTask(a){
   const kw = (a.keyword || a.title || '').trim();
   if(!kw) return {ok:false, error:'没给关键词'};
-  const mt = findTaskMatch(kw, false);
-  if(!mt.found) return {ok:false, error:'没找到未完成的「'+kw+'」'};
-  if(mt.ambiguous) return {ok:false, need_confirm:true, error:'关键词「'+kw+'」匹配到多个相似任务，请先向用户确认要完成哪一个', similar: mt.candidates};
-  const t = mt.task;
-  t.done = true; t.done_at = new Date().toISOString();
+  const all = !!a.all;
+  const pool = tasks.filter(t=>t.cat!=='mood' && !t.done);
+  const matched = pool.filter(t=>{
+    const tl = t.title.toLowerCase(), kl = kw.toLowerCase();
+    return tl===kl || tl.includes(kl) || (kl.includes(tl) && tl.length>=2);
+  });
+  if(!matched.length) return {ok:false, error:'没找到未完成的「'+kw+'」'};
+  if(!all){
+    if(matched.length>1) return {ok:false, need_confirm:true, error:'关键词「'+kw+'」匹配到 '+matched.length+' 个任务，请先向用户确认要完成哪一个，或让用户说"全部完成"后传 all=true', similar: matched.slice(0,5).map(t=>t.title)};
+    const t = matched[0];
+    t.done = true; t.done_at = new Date().toISOString();
+    saveLocal(); updateRing(); renderNext(); renderList();
+    return {ok:true, completed: t.title, count:1};
+  }
+  let done = 0;
+  for(const t of matched){ t.done = true; t.done_at = new Date().toISOString(); done++; }
   saveLocal(); updateRing(); renderNext(); renderList();
-  return {ok:true, completed: t.title};
+  return {ok:true, completed: matched[0].title, count: done, batch:true};
 }
 
 function aiRemoveTask(a){
   const kw = (a.keyword || a.title || '').trim();
   if(!kw) return {ok:false, error:'没给关键词'};
-  const mt = findTaskMatch(kw, false);
-  if(!mt.found) return {ok:false, error:'没找到未完成的「'+kw+'」'};
-  if(mt.ambiguous) return {ok:false, need_confirm:true, error:'关键词「'+kw+'」匹配到多个相似任务，请先向用户确认要删除哪一个', similar: mt.candidates};
-  const t = mt.task;
-  const idx = tasks.indexOf(t);
-  if(idx>=0){ tasks.splice(idx,1); saveLocal(); updateRing(); renderNext(); renderList(); }
-  return {ok:true, removed: t.title};
+  const includeDone = !!a.include_done;
+  const all = !!a.all;
+  const pool = tasks.filter(t=>t.cat!=='mood' && (includeDone || !t.done));
+  // 匹配：标题完全相等 / 包含关键词 / 关键词包含标题
+  const matched = pool.filter(t=>{
+    const tl = t.title.toLowerCase(), kl = kw.toLowerCase();
+    return tl===kl || tl.includes(kl) || (kl.includes(tl) && tl.length>=2);
+  });
+  if(!matched.length) return {ok:false, error:'没找到'+(includeDone?'':'未完成的')+'「'+kw+'」'};
+  if(!all){
+    // 单删：如果匹配到多个，先确认
+    if(matched.length>1) return {ok:false, need_confirm:true, error:'关键词「'+kw+'」匹配到 '+matched.length+' 个任务，请先向用户确认要删除哪一个，或让用户说"全删"后传 all=true', similar: matched.slice(0,5).map(t=>t.title)};
+    const t = matched[0];
+    const idx = tasks.indexOf(t);
+    if(idx>=0){ tasks.splice(idx,1); saveLocal(); updateRing(); renderNext(); renderList(); }
+    return {ok:true, removed: t.title, count:1};
+  }
+  // 批量删除：删掉所有匹配项
+  let removed = 0; const titles = [];
+  for(const t of matched){
+    const idx = tasks.indexOf(t);
+    if(idx>=0){ tasks.splice(idx,1); removed++; titles.push(t.title); }
+  }
+  saveLocal(); updateRing(); renderNext(); renderList();
+  return {ok:true, removed: titles[0]||'', count: removed, removed_all: removed, batch:true};
 }
 
 function aiAddExpense(a){
+  const date = a.date ? normDate(a.date).date : todayStr();
+  const pushOne = (amount, cat, note)=>{
+    const amt = Math.round(parseFloat(amount)*100)/100;
+    if(!amt || isNaN(amt) || amt<=0) return false;
+    const c = EXPENSE_CATS.includes(cat) ? cat : '其他';
+    EXPENSES.items.push({id:'e'+Date.now()+Math.floor(Math.random()*1000), amount: amt, cat:c, note:String(note||'').trim(), date: date||todayStr(), ts: Date.now()});
+    return true;
+  };
+  // 批量：用户一次报多笔（items 数组）
+  if(Array.isArray(a.items) && a.items.length){
+    let added = 0;
+    for(const it of a.items){
+      if(pushOne(it.amount, it.cat, it.note)) added++;
+    }
+    if(!added) return {ok:false, error:'没有有效金额，批量记账失败'};
+    saveExpenses();
+    if(curTab==='life') renderList();
+    return {ok:true, batch:true, count:added, date: date||todayStr()};
+  }
+  // 单笔
   const amount = parseFloat(a.amount);
   if(!amount || isNaN(amount) || amount<=0) return {ok:false, error:'金额无效：'+a.amount};
   const cats = EXPENSE_CATS;
   const cat = cats.includes(a.cat) ? a.cat : '其他';
-  const date = a.date ? normDate(a.date).date : todayStr();
   const note = String(a.note||'').trim();
   EXPENSES.items.push({id:'e'+Date.now()+Math.floor(Math.random()*1000), amount: Math.round(amount*100)/100, cat, note, date: date||todayStr(), ts: Date.now()});
   saveExpenses();
@@ -4844,8 +4908,10 @@ function aiListTasks(a){
   let items = tasks.filter(t=>t.cat!=='mood' && !t.done);
   const c = a && a.cat ? a.cat : 'all';
   if(c && c!=='all') items = items.filter(t=>t.cat===c);
-  items = sortTasks(items).slice(0,12);
-  return {ok:true, count:items.length, tasks: items.map(t=>{
+  const limit = Math.min(Math.max(parseInt(a && a.limit,10) || 20, 1), 40); // 默认 20，最多 40
+  const total = items.length;
+  items = sortTasks(items).slice(0,limit);
+  return {ok:true, count:items.length, total, tasks: items.map(t=>{
     const ds = t.event_date||t.deadline;
     return {
       title:t.title, cat:CAT_NAME[t.cat]||t.cat, priority:PRI_NAME[t.priority]||t.priority,
@@ -5053,12 +5119,32 @@ function aiBatchUpdateCourses(a){
 
 function aiRemoveCourse(a){
   if(!a.date && !a.subj && !a.keyword) return {ok:false, error:'请提供 date+subj 或 keyword 定位要删的课'};
-  const c = findCourse(a);
-  if(!c) return {ok:false, error:'没找到对应的课'};
-  const idx = COURSES.indexOf(c);
-  if(idx>=0) COURSES.splice(idx,1);
+  const date = a.date ? normDate(a.date).date : null;
+  const subj = (a.subj||'').trim();
+  const kw = (a.keyword||'').trim();
+  let pool = COURSES.slice();
+  if(date) pool = pool.filter(c=>c.date===date);
+  if(subj){
+    pool = pool.filter(c=>c.subj===subj || c.subj.includes(subj) || subj.includes(c.subj));
+  } else if(kw){
+    pool = pool.filter(c=>c.subj.includes(kw) || (c.time||'').includes(kw) || (c.tag||'').includes(kw) || (c.note||'').includes(kw));
+  }
+  if(!pool.length) return {ok:false, error:'没找到对应的课'};
+  if(!a.all){
+    const c = pool[0];
+    const idx = COURSES.indexOf(c);
+    if(idx>=0) COURSES.splice(idx,1);
+    refreshCourses();
+    return {ok:true, removed: c.subj, date: c.date, count:1};
+  }
+  // 批量删除所有匹配项
+  let removed = 0;
+  for(const c of pool){
+    const idx = COURSES.indexOf(c);
+    if(idx>=0){ COURSES.splice(idx,1); removed++; }
+  }
   refreshCourses();
-  return {ok:true, removed: c.subj, date: c.date};
+  return {ok:true, removed: pool[0].subj, date: pool[0].date, count: removed, batch:true};
 }
 
 /* ====== 启动 ====== */
