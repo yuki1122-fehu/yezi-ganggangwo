@@ -542,6 +542,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   font-size:14px;opacity:.55;pointer-events:none;
 }
 .list-toolbar .filter-row{display:flex;gap:8px;align-items:center;justify-content:space-between;}
+.list-toolbar .filter-checks{display:flex;gap:6px;align-items:center;min-width:0;flex-wrap:wrap;}
+.list-toolbar .filter-checks .chip-toggle{padding:7px 11px;font-size:12px;gap:5px;}
 .list-toolbar .chip-toggle{
   display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:var(--radius-pill);
   border:1px solid var(--glass-line);background:var(--glass-strong);
@@ -969,9 +971,11 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <input type="search" id="listSearch" placeholder="搜索任务、备注、步骤…" oninput="setListSearch(this.value)">
     </div>
     <div class="filter-row">
-      <button class="chip-toggle" id="btnShowDone" onclick="toggleShowDone()">
-        <span>☐</span> 显示已完成
-      </button>
+      <div class="filter-checks" id="filterChecks">
+        <button class="chip-toggle active" data-f="undone" onclick="toggleFilter('undone')"><span>✓</span>未完成</button>
+        <button class="chip-toggle active" data-f="overdue" onclick="toggleFilter('overdue')"><span>✓</span>已过期</button>
+        <button class="chip-toggle active" data-f="done" onclick="toggleFilter('done')"><span>✓</span>已完成</button>
+      </div>
       <button class="cleanup" id="btnCleanup" onclick="showCleanupMenu()">清理…</button>
     </div>
   </div>
@@ -1564,7 +1568,7 @@ let curTab = 'today';
 let calY, calM, calSel;
 let expanded = {};
 let listSearch = '';
-let showDone = true; // 默认显示全部（含已完成/已过期），可在列表上方切换为只看未完成
+let taskFilter = {undone:true, overdue:true, done:true}; // 列表勾选过滤：未完成/已过期/已完成，默认全选
 let ringScope = 'tab'; // 环的范围：tab=跟随当前标签 / week=本周 / all=全部
 
 /* ====== 初始化（直接本地打开即用，无认证墙） ====== */
@@ -2168,7 +2172,13 @@ function scopeTasks(){
   else if(curTab==='study' || curTab==='life') base = base.filter(t=>t.cat===curTab);
   return base;
 }
-// 列表展示用：在 scopeTasks 基础上叠加“只看未完成”与搜索
+// 任务的三类展示状态：未完成（未过期）/ 已过期 / 已完成
+function taskCategory(t){
+  if(t.done) return 'done';
+  if(isTaskExpired(t)) return 'overdue';
+  return 'undone';
+}
+// 列表展示用：在 scopeTasks 基础上叠加“勾选过滤（未完成/已过期/已完成）”与搜索
 function visibleTasks(){
   let base = scopeTasks();
   // 搜索过滤
@@ -2179,22 +2189,26 @@ function visibleTasks(){
       return hay.indexOf(q)>=0;
     });
   }
-  // 只看未完成（仅影响列表，不影响进度环）
-  if(!showDone) base = base.filter(t=>!t.done);
+  // 勾选过滤（仅影响列表，不影响进度环）
+  base = base.filter(t=> !!taskFilter[taskCategory(t)]);
   return base;
 }
 function setListSearch(v){
   listSearch = v;
   renderList();
 }
-function toggleShowDone(){
-  showDone = !showDone;
-  const btn = document.getElementById('btnShowDone');
-  if(btn){
-    btn.classList.toggle('active', !showDone);
-    btn.innerHTML = showDone ? '<span>☐</span> 显示已完成' : '<span>✓</span> 只看未完成';
-  }
+function toggleFilter(key){
+  taskFilter[key] = !taskFilter[key];
+  renderFilter();
   renderList();
+}
+function renderFilter(){
+  document.querySelectorAll('#filterChecks .chip-toggle').forEach(btn=>{
+    const k = btn.dataset.f;
+    const on = !!taskFilter[k];
+    btn.classList.toggle('active', on);
+    btn.querySelector('span').textContent = on ? '✓' : '☐';
+  });
 }
 function showCleanupMenu(){
   showDialog('清理任务', '删除后不可恢复，请确保已备份。选择要清理的内容：', [
@@ -2244,7 +2258,8 @@ function renderList(){
   // 生活分类：顶部插入记账卡
   const expenseCard = (curTab==='life') ? renderExpenseCard() : '';
   if(!items.length){
-    const tip = listSearch ? '没有匹配「'+escHtml(listSearch)+'」的任务' : (showDone ? '这里还没有任务 🌿' : '当前筛选下没有未完成任务 🌿');
+    const noneChecked = !taskFilter.undone && !taskFilter.overdue && !taskFilter.done;
+    const tip = listSearch ? '没有匹配「'+escHtml(listSearch)+'」的任务' : (noneChecked ? '请至少勾选一个显示选项（未完成/已过期/已完成）🌿' : '这里还没有任务 🌿');
     list.innerHTML = expenseCard + `<div class="empty glass">${tip}</div>`;
     return;
   }
@@ -3937,11 +3952,16 @@ function fallbackCopy(t){
   try{ document.execCommand('copy'); }catch(e){} document.body.removeChild(ta);
 }
 function clearAIConv(){
-  aiReset();
-  const wrap = document.getElementById('aiMsgs');
-  if(wrap) wrap.innerHTML='';
-  addAIMsg('sys','对话已清空（任务与课表不受影响）。继续说吧～');
-  saveConv();
+  showDialog('清空对话', '确定清空全部对话记录吗？清空后不可恢复（任务、课表、记账不受影响）。', [
+    {label:'清空', cls:'danger', fn:()=>{
+      aiReset();
+      const wrap = document.getElementById('aiMsgs');
+      if(wrap) wrap.innerHTML='';
+      addAIMsg('sys','对话已清空（任务与课表不受影响）。继续说吧～');
+      saveConv();
+    }},
+    {label:'取消', cls:'ghost'}
+  ]);
 }
 /* 删除单条聊天消息（按唯一 id 定位），并同步 DOM 与本地存档。
    删除 assistant 时，连带移除它紧跟的 tool 结果，保持对话序列对 API 合法。
