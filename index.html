@@ -969,8 +969,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <input type="search" id="listSearch" placeholder="搜索任务、备注、步骤…" oninput="setListSearch(this.value)">
     </div>
     <div class="filter-row">
-      <button class="chip-toggle active" id="btnShowDone" onclick="toggleShowDone()">
-        <span>✓</span> 只看未完成
+      <button class="chip-toggle" id="btnShowDone" onclick="toggleShowDone()">
+        <span>☐</span> 显示已完成
       </button>
       <button class="cleanup" id="btnCleanup" onclick="showCleanupMenu()">清理…</button>
     </div>
@@ -1564,7 +1564,7 @@ let curTab = 'today';
 let calY, calM, calSel;
 let expanded = {};
 let listSearch = '';
-let showDone = false; // 默认只看未完成
+let showDone = true; // 默认显示全部（含已完成/已过期），可在列表上方切换为只看未完成
 let ringScope = 'tab'; // 环的范围：tab=跟随当前标签 / week=本周 / all=全部
 
 /* ====== 初始化（直接本地打开即用，无认证墙） ====== */
@@ -3113,24 +3113,35 @@ function addDays(dateStr, n){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
-// 生成未来 days 天内的未完成任务速览（标题 + 日期 + 时间），
-// 注入 AI 系统提示，让助理闲聊时也能结合用户近期安排主动关心。
+// 生成近期日程速览：未来 days 天内的未完成任务 + 近期已过期未完成任务（标题 + 日期 + 时间），
+// 注入 AI 系统提示，让助理闲聊时也能结合用户近期安排主动关心，并提醒用户补做已过期的任务。
 function getUpcomingSchedule(days){
   try{
     const t = (typeof tasks!=='undefined' && tasks) ? tasks : [];
     const today = todayStr();
-    const d = new Date(); d.setDate(d.getDate() + (days||15));
+    const n = days||15;
+    const d = new Date(); d.setDate(d.getDate() + n);
     const limit = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-    const list = t.filter(x=> !x.done && (x.deadline||x.event_date) && (x.deadline||x.event_date) >= today && (x.deadline||x.event_date) <= limit)
-                  .sort((a,b)=> (a.deadline||a.event_date).localeCompare(b.deadline||b.event_date));
-    if(!list.length) return '（未来暂无已记录的日程）';
-    return list.map(x=>{
+    const b = new Date(); b.setDate(b.getDate() - n);
+    const back = `${b.getFullYear()}-${String(b.getMonth()+1).padStart(2,'0')}-${String(b.getDate()).padStart(2,'0')}`;
+    // 近期已过期未完成（过去 n 天内过期且未完成），最多列 10 条，避免撑爆上下文
+    const overdue = t.filter(x=> !x.done && (x.deadline||x.event_date) && (x.deadline||x.event_date) < today && (x.deadline||x.event_date) >= back)
+                     .sort((a,b)=> (a.deadline||a.event_date).localeCompare(b.deadline||b.event_date))
+                     .slice(0,10);
+    // 未来 n 天内未完成
+    const future = t.filter(x=> !x.done && (x.deadline||x.event_date) && (x.deadline||x.event_date) >= today && (x.deadline||x.event_date) <= limit)
+                    .sort((a,b)=> (a.deadline||a.event_date).localeCompare(b.deadline||b.event_date));
+    const fmt = x=>{
       const ds = x.deadline||x.event_date;
       const md = ds.slice(5).replace('-','/');
       const dd = daysTo(ds);
-      const rel = dd<=0 ? '今天' : (dd+'天后');
+      const rel = dd<0 ? `已过期${-dd}天` : (dd<=0 ? '今天' : (dd+'天后'));
       return `· ${md}（${rel}）${x.time? ' '+x.time : ''} ${x.title}`;
-    }).join('\n');
+    };
+    let out = '';
+    if(overdue.length) out += '【已过期未完成】\n'+overdue.map(fmt).join('\n')+'\n';
+    if(future.length) out += '【未来任务】\n'+future.map(fmt).join('\n');
+    return out || '（近期无未完成任务）';
   }catch(e){ return '（日程读取失败）'; }
 }
 
@@ -3163,7 +3174,7 @@ function aiScheduleSection(){
   if(dt===0 && dc===0) return '<近期任务>（用户未开启"近期日程"共享，请仅凭对话内容回应，不要臆测用户的任务或课表）</近期任务>';
   let out = '';
   if(dt>0){
-    out += `<近期任务>未来约 ${dt} 天内的未完成任务（标题+日期+时间，供你闲聊时主动关心）\n${getUpcomingSchedule(dt)}\n</近期任务>\n`;
+    out += `<近期任务>未来约 ${dt} 天内的未完成任务 + 近期已过期未完成的任务（标题+日期+时间，供你闲聊时主动关心；有已过期任务时请主动提醒用户补做）\n${getUpcomingSchedule(dt)}\n</近期任务>\n`;
   }
   if(dc>0){
     out += `<近期课表>未来约 ${dc} 天内的课（日期+科目+教室，不含具体时段）\n${getUpcomingCourses(dc)}\n</近期课表>\n`;
