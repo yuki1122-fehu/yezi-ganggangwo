@@ -1208,10 +1208,14 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   0%{transform:translate(0,0);opacity:0;} 20%{opacity:.85;}
   60%{opacity:.5;} 100%{transform:translate(10px,-52px);opacity:0;}
 }
-/* 点一下：刮风（草与小苗依次弯腰，风线扫过） */
+/* 点一下：刮风（草与小苗弯腰，风线扫过）
+   注意：sprout 有 inline animation-delay(0~1.5s) 做常驻摇摆错峰，
+   若直接沿用，excited 只保留 1.1s，后排植物根本来不及动。
+   这里用 !important 归零，保证每一株都完整弯腰 0.9s。 */
 .pg-scene.excited .tuft,.pg-scene.excited .sprout{
   animation-name:gustBend;animation-duration:.9s;
   animation-iteration-count:1;animation-timing-function:ease-out;
+  animation-delay:0s !important;
 }
 @keyframes gustBend{
   0%{transform:rotate(0);} 28%{transform:rotate(13deg);}
@@ -5952,7 +5956,8 @@ function savePomoData(){ try{ localStorage.setItem(POMO_KEY, JSON.stringify(pomo
 function ensurePomoGarden(){
   if(!pomoData) return;
   if(!Array.isArray(pomoData.garden)){
-    pomoData.garden = pomoData.sessions.map((s,i)=>({ id:'s'+i, level:1, kind:s.kind||'free', min:s.min||25, ts:s.ts }));
+    // 由历史 sessions 重建小园：同样按 L1 随机出品种，避免一排全是同一种芽
+    pomoData.garden = pomoData.sessions.map((s,i)=>({ id:'s'+i, level:1, species:pickPomoSpecies(1), kind:s.kind||'free', min:s.min||25, ts:s.ts }));
     savePomoData();
   }
   if(typeof pomoData.flowerSeq!=='number') pomoData.flowerSeq = 0;
