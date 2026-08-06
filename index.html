@@ -3309,14 +3309,14 @@ const AI_TOOLS = [
   }},
   { type:'function', function:{
     name:'update_task',
-    description:'修改/更新一个已有任务（改标题、时间、备注、优先级、分类，或补充"怎么做"步骤），用关键词匹配已有任务。未提供的字段保持原样。',
+    description:'修改/更新一个已有任务（改标题、时间、备注、优先级、分类，或补充"怎么做"步骤），用关键词匹配已有任务。未提供的字段保持原样。已过期/未完成的任务也可以改期：把日期改到今天/明天/某天都行。',
     parameters:{ type:'object', properties:{
       keyword:{type:'string', description:'要修改的任务标题关键词，如"身份证""迎新"'},
       title:{type:'string', description:'新标题，不改就别填'},
       cat:{type:'string', enum:['study','life'], description:'新分类，不改就别填'},
       priority:{type:'string', enum:['high','mid','low'], description:'新优先级，不改就别填'},
-      date:{type:'string', description:'新日期 YYYY-MM-DD，不改就别填'},
-      time:{type:'string', description:'新时间 HH:MM，不改就别填'},
+      date:{type:'string', description:'新日期，支持 "2026-08-06"、"今天"、"明天"、"后天" 等；把任务改到今天/换个日子就填这个。不改就别填'},
+      time:{type:'string', description:'新时间 HH:MM，如"14:00"或"下午3点"；不改就别填'},
       note:{type:'string', description:'卡片主文案的补充说明；不改就别填'},
       steps:{type:'array', items:{type:'string'}, description:'"怎么做"的分步骤列表，每步一句话。用户问流程/怎么做/步骤时必填'},
       tip:{type:'string', description:'"怎么做"底部的一句温馨提示。不改就别填'},
@@ -3602,6 +3602,7 @@ const LEGACY_SYS_TPL = `{{PERSONA}}
 - 用户问"几点上课/在哪个教室/某课详细时间"，必须调用 get_courses 查询——日程速览里的课表只有日期+科目+教室，不含具体时段，不要用速览猜时间。
 - 用户说"几号几点有事/活动/会议/缴费"，调用 add_task：日期填 date(YYYY-MM-DD，年份按上面规则推断)，时间填 time(HH:MM)，分类按语境选 study(学习)/life(生活)。
 - 用户说"更新/修改/改一下/换个时间/加备注/流程是什么/怎么做/步骤"，或明显在补充/改动已有任务，优先调用 update_task 去改，而不是 add_task 新建。用 keyword 匹配原任务标题。
+- 用户想把任务改期（改到今天/明天/某天，包括已过期没做完的），调用 update_task 的 date 字段改日期，时间要改就加 time；date 支持 "2026-08-06"、"今天"、"明天" 等说法，改完如实告诉用户新日期。
 - 用户问"XX怎么做/有什么流程/步骤是什么"时，调用 update_task 的 steps 字段给出 3–7 个简明步骤，并把关键提醒放在 tip 字段。steps 会显示在任务卡片的"怎么做"区域。
 - 用户问"XX上什么课/明天有什么课/下周课表/开学第几周上什么/某天有什么课"，调用 get_courses 查询课表后再回答。课表数据已导入本机，不要编造。
 - 课表每条记录的固定字段顺序（CSV/导入/工具字段都按这个）：日期,科目,节次,老师,课室,时间,颜色,小标,备注。时间如"晚上7:00-10:00"，留空默认晚课 19:00-22:00；颜色可选 绿/红/橙/黄/蓝/紫/粉/青/灰/黑 或 #hex；小标是显示在日历格子和课程卡片上的短标签（如 营养/公卫/食疗/个健/功法/讲座）；备注默认空，可填考试地点、注意事项等。add_course / update_course 的字段对应：时间→time，备注→note，颜色→color，小标→tag。
@@ -3658,6 +3659,7 @@ const DEFAULT_SYSTEM_TPL = `<角色身份>
 - 用户问"几点上课/在哪个教室/某课详细时间/考试地点/有什么备注"，必须调用 get_courses 查询——<近期课表>里只有日期+科目+教室；考试地点、注意事项在返回的 note（备注）字段里。
 - 用户说"几号几点有事/活动/会议/缴费"，调用 add_task：日期填 date(YYYY-MM-DD，年份按上面规则推断)，时间填 time(HH:MM)，分类按语境选 study(学习)/life(生活)。用户没给明确日期/时间就留空，严禁编造。
 - 用户说"更新/修改/改一下/换个时间/加备注/流程是什么/怎么做/步骤"，或明显在补充/改动已有任务，优先调用 update_task 去改，而不是 add_task 新建。用 keyword 匹配原任务标题；若返回 similar/candidates，先与用户确认再改。
+- 用户想把任务改期（改到今天/明天/某天，包括已过期没做完的），调用 update_task 的 date 字段改日期，改时间就加 time；date 支持 "2026-08-06"、"今天"、"明天" 等说法，改完如实告诉用户新日期。
 - 用户问"XX怎么做/有什么流程/步骤是什么"时，调用 update_task 的 steps 字段给出 3–7 个简明步骤，并把关键提醒放在 tip 字段。steps 会显示在任务卡片的"怎么做"区域。
 - 用户问"XX上什么课/明天有什么课/下周课表/开学第几周上什么/某天有什么课"，调用 get_courses 查询课表后再回答。课表数据已导入本机，不要编造。
 - 课表每条记录的固定字段顺序（CSV/导入/工具字段都按这个）：日期,科目,节次,老师,课室,时间,颜色,小标,备注。时间如"晚上7:00-10:00"，留空默认晚课 19:00-22:00；颜色可选 绿/红/橙/黄/蓝/紫/粉/青/灰/黑 或 #hex；小标是显示在日历格子和课程卡片上的短标签（如 营养/公卫/食疗/个健/功法/讲座）；备注默认空，可填考试地点、注意事项等。add_course / update_course 的字段对应：时间→time，备注→note，颜色→color，小标→tag。
@@ -5037,11 +5039,32 @@ function normDate(s){
   const str = String(s).trim();
   const time = normTime(str);
   let year = 2026, month = null, day = null, explicitYear = false;
-  const m1 = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if(m1){ year = +m1[1]; month = +m1[2]; day = +m1[3]; explicitYear = true; }
-  else {
-    const m2 = str.match(/(\d{1,2})月(\d{1,2})[日号]/);
-    if(m2){ month = +m2[1]; day = +m2[2]; }
+  // 相对日期：今天/今日/明天/明日/后天/大后天/昨天/前天（"明天下午3点"先取词，时间另由 normTime 解析）
+  const relM = str.match(/^(今天|今日|明天|明日|后天|大后天|昨天|前天)/);
+  if(relM){
+    const kw = relM[1];
+    const t = new Date();
+    if(kw==='昨天') t.setDate(t.getDate()-1);
+    else if(kw==='前天') t.setDate(t.getDate()-2);
+    else if(kw==='明天'||kw==='明日') t.setDate(t.getDate()+1);
+    else if(kw==='后天') t.setDate(t.getDate()+2);
+    else if(kw==='大后天') t.setDate(t.getDate()+3);
+    year = t.getFullYear(); month = t.getMonth()+1; day = t.getDate(); explicitYear = true;
+  } else {
+    const m1 = str.match(/(\d{4})[-/.年](\d{1,2})[-/.月](\d{1,2})[日号]?/);
+    if(m1){ year = +m1[1]; month = +m1[2]; day = +m1[3]; explicitYear = true; }
+    else {
+      const m2 = str.match(/(\d{1,2})月(\d{1,2})[日号]?/);
+      if(m2){ month = +m2[1]; day = +m2[2]; }
+      else {
+        const m3 = str.match(/^(\d{1,2})[-\/.](\d{1,2})$/); // 8/6、8-6、8.6
+        if(m3){ month = +m3[1]; day = +m3[2]; }
+        else {
+          const m4 = str.match(/(\d{1,2})[日号]/); // 6号 → 当月
+          if(m4){ const t = new Date(); month = t.getMonth()+1; day = +m4[1]; }
+        }
+      }
+    }
   }
   if(month===null) return {date:null, time};
   if(month<1||month>12||day<1||day>31) return {date:null, time};
@@ -5137,14 +5160,17 @@ function aiUpdateTask(a){
     const newDate = nd.date;
     const explicitTime = a.time !== undefined;
     const newTime = explicitTime ? normTime(a.time) : null;
-    if(a.date!==undefined || explicitTime){
-      const hadEvent = !!t.event_date;
-      const hadDeadline = !!t.deadline;
-      const oldDate = t.event_date || t.deadline || null;
-      const oldTime = t.time || null;
-      // 只改日期保留原时间；只改时间保留原日期；显式清空时间则 finalTime=null
-      const finalDate = newDate || oldDate;
-      const finalTime = explicitTime ? newTime : oldTime;
+    // 用户明确给了新日期/时间但没听懂 → 明确报错，绝不静默当没改
+    if(a.date!==undefined && !newDate) return {ok:false, error:'没听懂日期「'+a.date+'」，请用 YYYY-MM-DD 或「今天/明天/后天」等说法重试'};
+    if(explicitTime && a.time && !newTime) return {ok:false, error:'没听懂时间「'+a.time+'」，请用 HH:MM 或「下午3点」等说法重试'};
+    const hadDeadline = !!t.deadline;
+    const oldDate = t.event_date || t.deadline || null;
+    const oldTime = t.time || null;
+    // 只改日期保留原时间；只改时间保留原日期；显式清空时间则 finalTime=null
+    const finalDate = newDate || oldDate;
+    const finalTime = explicitTime ? newTime : oldTime;
+    const dateChanged = (finalDate !== oldDate) || (finalTime !== oldTime);
+    if(dateChanged){
       t.deadline = null; t.event_date = null; t.time = null;
       if(finalDate){
         if(finalTime){
