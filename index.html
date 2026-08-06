@@ -4645,7 +4645,7 @@ function saveAISettings(){
 // 导出全部本地数据（任务/课表/配置/心情/主题）为一个 JSON 文件
 function exportData(){
   const data = {};
-  const keys = ['mhm_cloud_v1','mhm_courses_v1','mhm_ai_cfg','mhm_last_doc_text','mhm_theme','mhm_expense_v1','mhm_app_title'];
+  const keys = ['mhm_cloud_v1','mhm_courses_v1','mhm_ai_cfg','mhm_last_doc_text','mhm_theme','mhm_expense_v1','mhm_app_title', POMO_KEY];
   keys.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!==null) data[k]=v; }catch(e){} });
   try{
     for(let i=0;i<localStorage.length;i++){
@@ -4707,7 +4707,16 @@ function importData(ev){
       try{ setCheer(); }catch(e){}
       try{ updateRing(); renderNext(); renderList(); renderCalendar(); }catch(e){}
       try{ loadConv(); }catch(e){} // 恢复对话记录气泡
-      if(hint) hint.textContent = '✅ 已导入 '+n+' 项数据，任务/课表/记账/配置已更新，可关闭设置。';
+      // 番茄钟：重载数据 + 小园 + 预设/任务绑定状态 + 彩蛋（备份含 mhm_pomodoro 后这里才会生效）
+      try{
+        pomoData = loadPomoData();
+        ensurePomoGarden();
+        pomoPresetKey = (pomoData.lastPreset==='custom' || POMO_PRESETS[pomoData.lastPreset]) ? pomoData.lastPreset : 'study';
+        document.querySelectorAll('#pomoPresets button').forEach(b=>b.classList.toggle('active', b.dataset.p===pomoPresetKey));
+        pomo.taskId = pomoData.lastTaskId;
+        renderPomoIdle(); renderPomoTaskSel(); renderGarden(); refreshPomoEggBtn();
+      }catch(e){ console.error(e); }
+      if(hint) hint.textContent = '✅ 已导入 '+n+' 项数据，任务/课表/记账/番茄钟/配置已更新，可关闭设置。';
       toast('数据导入成功');
     }catch(e){
       if(hint) hint.textContent = '⚠️ 导入失败：'+e.message;
