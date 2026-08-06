@@ -889,95 +889,243 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
 }
 #pomoMask.show{display:flex;animation:maskIn .3s var(--ease);}
+/* 液态光晕层：绿（专注）/ 暖杏（休息）双图层淡入淡出 + 慢速漂移 */
+.pomo-aurora{
+  position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;
+  pointer-events:none;filter:blur(70px);opacity:0;transition:opacity 1.2s ease;
+  animation:auroraDrift 26s ease-in-out infinite alternate;
+}
+.aurora-green{
+  opacity:1;
+  background:
+    radial-gradient(38% 32% at 22% 16%, rgba(165,192,162,.55), transparent 70%),
+    radial-gradient(30% 26% at 82% 28%, rgba(122,172,146,.34), transparent 70%),
+    radial-gradient(42% 34% at 50% 110%, rgba(165,192,162,.42), transparent 72%);
+}
+.aurora-warm{
+  background:
+    radial-gradient(36% 30% at 24% 14%, rgba(224,170,112,.42), transparent 70%),
+    radial-gradient(32% 28% at 76% 32%, rgba(205,143,84,.28), transparent 70%),
+    radial-gradient(44% 36% at 48% 112%, rgba(214,168,118,.34), transparent 72%);
+}
+#pomoMask.break-mode .aurora-green{opacity:0;}
+#pomoMask.break-mode .aurora-warm{opacity:1;}
+@keyframes auroraDrift{
+  0%{transform:translate3d(-2%,-1%,0) scale(1);}
+  50%{transform:translate3d(2%,2%,0) scale(1.08);}
+  100%{transform:translate3d(-1%,3%,0) scale(1.03);}
+}
+/* 玻璃漂浮高光点（bokeh） */
+.pomo-bokeh{
+  position:fixed;width:110px;height:110px;border-radius:50%;z-index:0;pointer-events:none;
+  background:radial-gradient(circle at 35% 30%, rgba(255,255,255,.9), rgba(255,255,255,0) 68%);
+  filter:blur(26px);opacity:.5;animation:bokehFloat 16s ease-in-out infinite alternate;
+}
+.pomo-bokeh.b1{left:8%;top:22%;animation-duration:17s;}
+.pomo-bokeh.b2{right:6%;top:38%;width:80px;height:80px;animation-duration:21s;animation-delay:2s;opacity:.38;}
+.pomo-bokeh.b3{left:14%;bottom:18%;width:70px;height:70px;animation-duration:19s;animation-delay:4s;opacity:.3;}
+@keyframes bokehFloat{
+  0%{transform:translate3d(0,0,0) scale(1);}
+  100%{transform:translate3d(14px,-22px,0) scale(1.12);}
+}
+.pomo-top,.pomo-stage,.pomo-garden{position:relative;z-index:1;}
 
 .pomo-top{
   display:flex;align-items:center;justify-content:space-between;
   padding:calc(12px + var(--safe-t)) 16px 8px;flex:0 0 auto;
+  background:linear-gradient(180deg, rgba(255,255,255,.55), rgba(255,255,255,.10));
+  border-bottom:1px solid rgba(255,255,255,.5);
+  backdrop-filter:blur(30px) saturate(200%);-webkit-backdrop-filter:blur(30px) saturate(200%);
 }
-.pomo-title{font-size:15px;font-weight:800;color:var(--ink);letter-spacing:2px;}
+.pomo-title{
+  font-size:15px;font-weight:800;color:var(--ink);letter-spacing:3px;
+}
+@supports ((-webkit-background-clip:text) or (background-clip:text)){
+  .pomo-title{
+    background:linear-gradient(135deg,var(--green-dark),#8aa07e);
+    -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  }
+}
 .pomo-iconbtn{
-  width:38px;height:38px;border-radius:50%;border:1px solid var(--glass-line);
-  background:var(--glass-strong);color:var(--green-dark);font-size:17px;cursor:pointer;
+  width:38px;height:38px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.65);
+  background:linear-gradient(145deg, rgba(255,255,255,.78), rgba(255,255,255,.26));
+  color:var(--green-dark);font-size:17px;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
-  box-shadow:var(--shadow-inset);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  transition:transform .16s var(--ease),background .2s;
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.95), 0 6px 16px rgba(92,115,89,.10);
+  backdrop-filter:blur(24px) saturate(200%);-webkit-backdrop-filter:blur(24px) saturate(200%);
+  transition:transform .16s var(--ease),background .2s,box-shadow .25s;
 }
-.pomo-iconbtn:active{transform:scale(.88);background:var(--green-soft);}
+.pomo-iconbtn:active{transform:scale(.88);background:linear-gradient(145deg, rgba(255,255,255,.85), rgba(165,192,162,.35));}
 
 .pomo-stage{
   flex:0 0 auto;display:flex;flex-direction:column;align-items:center;
   padding:6px 20px 4px;
 }
-.pomo-ring{position:relative;width:min(62vw,252px);height:min(62vw,252px);margin:4px 0 2px;}
-.pomo-ring svg{display:block;transform:rotate(-90deg);width:100%;height:100%;}
-.pomo-ring #pomoFg{transition:stroke-dashoffset .3s linear,stroke .5s;}
-.pomo-ring.running #pomoFg{filter:drop-shadow(0 0 14px rgba(165,192,162,.55));}
+.pomo-ring{
+  position:relative;width:min(62vw,252px);height:min(62vw,252px);margin:6px 0 2px;
+  border-radius:50%;
+  background:linear-gradient(150deg, rgba(255,255,255,.5), rgba(255,255,255,.12) 55%, rgba(165,192,162,.14));
+  border:1px solid rgba(255,255,255,.55);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,.85),
+    inset 0 -8px 20px rgba(92,115,89,.05),
+    0 22px 48px rgba(92,115,89,.16);
+  backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);
+}
+/* 玻璃反光弧（左上 rim 高光） */
+.pomo-ring::before{
+  content:"";position:absolute;inset:8%;border-radius:50%;pointer-events:none;z-index:0;
+  background:conic-gradient(from 195deg, rgba(255,255,255,0) 0deg, rgba(255,255,255,.5) 45deg, rgba(255,255,255,.12) 70deg, rgba(255,255,255,0) 95deg);
+  filter:blur(3px);
+}
+.pomo-ring svg{display:block;transform:rotate(-90deg);width:100%;height:100%;position:relative;z-index:1;}
+.pomo-ring #pomoFg,#pomoGlow{transition:stroke-dashoffset .3s linear,stroke .5s;}
+.pomo-ring.running #pomoFg{filter:drop-shadow(0 0 14px rgba(165,192,162,.6));}
 .pomo-ring.running .pomo-center{animation:pomoBreath 4.2s ease-in-out infinite;}
 @keyframes pomoBreath{0%,100%{transform:scale(1);}50%{transform:scale(1.035);}}
 .pomo-ring.phase-done{animation:pomoPop .7s var(--ease);}
 @keyframes pomoPop{0%{transform:scale(1);}35%{transform:scale(1.06);}100%{transform:scale(1);}}
 .pomo-center{
-  position:absolute;inset:0;display:flex;flex-direction:column;
+  position:absolute;inset:0;z-index:2;display:flex;flex-direction:column;
   align-items:center;justify-content:center;gap:2px;
 }
 .pomo-phase{
   font-size:12px;font-weight:800;letter-spacing:3px;color:var(--green-dark);
-  padding:3px 14px;border-radius:var(--radius-pill);
-  background:var(--green-soft);border:1px solid var(--green-mid);margin-bottom:6px;
+  padding:3px 14px;border-radius:var(--radius-pill);margin-bottom:6px;
+  background:linear-gradient(135deg, rgba(255,255,255,.65), rgba(165,192,162,.22));
+  border:1px solid rgba(255,255,255,.7);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.9), 0 4px 12px rgba(92,115,89,.08);
 }
-.pomo-phase.break{color:var(--warm-deep);background:var(--warm-soft);border-color:rgba(224,170,112,.3);}
+.pomo-phase.break{
+  color:var(--warm-deep);
+  background:linear-gradient(135deg, rgba(255,255,255,.7), rgba(224,170,112,.22));
+  border-color:rgba(255,255,255,.75);
+}
 .pomo-time{
   font-size:52px;font-weight:800;color:var(--ink);line-height:1;letter-spacing:-1px;
-  font-variant-numeric:tabular-nums;
+  font-variant-numeric:tabular-nums;text-shadow:0 1px 0 rgba(255,255,255,.65);
 }
-.pomo-sub{font-size:11.5px;color:var(--ink-faint);margin-top:7px;font-weight:600;letter-spacing:.5px;max-width:76%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.pomo-sub{font-size:11.5px;color:var(--ink-faint);margin-top:7px;font-weight:600;letter-spacing:.5px;max-width:76%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 0 rgba(255,255,255,.5);}
 
 .pomo-presets{display:flex;gap:8px;margin:14px 0 4px;flex-wrap:wrap;justify-content:center;}
 .pomo-presets button{
   padding:7px 14px;border-radius:var(--radius-pill);font-size:12.5px;font-weight:700;
-  border:1px solid var(--glass-line);background:var(--glass);color:var(--ink-soft);
-  cursor:pointer;box-shadow:var(--shadow-inset);transition:all .18s var(--ease);
+  border:1px solid rgba(255,255,255,.6);color:var(--ink-soft);
+  background:linear-gradient(145deg, rgba(255,255,255,.6), rgba(255,255,255,.22));
+  cursor:pointer;
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.85), 0 4px 12px rgba(92,115,89,.06);
+  backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);
+  transition:all .18s var(--ease);
 }
-.pomo-presets button.active{background:var(--green-deep);color:#fff;border-color:var(--green-deep);box-shadow:0 6px 16px rgba(130,160,126,.35);}
+.pomo-presets button.active{
+  background:linear-gradient(135deg, #9cbb96, var(--green-deep) 60%, #6b8563);
+  color:#fff;border-color:rgba(255,255,255,.55);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.5), 0 8px 18px rgba(130,160,126,.38);
+}
 .pomo-presets button:active{transform:scale(.93);}
 .pomo-presets button:disabled{opacity:.45;cursor:not-allowed;}
 
 .pomo-bind{width:100%;max-width:320px;margin:8px 0 2px;}
 .pomo-bind select{
-  width:100%;border:1px solid var(--glass-line);border-radius:var(--radius-pill);
+  width:100%;border:1px solid rgba(255,255,255,.6);border-radius:var(--radius-pill);
   padding:11px 16px;font-size:13px;font-family:var(--font);color:var(--ink);
-  background:var(--glass-strong);outline:none;box-shadow:var(--shadow-inset);
+  background:linear-gradient(145deg, rgba(255,255,255,.68), rgba(255,255,255,.26));
+  outline:none;
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.9), 0 4px 12px rgba(92,115,89,.05);
+  backdrop-filter:blur(18px) saturate(170%);-webkit-backdrop-filter:blur(18px) saturate(170%);
   -webkit-appearance:none;appearance:none;text-align:center;text-align-last:center;
 }
 
 .pomo-controls{display:flex;align-items:center;gap:18px;margin:16px 0 10px;}
 .pomo-main{
-  width:76px;height:76px;border-radius:50%;border:1px solid rgba(255,255,255,.5);
-  background:linear-gradient(135deg,var(--green) 0%,var(--green-deep) 100%);
+  width:76px;height:76px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.65);
+  background:linear-gradient(145deg, #bcd4b6 0%, var(--green-deep) 48%, #66815f 100%);
   color:#fff;font-size:16px;font-weight:800;letter-spacing:2px;cursor:pointer;
-  box-shadow:0 14px 32px rgba(130,160,126,.45),var(--shadow-inset);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,.6),
+    0 0 0 7px rgba(165,192,162,.16),
+    0 16px 34px rgba(130,160,126,.42);
   transition:transform .16s var(--ease),box-shadow .3s;
   display:flex;align-items:center;justify-content:center;
   font-family:var(--font);text-indent:2px;
 }
 .pomo-main:active{transform:scale(.9);}
-.pomo-main.paused{background:linear-gradient(135deg,var(--warm) 0%,var(--warm-deep) 100%);box-shadow:0 14px 32px rgba(205,143,84,.4),var(--shadow-inset);}
-.pomo-side{
-  width:50px;height:50px;border-radius:50%;border:1px solid var(--glass-line);
-  background:var(--glass-strong);color:var(--ink-soft);font-size:12px;font-weight:700;
-  cursor:pointer;box-shadow:var(--shadow-inset);font-family:var(--font);
-  display:flex;align-items:center;justify-content:center;transition:transform .16s var(--ease),background .2s;
+.pomo-main.paused{
+  background:linear-gradient(145deg, #efd3a8 0%, var(--warm-deep) 55%, #b67e45 100%);
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,.55),
+    0 0 0 7px rgba(224,170,112,.16),
+    0 16px 34px rgba(205,143,84,.4);
 }
-.pomo-side:active{transform:scale(.88);background:var(--green-soft);}
+.pomo-side{
+  width:50px;height:50px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.6);
+  background:linear-gradient(145deg, rgba(255,255,255,.72), rgba(255,255,255,.24));
+  color:var(--ink-soft);font-size:12px;font-weight:700;
+  cursor:pointer;font-family:var(--font);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.9), 0 6px 14px rgba(92,115,89,.08);
+  backdrop-filter:blur(18px) saturate(170%);-webkit-backdrop-filter:blur(18px) saturate(170%);
+  transition:transform .16s var(--ease),background .2s;
+}
+.pomo-side:active{transform:scale(.88);background:linear-gradient(145deg, rgba(255,255,255,.85), rgba(165,192,162,.35));}
 .pomo-side:disabled{opacity:.4;cursor:not-allowed;}
+
+/* ---------- 专注彩蛋（悬浮蛋 + 弹窗） ---------- */
+.pomo-egg-btn{
+  position:fixed;right:16px;bottom:calc(172px + var(--safe-b));z-index:130;
+  width:56px;height:56px;border-radius:50%;
+  border:1px solid rgba(255,255,255,.65);
+  background:linear-gradient(145deg, #fff8ea, #f2ddb8);
+  color:#a97b3c;font-size:26px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.95), 0 12px 30px rgba(169,123,60,.30);
+  animation:eggPop .5s var(--ease), eggWiggle 3.4s ease-in-out 1.2s infinite;
+  transition:transform .16s var(--ease);
+}
+.pomo-egg-btn:active{transform:scale(.86);}
+.pomo-egg-btn.ready{
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.95), 0 0 0 6px rgba(224,170,112,.20), 0 12px 30px rgba(169,123,60,.36);
+}
+.pomo-egg-btn.ready .egg-ico{animation:eggBob 1.5s ease-in-out infinite;}
+.egg-badge{
+  position:absolute;top:-2px;right:-2px;width:15px;height:15px;border-radius:50%;
+  background:var(--warm-deep);border:2px solid #fff;display:none;
+}
+.pomo-egg-btn.ready .egg-badge{display:block;}
+@keyframes eggPop{from{transform:scale(0) rotate(-30deg);opacity:0;}to{transform:scale(1) rotate(0);opacity:1;}}
+@keyframes eggWiggle{0%,100%{transform:rotate(0);}12%{transform:rotate(-8deg);}24%{transform:rotate(7deg);}36%{transform:rotate(-5deg);}48%{transform:rotate(3deg);}60%{transform:rotate(0);}}
+@keyframes eggBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
+.egg-theme{
+  display:inline-block;font-size:11px;font-weight:800;color:var(--green-dark);
+  background:var(--green-soft);border:1px solid var(--green-mid);
+  border-radius:var(--radius-pill);padding:3px 12px;margin-bottom:10px;letter-spacing:1px;
+}
+.egg-body{
+  font-size:15px;line-height:1.9;color:var(--ink);white-space:pre-wrap;word-break:break-word;
+  min-height:84px;border-radius:var(--radius-sm);padding:16px 18px;
+  background:linear-gradient(160deg, rgba(255,255,255,.5), rgba(255,255,255,.18));
+  border:1px solid rgba(255,255,255,.6);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+}
+.egg-loading{display:flex;gap:6px;align-items:center;justify-content:center;padding:22px 0 6px;}
+.egg-loading .dot{width:8px;height:8px;border-radius:50%;background:var(--warm-deep);opacity:.35;animation:tp 1.1s infinite ease-in-out;}
+.egg-loading .dot:nth-child(2){animation-delay:.16s;}
+.egg-loading .dot:nth-child(3){animation-delay:.32s;}
+.egg-loading-hint{text-align:center;font-size:12px;color:var(--ink-soft);margin-top:8px;}
 
 /* ---------- 港窝小园（会生长的动画场景） ---------- */
 .pomo-garden{
   flex:0 0 auto;margin:4px 16px calc(14px + var(--safe-b));
   border-radius:var(--radius);padding:12px 16px 10px;
-  background:var(--glass);border:1px solid var(--glass-line);
-  box-shadow:var(--shadow-sm),var(--shadow-inset);
-  backdrop-filter:blur(28px) saturate(180%);-webkit-backdrop-filter:blur(28px) saturate(180%);
+  border:1px solid transparent;
+  background:
+    linear-gradient(160deg, rgba(255,255,255,.62), rgba(255,255,255,.28)) padding-box,
+    linear-gradient(135deg, rgba(255,255,255,.9), rgba(165,192,162,.35) 45%, rgba(255,255,255,.6)) border-box;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85), 0 18px 44px rgba(92,115,89,.12);
+  backdrop-filter:blur(34px) saturate(190%);-webkit-backdrop-filter:blur(34px) saturate(190%);
   cursor:pointer;transition:transform .2s var(--ease);
 }
 .pomo-garden:active{transform:scale(.985);}
@@ -1104,9 +1252,34 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   filter:drop-shadow(0 4px 8px rgba(92,115,89,.35));
 }
 
-[data-theme="dark"] .pomo-phase{background:rgba(165,192,162,.12);}
+[data-theme="dark"] .pomo-phase{background:linear-gradient(135deg, rgba(255,255,255,.12), rgba(165,192,162,.12));border-color:rgba(255,255,255,.16);}
 [data-theme="dark"] .pg-soil{background:linear-gradient(180deg,rgba(130,160,126,.22),rgba(92,115,89,.30));}
 [data-theme="dark"] .pomo-ring.running #pomoFg{filter:drop-shadow(0 0 14px rgba(165,192,162,.35));}
+[data-theme="dark"] .aurora-green{opacity:.55;}
+[data-theme="dark"] .aurora-warm{opacity:.5;}
+[data-theme="dark"] .pomo-bokeh{opacity:.16;}
+[data-theme="dark"] .pomo-top{background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.02));border-bottom-color:rgba(255,255,255,.08);}
+[data-theme="dark"] .pomo-ring{
+  background:linear-gradient(150deg, rgba(255,255,255,.10), rgba(255,255,255,.03) 55%, rgba(165,192,162,.10));
+  border-color:rgba(255,255,255,.14);
+  box-shadow:inset 0 1px 1px rgba(255,255,255,.12), inset 0 -8px 20px rgba(0,0,0,.2), 0 22px 48px rgba(0,0,0,.35);
+}
+[data-theme="dark"] .pomo-ring::before{opacity:.35;}
+[data-theme="dark"] .pomo-iconbtn,
+[data-theme="dark"] .pomo-side,
+[data-theme="dark"] .pomo-bind select{
+  background:linear-gradient(145deg, rgba(255,255,255,.12), rgba(255,255,255,.04));
+  border-color:rgba(255,255,255,.12);
+}
+[data-theme="dark"] .pomo-presets button{background:linear-gradient(145deg, rgba(255,255,255,.10), rgba(255,255,255,.03));border-color:rgba(255,255,255,.12);}
+[data-theme="dark"] .pomo-garden{
+  background:
+    linear-gradient(160deg, rgba(255,255,255,.09), rgba(255,255,255,.03)) padding-box,
+    linear-gradient(135deg, rgba(255,255,255,.25), rgba(165,192,162,.28) 45%, rgba(255,255,255,.12)) border-box;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.06), 0 18px 44px rgba(0,0,0,.35);
+}
+[data-theme="dark"] .pomo-time{text-shadow:0 1px 0 rgba(0,0,0,.3);}
+[data-theme="dark"] .pomo-sub{text-shadow:none;}
 
 /* ---------- 窄屏微调（≤360px 小屏手机） ---------- */
 @media (max-width:360px){
@@ -1546,6 +1719,11 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 
 <!-- 番茄钟 · 港窝小园（全屏沉浸页） -->
 <div id="pomoMask">
+  <div class="pomo-aurora aurora-green"></div>
+  <div class="pomo-aurora aurora-warm"></div>
+  <div class="pomo-bokeh b1"></div>
+  <div class="pomo-bokeh b2"></div>
+  <div class="pomo-bokeh b3"></div>
   <div class="pomo-top">
     <button class="pomo-iconbtn" onclick="closePomodoro()" aria-label="返回">‹</button>
     <div class="pomo-title">番 茄 钟</div>
@@ -1563,8 +1741,14 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
             <stop offset="0" stop-color="#e9c391"/>
             <stop offset="1" stop-color="#cd8f54"/>
           </linearGradient>
+          <filter id="pomoGlowBlur" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="9"/>
+          </filter>
         </defs>
         <circle cx="130" cy="130" r="110" fill="none" stroke="var(--ring-track)" stroke-width="13"/>
+        <circle id="pomoGlow" cx="130" cy="130" r="110" fill="none" stroke="url(#pomoGradFocus)" stroke-width="24"
+          opacity=".4" filter="url(#pomoGlowBlur)" stroke-linecap="round"
+          stroke-dasharray="691.15" stroke-dashoffset="691.15"/>
         <circle id="pomoFg" cx="130" cy="130" r="110" fill="none" stroke="url(#pomoGradFocus)" stroke-width="13"
           stroke-linecap="round" stroke-dasharray="691.15" stroke-dashoffset="691.15"/>
       </svg>
@@ -1657,9 +1841,50 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <option value="notify">系统通知 + 振动</option>
       <option value="silent">静音</option>
     </select>
+    <label style="margin-top:18px;">专注彩蛋</label>
+    <select id="psEggOn">
+      <option value="1">开启（完成番茄后生成）</option>
+      <option value="0">关闭</option>
+    </select>
+    <label>彩蛋来源</label>
+    <select id="psEggSource">
+      <option value="ai">AI 全新生成（跟随助理性格）</option>
+      <option value="builtin">内置彩蛋（不消耗 AI 额度）</option>
+    </select>
+    <label>彩蛋主题</label>
+    <select id="psEggTheme" onchange="pomoEggThemeUI()">
+      <option value="random">随机</option>
+      <option value="encourage">鼓励语</option>
+      <option value="joke">冷笑话</option>
+      <option value="story">小故事</option>
+      <option value="health">养生小知识</option>
+      <option value="custom">自定义主题…</option>
+    </select>
+    <div id="psEggCustomWrap" style="display:none;">
+      <label>自定义主题内容</label>
+      <input type="text" id="psEggCustom" maxlength="60" placeholder="例如：关于小猫的暖心小故事">
+    </div>
+    <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">「AI 全新生成」= 每次都是模型现写的，严格跟随你在助理设置里自定义的性格；「内置彩蛋」= 用本地彩蛋库（离线也能用）。自定义主题需要选「AI 全新生成」。</p>
     <div class="row">
       <button class="btn ghost" onclick="closePomoSettings()">取消</button>
       <button class="btn primary" onclick="savePomoSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 专注彩蛋：悬浮蛋按钮 + 弹窗 -->
+<button class="pomo-egg-btn" id="pomoEggBtn" onclick="openPomoEgg()" style="display:none;" aria-label="番茄彩蛋">
+  <span class="egg-ico">🥚</span>
+  <span class="egg-badge" id="pomoEggBadge"></span>
+</button>
+<div class="mask" id="pomoEggMask" style="z-index:140;">
+  <div class="sheet glass-strong">
+    <h3>🥚 专注彩蛋</h3>
+    <div class="egg-theme" id="pomoEggTheme">彩蛋</div>
+    <div class="egg-body" id="pomoEggBody">蛋壳里咕噜咕噜…</div>
+    <div class="row">
+      <button class="btn ghost" onclick="pomoEggAgain()">再要一个 🎲</button>
+      <button class="btn primary" onclick="closePomoEgg()">收下啦</button>
     </div>
   </div>
 </div>
@@ -3252,6 +3477,7 @@ function hideDialog(){ document.getElementById('dialogMask').classList.remove('s
    Cordova / Capacitor 壳层可把返回键事件交给这个函数，实现「先关弹窗再退出」。 */
 function closeTopOverlay(){
   const stack = [
+    {id:'pomoEggMask', close:closePomoEgg},
     {id:'pomoSetMask', close:closePomoSettings},
     {id:'pomoMask', close:closePomodoro},
     {id:'aiPayloadMask', close:closePayloadView},
@@ -5614,7 +5840,7 @@ function loadPomoData(){
   try{ d = JSON.parse(localStorage.getItem(POMO_KEY)||'null'); }catch(e){}
   if(!d || typeof d!=='object') d = {};
   d.sessions = Array.isArray(d.sessions) ? d.sessions : [];
-  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime'}, d.settings||{});
+  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime', eggOn:true, eggSource:'ai', eggTheme:'random', eggCustom:''}, d.settings||{});
   d.streak = d.streak||0;
   d.lastDate = d.lastDate||'';
   d.lastPreset = d.lastPreset||'study';
@@ -5650,6 +5876,8 @@ function initPomo(){
   renderPomoIdle();
   renderPomoTaskSel();
   renderGarden();
+  // 彩蛋按钮只在番茄钟页面显示（进入时 openPomodoro 里刷新）
+  hidePomoEggBtn();
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && pomo.running) pomoTick(); });
 }
 
@@ -5659,10 +5887,12 @@ function openPomodoro(){
   renderPomoTaskSel();
   renderGarden();
   if(pomo.phase==='idle') renderPomoIdle();
+  refreshPomoEggBtn(); // 有未看的彩蛋就在番茄钟页里亮出 🥚
 }
 function closePomodoro(){
   // 只收起页面：计时在后台继续走，阶段完成照样提醒+长叶子
   document.getElementById('pomoMask').classList.remove('show');
+  hidePomoEggBtn(); // 彩蛋按钮只在番茄钟页面出现
 }
 
 /* ---------- 预设 ---------- */
@@ -5815,6 +6045,11 @@ function pomoRecordFocus(){
   }
   flyLeaf(rec);
   pomoMilestone();
+  // 专注彩蛋：完成瞬间后台开始生成（带上本次时长 + 绑定任务名，让提示词更具体）
+  if(pomoData.settings.eggOn !== false){
+    const tt = pomo.taskId ? tasks.find(x=>x.id===pomo.taskId) : null;
+    pomoEggGenerate({ mins: d.focus, taskName: (tt && tt.title) ? String(tt.title).slice(0,30) : '' });
+  }
 }
 function pomoMilestone(){
   const total = pomoData.sessions.length;
@@ -5861,13 +6096,17 @@ function pomoNotify(wasFocus){
 function paintPhase(phase){
   const el = document.getElementById('pomoPhase');
   const fg = document.getElementById('pomoFg');
+  const glow = document.getElementById('pomoGlow');
+  const mask = document.getElementById('pomoMask');
+  if(mask) mask.classList.toggle('break-mode', phase!=='focus');
+  const stroke = phase==='focus' ? 'url(#pomoGradFocus)' : 'url(#pomoGradBreak)';
   if(phase==='focus'){
     el.textContent = '专注'; el.classList.remove('break');
-    fg.setAttribute('stroke', 'url(#pomoGradFocus)');
   }else{
     el.textContent = phase==='long' ? '长休息' : '短休息'; el.classList.add('break');
-    fg.setAttribute('stroke', 'url(#pomoGradBreak)');
   }
+  fg.setAttribute('stroke', stroke);
+  if(glow) glow.setAttribute('stroke', stroke);
 }
 function renderPomoIdle(){
   const d = pomoDurations();
@@ -5876,6 +6115,7 @@ function renderPomoIdle(){
   paintPhase(phase);
   document.getElementById('pomoTime').textContent = String(min).padStart(2,'0')+':00';
   document.getElementById('pomoFg').style.strokeDashoffset = POMO_C;
+  const g0 = document.getElementById('pomoGlow'); if(g0) g0.style.strokeDashoffset = POMO_C;
   const subEl = document.getElementById('pomoSub');
   const t = pomo.taskId ? tasks.find(x=>x.id===pomo.taskId) : null;
   subEl.textContent = pomo.pendingNext
@@ -5922,6 +6162,7 @@ function pomoPaint(remain){
   const ss = String(secs%60).padStart(2,'0');
   document.getElementById('pomoTime').textContent = mm+':'+ss;
   document.getElementById('pomoFg').style.strokeDashoffset = POMO_C * (remain/total);
+  const g1 = document.getElementById('pomoGlow'); if(g1) g1.style.strokeDashoffset = POMO_C * (remain/total);
   if(pomo.running) document.title = `${mm}:${ss} · ${pomo.phase==='focus'?'专注中':'休息中'}`;
 }
 
@@ -6260,6 +6501,142 @@ function pokeGarden(ev){
   setTimeout(()=>scene.classList.remove('excited'), 1100);
 }
 
+/* ---------- 专注彩蛋：完成番茄时后台生成，点悬浮蛋直接看 ---------- */
+const POMO_EGG_THEMES = { random:'随机', encourage:'鼓励语', joke:'冷笑话', story:'小故事', health:'养生小知识', custom:'自定义' };
+let pomoEggTimer = null;
+function pomoEggThemeUI(){
+  const wrap = document.getElementById('psEggCustomWrap');
+  const sel = document.getElementById('psEggTheme');
+  if(wrap) wrap.style.display = (sel && sel.value==='custom') ? 'block' : 'none';
+}
+function pomoEggFallback(theme){
+  const pools = {
+    encourage:[
+      '今天又稳稳种下了一片叶子，港窝的小园正在因为你一点点丰盛起来。别急，慢慢来，每一件做完的事都算数。',
+      '专注本身就是礼物——你刚刚送了自己 25 分钟的完整陪伴。喝口水，伸个懒腰，你值得这片刻的轻盈。',
+      '小树不是一夜长成的，但你今天又多浇了一瓢水。继续，慢慢长，不急。'
+    ],
+    joke:[
+      '为什么番茄钟特别适合中医学生？因为它讲究"小剂量、长疗程、不伤正气"。好了，今天的养生梗讲完了，快去休息！',
+      '番茄问土豆：我们到底算菜还是算水果？土豆：别问，问就是"为学习熬出来的都是果"。',
+      '医生说多喝水，程序员说多喝水，番茄钟说：喝了这口水，再战下一轮。'
+    ],
+    story:[
+      '从前有一只小蜗牛，每天只爬一步。朋友们笑它慢，它说："我昨天比前天多爬了半步。"后来，它的壳上长出了金色纹路——那是每一个"多爬半步"留下的印记。今天你也多走了半步。',
+      '港窝的角落里，一片叶子刚被种下。夜里它悄悄问风："我什么时候能开花？"风说："别问时间，问浇灌。"而你，就是那片叶子的雨水。'
+    ],
+    health:[
+      '久坐 25 分钟起身活动 3 分钟，比连续坐 2 小时再运动 1 小时更护腰——中医讲"动则生阳"，小步多动最养气血。现在，起来走两步吧。',
+      '专注时气血上聚，休息时记得"目宜常运"：闭眼，眼球缓缓转 3 圈，再远眺 20 秒，给肝血一点回流的时间。'
+    ]
+  };
+  const pool = pools[theme] || pools['encourage'];
+  return pool[(Math.random()*pool.length)|0];
+}
+function pomoEggGenerate(opts){
+  opts = opts || {};
+  if(pomoData.settings.eggOn === false) return; // 设置里关闭了彩蛋
+  const theme = (pomoData.settings && pomoData.settings.eggTheme) || 'random';
+  const themeDesc = theme==='custom'
+    ? ((pomoData.settings.eggCustom && pomoData.settings.eggCustom.trim()) || '随机')
+    : (POMO_EGG_THEMES[theme] || '随机');
+  // 本次番茄钟的上下文：时长 + 绑定任务名（没绑任务就用"番茄钟专注任务"），再要一个时沿用
+  const mins = opts.mins || 25;
+  const taskName = opts.taskName || '';
+  pomoData.egg = { text:'', theme, ts:Date.now(), mins, taskName };
+  pomoData.eggUnread = true;
+  savePomoData();
+  showPomoEggBtn(false);
+  const isAI = pomoData.settings.eggSource === 'ai';
+  toast(isAI ? '🥚 彩蛋正在孵化…' : '🥚 给你拆一条彩蛋…');
+  const myTs = pomoData.egg.ts;
+  const finish = (text)=>{
+    if(!pomoData.egg || pomoData.egg.ts!==myTs) return; // 已被更新的彩蛋覆盖
+    pomoData.egg.text = text;
+    pomoData.eggUnread = true;
+    savePomoData();
+    showPomoEggBtn(true);
+    toast('🥚 彩蛋好啦，点右下角看看！');
+    updatePomoEggUI();
+  };
+  // 内置来源：不调 AI，直接本地彩蛋库（自定义主题离线时用鼓励语兜底）
+  if(!isAI){ finish(pomoEggFallback(theme)); return; }
+  const cfg = getAiCfg();
+  if(!cfg.apiKey){ finish(pomoEggFallback(theme)); return; }
+  // 严格跟随用户自定义的助理性格
+  const persona = (cfg.persona && cfg.persona.trim()) ? cfg.persona : DEFAULT_PERSONA;
+  const customHint = theme==='custom' ? '（用户指定主题：「' + themeDesc + '」，请围绕它创作）' : '';
+  const completionText = taskName
+    ? '用户刚刚完成了' + mins + '分钟的「' + taskName + '」任务'
+    : '用户刚刚完成了' + mins + '分钟的番茄钟专注任务';
+  const messages = [
+    { role:'system', content: persona + '\n\n' + completionText + '，现在请为用户生成一条「番茄钟完成彩蛋」，主题是「' + themeDesc + '」' + customHint + '。\n风格和你的日常性格完全一致（就是你现在的人格设定）。\n要求：只输出彩蛋正文本身，100~200 字，不要开场白、不要标题、不要解释。' },
+    { role:'user', content:'帮我生成一条' + themeDesc + '彩蛋吧！' }
+  ];
+  let settled = false;
+  aiCall(messages, cfg).then(r=>{
+    if(settled) return; settled = true;
+    if(r && r.error){ finish(pomoEggFallback(theme)); return; }
+    const m = r && r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message;
+    const txt = (m && typeof m.content==='string') ? m.content.trim() : '';
+    finish((txt && txt.length>=4) ? txt : pomoEggFallback(theme));
+  }).catch(()=>{
+    if(!settled){ settled = true; finish(pomoEggFallback(theme)); }
+  });
+  // 25 秒兜底：接口没回来就用内置彩蛋，绝不空转
+  if(pomoEggTimer) clearTimeout(pomoEggTimer);
+  pomoEggTimer = setTimeout(()=>{
+    if(!settled){ settled = true; finish(pomoEggFallback(theme)); }
+  }, 25000);
+}
+function showPomoEggBtn(ready){
+  const btn = document.getElementById('pomoEggBtn');
+  if(!btn) return;
+  // 只在番茄钟页面显示：页面没开就不亮（完成后台生成时先存着，进页面再亮）
+  const page = document.getElementById('pomoMask');
+  if(!page || !page.classList.contains('show')){ btn.style.display = 'none'; return; }
+  btn.style.display = 'flex';
+  btn.classList.toggle('ready', !!ready);
+}
+function hidePomoEggBtn(){
+  const b = document.getElementById('pomoEggBtn');
+  if(b){ b.style.display = 'none'; b.classList.remove('ready'); }
+}
+function refreshPomoEggBtn(){
+  if(pomoData && pomoData.egg) showPomoEggBtn(!!pomoData.egg.text);
+  else hidePomoEggBtn();
+}
+function openPomoEgg(){
+  pomoData.eggUnread = false;
+  savePomoData();
+  hidePomoEggBtn();
+  const t = document.getElementById('pomoEggTheme');
+  const e = pomoData.egg;
+  if(t) t.textContent = '🥚 ' + (POMO_EGG_THEMES[e && e.theme] || '彩蛋') + ' · ' + (e && e.mins ? e.mins+'分钟' : '') + (e && e.taskName ? ' · '+e.taskName : '');
+  updatePomoEggUI();
+  document.getElementById('pomoEggMask').classList.add('show');
+}
+function updatePomoEggUI(){
+  const body = document.getElementById('pomoEggBody');
+  if(!body) return;
+  if(pomoData.egg && pomoData.egg.text){
+    body.innerHTML = escHtml(pomoData.egg.text);
+  }else{
+    body.innerHTML = '<div class="egg-loading"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div><div class="egg-loading-hint">蛋壳里咕噜咕噜…</div>';
+  }
+}
+function pomoEggAgain(){
+  // 沿用刚完成那次番茄的时长与任务上下文重新生成
+  pomoEggGenerate({
+    mins: (pomoData.egg && pomoData.egg.mins) || undefined,
+    taskName: (pomoData.egg && pomoData.egg.taskName) || ''
+  });
+  updatePomoEggUI();
+}
+function closePomoEgg(){
+  document.getElementById('pomoEggMask').classList.remove('show');
+}
+
 /* ---------- 设置 ---------- */
 function openPomoSettings(){
   const s = pomoData.settings;
@@ -6269,6 +6646,11 @@ function openPomoSettings(){
   document.getElementById('psEvery').value = s.every;
   document.getElementById('psAuto').value = s.auto ? '1' : '0';
   document.getElementById('psAlert').value = s.alert;
+  document.getElementById('psEggOn').value = s.eggOn ? '1' : '0';
+  document.getElementById('psEggSource').value = (s.eggSource==='builtin') ? 'builtin' : 'ai';
+  document.getElementById('psEggTheme').value = s.eggTheme || 'random';
+  document.getElementById('psEggCustom').value = s.eggCustom || '';
+  pomoEggThemeUI();
   document.getElementById('pomoSetMask').classList.add('show');
 }
 function closePomoSettings(){
@@ -6284,6 +6666,10 @@ function savePomoSettings(){
   s.every = clamp(parseInt(document.getElementById('psEvery').value,10), 2, 8, 4);
   s.auto  = document.getElementById('psAuto').value === '1';
   s.alert = document.getElementById('psAlert').value;
+  s.eggOn = document.getElementById('psEggOn').value === '1';
+  s.eggSource = document.getElementById('psEggSource').value === 'builtin' ? 'builtin' : 'ai';
+  s.eggTheme = document.getElementById('psEggTheme').value || 'random';
+  s.eggCustom = String(document.getElementById('psEggCustom').value || '').trim().slice(0,60);
   if(pomoCustomPending){
     pomoPresetKey = 'custom';
     pomoData.lastPreset = 'custom';
