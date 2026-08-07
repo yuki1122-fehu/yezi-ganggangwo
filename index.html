@@ -2098,6 +2098,48 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <option value="ai">AI 每次现写（跟随助理性格）</option>
       <option value="builtin">内置模板（立即、离线）</option>
     </select>
+    <label style="margin-top:18px;">语音引擎</label>
+    <select id="psEngine" onchange="pomoEngineUI()">
+      <option value="sys">系统语音（Web Speech，免费离线）</option>
+      <option value="mini">MiniMax TTS（更自然，需配置）</option>
+    </select>
+    <div id="psMiniWrap" style="display:none;">
+      <label>MiniMax GroupId（开放平台右上角）</label>
+      <input type="text" id="psMiniGroup" placeholder="粘贴 GroupId">
+      <label>MiniMax API Key</label>
+      <input type="password" id="psMiniKey" placeholder="粘贴 API 密钥">
+      <label>MiniMax 音色</label>
+      <select id="psMiniVoice">
+        <option value="female-tianmei">甜美女性</option>
+        <option value="female-shaonv">少女</option>
+        <option value="female-yujie">御姐</option>
+        <option value="female-chengshu">成熟女性</option>
+        <option value="presenter_female">女性主持人</option>
+        <option value="presenter_male">男性主持人</option>
+        <option value="male-qn-qingse">青涩青年</option>
+        <option value="male-qn-jingying">精英青年</option>
+        <option value="male-qn-badao">霸道青年</option>
+        <option value="male-qn-daxuesheng">青年大学生</option>
+        <option value="audiobook_female_1">有声书·女声1</option>
+        <option value="audiobook_female_2">有声书·女声2</option>
+        <option value="audiobook_male_1">有声书·男声1</option>
+        <option value="audiobook_male_2">有声书·男声2</option>
+      </select>
+      <button type="button" class="btn ghost" onclick="pomoMiniTest()" style="width:100%;margin-top:6px;">🔊 试听当前音色（用上方音调/语速）</button>
+      <label style="margin-top:14px;">自定义音色 ID（设计/复刻生成，优先于上方系统音色）</label>
+      <input type="text" id="psMiniVoiceId" placeholder="例如 MiniMaxVoice001（留空则用上方系统音色）">
+      <label style="margin-top:14px;">音色设计（文字描述生成全新音色，首次合成时计费 ¥9.9/音色）</label>
+      <div style="display:flex;gap:6px;">
+        <input type="text" id="psDesignPrompt" placeholder="如：温柔知性、带一点气音的女声" style="flex:1;">
+        <button type="button" class="btn ghost" onclick="pomoMiniDesign()" style="white-space:nowrap;">生成</button>
+      </div>
+      <label style="margin-top:14px;">声音复刻（上传 10秒-5分钟 人声，克隆成自己的声音，¥9.9/音色）</label>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input type="file" id="psCloneFile" accept="audio/*" style="flex:1;font-size:11px;">
+        <button type="button" class="btn ghost" onclick="pomoMiniClone()" style="white-space:nowrap;">复刻</button>
+      </div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">价格约 speech-02-turbo 2 元/万字符（1 万汉字≈4 元，按量扣余额）。上方的音调/语速滑块同样作用于 MiniMax（音调≈pitch、语速≈speed）。未配置或请求失败时自动退回系统语音。</p>
+    </div>
     <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">「AI 每次现写」= 开始/休息时助理当场写一句 20~40 字的口语陪伴（约 1-3 秒，AI 忙时自动退回内置模板）；完成番茄的彩蛋正文朗读不受此影响。iOS 首次需点一次「开始」解锁自动朗读。</p>
     <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">「AI 全新生成」= 每次都是模型现写的，严格跟随你在助理设置里自定义的性格；「内置彩蛋」= 用本地彩蛋库（离线也能用）。自定义主题需要选「AI 全新生成」。</p>
     <div class="row">
@@ -6154,7 +6196,7 @@ function loadPomoData(){
   try{ d = JSON.parse(localStorage.getItem(POMO_KEY)||'null'); }catch(e){}
   if(!d || typeof d!=='object') d = {};
   d.sessions = Array.isArray(d.sessions) ? d.sessions : [];
-  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime', eggOn:true, eggSource:'ai', eggTheme:'random', eggCustom:'', noise:'off', noiseVol:50, tts:true, ttsSource:'ai', voice:'gentle', pitch:1.12, rate:0.98}, d.settings||{});
+  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime', eggOn:true, eggSource:'ai', eggTheme:'random', eggCustom:'', noise:'off', noiseVol:50, tts:true, ttsSource:'ai', engine:'sys', miniGroup:'', miniKey:'', miniVoice:'female-tianmei', miniVoiceId:'', voice:'gentle', pitch:1.12, rate:0.98}, d.settings||{});
   d.streak = d.streak||0;
   d.lastDate = d.lastDate||'';
   d.lastPreset = d.lastPreset||'study';
@@ -7173,11 +7215,21 @@ function ttsPickVoice(){
   const zh = ttsVoiceList.filter(v=>/zh|cmn|yue/i.test(v.lang||''));
   return zh.find(v=>/female|woman|ting|xiao|mei|女/i.test(v.name||'')) || zh[0] || null;
 }
+// 语音引擎路由：MiniMax（自然音色）> 系统语音（兜底，未配置/失败自动降级）
+function ttsEngineReady(){
+  const s = pomoData && pomoData.settings ? pomoData.settings : {};
+  return !!(s.engine==='mini' && s.miniGroup && s.miniKey);
+}
 function ttsSpeak(text){
+  if(!text) return;
+  if(pomoData && pomoData.settings && pomoData.settings.tts===false) return;
+  if(ttsEngineReady()){ ttsMiniMax(text).catch(()=>ttsSpeakSys(text)); return; }
+  ttsSpeakSys(text);
+}
+function ttsSpeakSys(text){
   if(!text) return;
   try{
     if(typeof speechSynthesis==='undefined') return;
-    if(pomoData && pomoData.settings && pomoData.settings.tts===false) return;
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN';
@@ -7188,6 +7240,129 @@ function ttsSpeak(text){
     u.rate = (s.rate!=null ? s.rate : 0.98);
     speechSynthesis.speak(u);
   }catch(e){ console.error('tts:', e); }
+}
+// MiniMax T2A：POST → mp3 二进制 → Audio 播放；失败抛错让上层降级系统语音
+async function ttsMiniMax(text){
+  const s = pomoData && pomoData.settings ? pomoData.settings : {};
+  const url = 'https://api.minimax.chat/v1/text_to_speech?GroupId=' + encodeURIComponent(s.miniGroup);
+  const body = {
+    model: 'speech-02-turbo',
+    text: String(text).slice(0,500), // 单次 ≤500 字符
+    voice_id: (s.miniVoiceId || s.miniVoice || 'female-tianmei'), // 自定义音色优先
+    speed: Math.min(2, Math.max(0.5, (s.rate!=null ? s.rate : 0.98))),
+    vol: 1.0,
+    pitch: Math.max(-12, Math.min(12, Math.round(((s.pitch!=null ? s.pitch : 1.12)-1)*12))),
+    output_format: 'mp3'
+  };
+  const res = await fetch(url, {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+s.miniKey, 'Content-Type':'application/json' },
+    body: JSON.stringify(body)
+  });
+  if(!res.ok) throw new Error('mini HTTP '+res.status);
+  const ct = (res.headers.get('content-type')||'').toLowerCase();
+  if(ct.includes('audio') || ct.includes('mpeg') || ct.includes('octet-stream')){
+    return playMiniAudio(await res.blob());
+  }
+  const j = await res.json().catch(()=>null);
+  throw new Error(j && j.base_resp ? (j.base_resp.status_msg || 'mini error') : 'mini unknown');
+}
+function playMiniAudio(blob){
+  return new Promise((resolve,reject)=>{
+    try{
+      if(!pomoAudio){ pomoAudio = new (window.AudioContext||window.webkitAudioContext)(); }
+      if(pomoAudio.state==='suspended'){ try{ pomoAudio.resume(); }catch(e){} }
+      const url = URL.createObjectURL(blob);
+      const a = new Audio(url);
+      a.onended = ()=>{ URL.revokeObjectURL(url); };
+      a.onerror = ()=>{ URL.revokeObjectURL(url); reject(new Error('audio play')); };
+      a.play().then(resolve).catch(reject);
+    }catch(e){ reject(e); }
+  });
+}
+// 试听：用设置面板当前值（未保存也可）合成一句播放
+function pomoMiniTest(){
+  const g = document.getElementById('psMiniGroup').value.trim();
+  const k = document.getElementById('psMiniKey').value.trim();
+  const v = document.getElementById('psMiniVoice').value;
+  if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
+  const pitch = parseInt(document.getElementById('psPitch').value,10)/100;
+  const rate = parseInt(document.getElementById('psRate').value,10)/100;
+  const body = {
+    model:'speech-02-turbo',
+    text:'你好呀，我是你的学习搭子，今天也要一起加油哦。',
+    voice_id: v,
+    speed: Math.min(2, Math.max(0.5, rate)),
+    vol: 1.0,
+    pitch: Math.max(-12, Math.min(12, Math.round((pitch-1)*12))),
+    output_format:'mp3'
+  };
+  toast('正在合成试听…');
+  fetch('https://api.minimax.chat/v1/text_to_speech?GroupId=' + encodeURIComponent(g), {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+k, 'Content-Type':'application/json' },
+    body: JSON.stringify(body)
+  }).then(r=>{
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const ct = (r.headers.get('content-type')||'').toLowerCase();
+    if(ct.includes('audio') || ct.includes('mpeg') || ct.includes('octet-stream')) return r.blob();
+    return r.json().then(j=>{ throw new Error(j && j.base_resp ? (j.base_resp.status_msg || '合成失败') : '合成失败'); });
+  }).then(blob=>playMiniAudio(blob))
+    .then(()=>toast('试听完成 🔊'))
+    .catch(e=>toast('试听失败：' + (e && e.message ? e.message : e)));
+}
+// 音色设计：文字描述生成全新音色 voice_id（首次用于合成时计费 ¥9.9/音色）
+function pomoMiniDesign(){
+  const g = document.getElementById('psMiniGroup').value.trim();
+  const k = document.getElementById('psMiniKey').value.trim();
+  const prompt = document.getElementById('psDesignPrompt').value.trim();
+  if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
+  if(!prompt){ toast('先写一句音色描述，比如：温柔知性、带一点气音的女声'); return; }
+  toast('正在设计音色…');
+  fetch('https://api.minimaxi.com/v1/voice_design?GroupId=' + encodeURIComponent(g), {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+k, 'Content-Type':'application/json' },
+    body: JSON.stringify({ model:'speech-02-turbo', prompt })
+  }).then(r=>r.json()).then(j=>{
+    if(j && j.base_resp && j.base_resp.status_code !== 0 && j.base_resp.status_code !== 1000) throw new Error(j.base_resp.status_msg || '设计失败');
+    const vid = (j && j.voice_id) || (j && j.data && j.data.voice_id);
+    if(!vid) throw new Error('未返回音色ID');
+    document.getElementById('psMiniVoiceId').value = vid;
+    toast('音色已生成：'+vid+'（保存后生效，首次合成计费）');
+  }).catch(e=>toast('设计失败：' + (e && e.message ? e.message : e)));
+}
+// 声音复刻：上传音频 → file_id → voice_clone → voice_id（首次用于合成时计费 ¥9.9/音色）
+function pomoMiniClone(){
+  const g = document.getElementById('psMiniGroup').value.trim();
+  const k = document.getElementById('psMiniKey').value.trim();
+  const fi = document.getElementById('psCloneFile');
+  const f = fi && fi.files && fi.files[0];
+  if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
+  if(!f){ toast('先选择一段人声音频（10秒-5分钟，mp3/m4a/wav）'); return; }
+  const vid = 'clone_' + Date.now();
+  toast('上传音频…');
+  const fd = new FormData();
+  fd.append('purpose', 'voice_clone');
+  fd.append('file', f, f.name);
+  fetch('https://api.minimaxi.com/v1/files/upload?GroupId=' + encodeURIComponent(g), {
+    method:'POST',
+    headers:{ 'Authorization':'Bearer '+k },
+    body: fd
+  }).then(r=>r.json()).then(j=>{
+    const fid = j && j.file && j.file.file_id;
+    if(!fid) throw new Error(j && j.base_resp ? (j.base_resp.status_msg || '上传失败') : '上传失败');
+    toast('正在复刻音色…');
+    return fetch('https://api.minimaxi.com/v1/voice_clone?GroupId=' + encodeURIComponent(g), {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+k, 'Content-Type':'application/json' },
+      body: JSON.stringify({ file_id: fid, voice_id: vid, model:'speech-02-turbo' })
+    }).then(r=>r.json()).then(j2=>{
+      if(j2 && j2.base_resp && j2.base_resp.status_code !== 0) throw new Error(j2.base_resp.status_msg || '复刻失败');
+      document.getElementById('psMiniVoiceId').value = vid;
+      toast('复刻完成：'+vid+'（保存后生效，首次合成计费）');
+      if(j2 && j2.demo_audio){ try{ const a = new Audio(j2.demo_audio); a.play(); }catch(e){} }
+    });
+  }).catch(e=>toast('复刻失败：' + (e && e.message ? e.message : e)));
 }
 // 伴学文案由 AI 每次现写（跟随助理性格，像彩蛋一样）；无 key / 超时 9s / 失败 → 内置模板兜底
 let ttsAiSeq = 0;
@@ -7236,6 +7411,12 @@ function pomoVoicePreset(){
     document.getElementById('psRateVal').textContent = (P[v][1]/100).toFixed(2);
   }
 }
+// 语音引擎切换：MiniMax 配置区显示/隐藏
+function pomoEngineUI(){
+  const wrap = document.getElementById('psMiniWrap');
+  const eng = document.getElementById('psEngine');
+  if(wrap) wrap.style.display = (eng && eng.value==='mini') ? 'block' : 'none';
+}
 
 /* ---------- 设置 ---------- */
 function openPomoSettings(){
@@ -7254,6 +7435,13 @@ function openPomoSettings(){
   document.getElementById('psNoiseVol').value = (s.noiseVol!=null ? s.noiseVol : 50);
   document.getElementById('psTTS').value = (s.tts===false) ? '0' : '1';
   document.getElementById('psTTSSource').value = (s.ttsSource==='builtin') ? 'builtin' : 'ai';
+  document.getElementById('psEngine').value = (s.engine==='mini') ? 'mini' : 'sys';
+  document.getElementById('psMiniGroup').value = s.miniGroup || '';
+  document.getElementById('psMiniKey').value = s.miniKey || '';
+  document.getElementById('psMiniVoice').value = s.miniVoice || 'female-tianmei';
+  document.getElementById('psMiniVoiceId').value = s.miniVoiceId || '';
+  document.getElementById('psDesignPrompt').value = '';
+  pomoEngineUI();
   document.getElementById('psVoice').value = s.voice || 'gentle';
   const pPitch = (s.pitch!=null ? s.pitch : 1.12), pRate = (s.rate!=null ? s.rate : 0.98);
   document.getElementById('psPitch').value = Math.round(pPitch*100);
@@ -7284,6 +7472,11 @@ function savePomoSettings(){
   s.noiseVol = clamp(parseInt(document.getElementById('psNoiseVol').value,10), 0, 100, 50);
   s.tts = document.getElementById('psTTS').value === '1';
   s.ttsSource = document.getElementById('psTTSSource').value === 'builtin' ? 'builtin' : 'ai';
+  s.engine = document.getElementById('psEngine').value === 'mini' ? 'mini' : 'sys';
+  s.miniGroup = String(document.getElementById('psMiniGroup').value || '').trim();
+  s.miniKey = String(document.getElementById('psMiniKey').value || '').trim();
+  s.miniVoice = document.getElementById('psMiniVoice').value || 'female-tianmei';
+  s.miniVoiceId = String(document.getElementById('psMiniVoiceId').value || '').trim();
   s.voice = document.getElementById('psVoice').value || 'gentle';
   s.pitch = clamp(parseInt(document.getElementById('psPitch').value,10), 50, 200, 112)/100;
   s.rate = clamp(parseInt(document.getElementById('psRate').value,10), 50, 200, 98)/100;
