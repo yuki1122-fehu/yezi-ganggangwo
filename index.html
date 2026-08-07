@@ -2098,6 +2098,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <option value="ai">AI 每次现写（跟随助理性格）</option>
       <option value="builtin">内置模板（立即、离线）</option>
     </select>
+    <label style="margin-top:14px;">伴学人格（可选，留空用精简默认）</label>
+    <textarea id="psTtsPersona" rows="2" style="width:100%;font-size:12px;" placeholder="独立于助理的伴学人格，例如：你是活泼元气的小姐姐，说话爱用感叹号，常鼓励我…"></textarea>
     <label style="margin-top:14px;">伴学提示词（自定义，留空用默认）</label>
     <textarea id="psTtsPrompt" rows="2" style="width:100%;font-size:12px;" placeholder="自定义发给助理的写作要求，例如：用俏皮一点的口吻，多鼓励我…"></textarea>
     <label style="margin-top:18px;">语音引擎</label>
@@ -6206,7 +6208,7 @@ function loadPomoData(){
   try{ d = JSON.parse(localStorage.getItem(POMO_KEY)||'null'); }catch(e){}
   if(!d || typeof d!=='object') d = {};
   d.sessions = Array.isArray(d.sessions) ? d.sessions : [];
-  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime', eggOn:true, eggSource:'ai', eggTheme:'random', eggCustom:'', noise:'off', noiseVol:50, tts:true, ttsSource:'ai', ttsPrompt:'', engine:'sys', miniGroup:'', miniKey:'', miniVoice:'female-tianmei', miniVoiceId:'', miniModel:'speech-2.8-turbo', voice:'gentle', pitch:1.12, rate:0.98}, d.settings||{});
+  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime', eggOn:true, eggSource:'ai', eggTheme:'random', eggCustom:'', noise:'off', noiseVol:50, tts:true, ttsSource:'ai', ttsPersona:'', ttsPrompt:'', engine:'sys', miniGroup:'', miniKey:'', miniVoice:'female-tianmei', miniVoiceId:'', miniModel:'speech-2.8-turbo', voice:'gentle', pitch:1.12, rate:0.98}, d.settings||{});
   d.streak = d.streak||0;
   d.lastDate = d.lastDate||'';
   d.lastPreset = d.lastPreset||'study';
@@ -7414,8 +7416,10 @@ function ttsSpeakAI(ctxText, fallback){
     const cfg = getAiCfg();
     if(!cfg.apiKey){ ttsSpeak(fallback); return; }
     const mySeq = ++ttsAiSeq;
-    const persona = (cfg.persona && cfg.persona.trim()) ? cfg.persona : DEFAULT_PERSONA;
     const s = pomoData && pomoData.settings ? pomoData.settings : {};
+    // 伴学人格：用户自定义（settings.ttsPersona）优先，否则用精简默认——不再用完整助理人格（避免 MHM 背景/工具规则等无关内容混入话术）
+    const persona = (s.ttsPersona && s.ttsPersona.trim())
+      || '你是用户的学习搭子，语气温暖简洁，像靠谱又温柔的学长学姐，偶尔带一点俏皮和鼓励。不要提及任何工具、任务管理或系统规则。';
     // 提示词：用户自定义优先（settings.ttsPrompt），留空用默认；MiniMax hd 模型自动追加语气词说明
     const prompt = (s.ttsPrompt && s.ttsPrompt.trim())
       || '请用一句 20~40 字的中文口语，像温柔又靠谱的学习搭子那样说出来。要求：只输出这一句话本身，不要引号、不要开场白、不要解释。';
@@ -7481,6 +7485,7 @@ function openPomoSettings(){
   document.getElementById('psNoiseVol').value = (s.noiseVol!=null ? s.noiseVol : 50);
   document.getElementById('psTTS').value = (s.tts===false) ? '0' : '1';
   document.getElementById('psTTSSource').value = (s.ttsSource==='builtin') ? 'builtin' : 'ai';
+  document.getElementById('psTtsPersona').value = s.ttsPersona || '';
   document.getElementById('psTtsPrompt').value = s.ttsPrompt || '';
   document.getElementById('psEngine').value = (s.engine==='mini') ? 'mini' : 'sys';
   document.getElementById('psMiniGroup').value = s.miniGroup || '';
@@ -7520,6 +7525,7 @@ function savePomoSettings(){
   s.noiseVol = clamp(parseInt(document.getElementById('psNoiseVol').value,10), 0, 100, 50);
   s.tts = document.getElementById('psTTS').value === '1';
   s.ttsSource = document.getElementById('psTTSSource').value === 'builtin' ? 'builtin' : 'ai';
+  s.ttsPersona = String(document.getElementById('psTtsPersona').value || '').trim();
   s.ttsPrompt = String(document.getElementById('psTtsPrompt').value || '').trim();
   s.engine = document.getElementById('psEngine').value === 'mini' ? 'mini' : 'sys';
   s.miniGroup = String(document.getElementById('psMiniGroup').value || '').trim();
