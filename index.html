@@ -1309,6 +1309,16 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2{transform-box:fill-box;transform-origin:15% 50%;animation:dragonflyFlap .16s linear infinite alternate;}
 @keyframes dragonflyFlap{from{transform:rotate(-24deg);}to{transform:rotate(22deg);}}
 @keyframes dragonflyHover{from{transform:translateY(0);}to{transform:translateY(-3px);}}
+/* 深夜猫头鹰：23:00-5:00 站在栖木上（t-owl 由 gardenTimePhase 控制），眨眼+转头+呼吸 */
+.pg-owl-wrap{position:absolute;right:2%;bottom:8px;z-index:5;pointer-events:none;opacity:0;transition:opacity .9s ease;}
+.t-owl .pg-owl-wrap{opacity:1;}
+.pg-owl-wrap svg{display:block;width:58px;height:auto;filter:drop-shadow(0 2px 3px rgba(60,40,20,.3));}
+.pg-owl-wrap .owl-body{transform-box:fill-box;transform-origin:50% 100%;animation:owlBreathe 3.4s ease-in-out infinite;}
+.pg-owl-wrap .owl-head{transform-box:fill-box;transform-origin:50% 62%;animation:owlTurn 11s ease-in-out infinite;}
+.pg-owl-wrap .owl-eye-g{transform-box:fill-box;transform-origin:50% 50%;animation:owlBlink 4.6s ease-in-out infinite;}
+@keyframes owlBreathe{0%,100%{transform:translateY(0);}50%{transform:translateY(-1.6px);}}
+@keyframes owlTurn{0%,46%{transform:rotate(0);}58%{transform:rotate(6deg);}74%{transform:rotate(-4.5deg);}100%{transform:rotate(0);}}
+@keyframes owlBlink{0%,90%,100%{transform:scaleY(1);}94%{transform:scaleY(.08);}}
 /* 瓢虫：土坡上缓慢爬行（JS 调度） */
 .pg-bug{position:absolute;bottom:5px;left:-26px;z-index:2;pointer-events:none;opacity:0;transition:left 11s linear,opacity .8s ease;}
 .pg-bug.on{opacity:1;}
@@ -1922,6 +1932,39 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
         <span class="raindrop" style="left:81%;--rd-dur:1.05s;animation-delay:.1s;"></span>
         <span class="raindrop" style="left:87%;--rd-dur:1s;animation-delay:.4s;"></span>
         <span class="raindrop" style="left:93%;--rd-dur:1.15s;animation-delay:.25s;"></span>
+      </div>
+      <div class="pg-owl-wrap" aria-hidden="true">
+        <svg viewBox="0 0 72 96">
+          <g class="owl-perch">
+            <rect x="2" y="85" width="68" height="5" rx="2.5" fill="#8a6f54"/>
+            <rect x="12" y="88" width="4" height="8" rx="2" fill="#7a5c42"/>
+            <rect x="56" y="88" width="4" height="8" rx="2" fill="#7a5c42"/>
+          </g>
+          <g class="owl-body">
+            <ellipse cx="36" cy="66" rx="20" ry="18" fill="#A67B5B"/>
+            <ellipse cx="36" cy="72" rx="12" ry="9" fill="#8B5E3C"/>
+            <path d="M16,56 C10,58 8,66 12,72 C14,74 17,70 18,62 Z" fill="#8B5E3C"/>
+            <path d="M56,56 C62,58 64,66 60,72 C58,74 55,70 54,62 Z" fill="#8B5E3C"/>
+            <path d="M31,82 L31,84.5 M41,82 L41,84.5" stroke="#2c1e16" stroke-width="2.5" stroke-linecap="round"/>
+          </g>
+          <g class="owl-head">
+            <path d="M24,24 L21.5,12 L29,20 Z" fill="#8B5E3C"/>
+            <path d="M48,24 L50.5,12 L43,20 Z" fill="#8B5E3C"/>
+            <ellipse cx="36" cy="34" rx="17" ry="15" fill="#A67B5B"/>
+            <ellipse cx="36" cy="36" rx="13" ry="10.5" fill="#8B5E3C"/>
+            <circle cx="30" cy="33" r="5.5" fill="#C49A6C"/>
+            <circle cx="42" cy="33" r="5.5" fill="#C49A6C"/>
+            <g class="owl-eye-g">
+              <circle cx="30" cy="33" r="4" fill="#fff"/>
+              <circle cx="42" cy="33" r="4" fill="#fff"/>
+              <circle cx="30" cy="33.5" r="1.8" fill="#2c1e16"/>
+              <circle cx="42" cy="33.5" r="1.8" fill="#2c1e16"/>
+            </g>
+            <circle cx="25" cy="37.5" r="2" fill="#D35400" opacity=".55"/>
+            <circle cx="47" cy="37.5" r="2" fill="#D35400" opacity=".55"/>
+            <path d="M33,38.5 L39,38.5 L36,42.5 Z" fill="#2c1e16"/>
+          </g>
+        </svg>
       </div>
       <div class="pg-bird" id="pgBird" aria-hidden="true">
         <svg viewBox="0 0 36 24" width="32" height="21">
@@ -6608,6 +6651,7 @@ function gardenTimePhase(){
   else if(h>=17 && h<19) ph='t-dusk';
   else ph='t-night';
   ['t-dawn','t-day','t-dusk','t-night'].forEach(c=>scene.classList.toggle(c, c===ph));
+  scene.classList.toggle('t-owl', h>=23 || h<5); // 深夜 23:00-5:00 猫头鹰站上栖木
 }
 // 小园跟随真实天气：读 weatherState（HKO 或 Open-Meteo 后备），有降水 → 小园下雨
 function gardenWeather(){
