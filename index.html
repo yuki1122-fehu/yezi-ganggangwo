@@ -2068,6 +2068,37 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <label>自定义主题内容</label>
       <input type="text" id="psEggCustom" maxlength="60" placeholder="例如：关于小猫的暖心小故事">
     </div>
+    <label style="margin-top:18px;">白噪音（Web Audio 实时合成，零音频文件）</label>
+    <select id="psNoise">
+      <option value="off">关闭</option>
+      <option value="pink">粉噪 · 专注</option>
+      <option value="rain">雨声 · 治愈</option>
+      <option value="fire">篝火 · 冬夜</option>
+    </select>
+    <label>白噪音音量</label>
+    <input type="range" id="psNoiseVol" min="0" max="100" value="50" style="width:100%;accent-color:var(--green-mid);">
+    <label style="margin-top:18px;">伴学语音（助理朗读关键节点）</label>
+    <select id="psTTS">
+      <option value="1">开启（开始/完成/休息时朗读）</option>
+      <option value="0">关闭</option>
+    </select>
+    <label>预设声线（点选填下方滑块，可再微调）</label>
+    <select id="psVoice" onchange="pomoVoicePreset()">
+      <option value="gentle">温柔 · 稍高音</option>
+      <option value="calm">沉稳 · 低音</option>
+      <option value="lively">活力 · 轻快</option>
+      <option value="custom">自定义…</option>
+    </select>
+    <label>音调 <span id="psPitchVal" style="color:var(--green-dark);font-weight:700;">1.12</span></label>
+    <input type="range" id="psPitch" min="50" max="200" value="112" oninput="document.getElementById('psPitchVal').textContent=(this.value/100).toFixed(2)" style="width:100%;accent-color:var(--green-mid);">
+    <label>语速 <span id="psRateVal" style="color:var(--green-dark);font-weight:700;">0.98</span></label>
+    <input type="range" id="psRate" min="50" max="200" value="98" oninput="document.getElementById('psRateVal').textContent=(this.value/100).toFixed(2)" style="width:100%;accent-color:var(--green-mid);">
+    <label>伴学文案来源</label>
+    <select id="psTTSSource">
+      <option value="ai">AI 每次现写（跟随助理性格）</option>
+      <option value="builtin">内置模板（立即、离线）</option>
+    </select>
+    <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">「AI 每次现写」= 开始/休息时助理当场写一句 20~40 字的口语陪伴（约 1-3 秒，AI 忙时自动退回内置模板）；完成番茄的彩蛋正文朗读不受此影响。iOS 首次需点一次「开始」解锁自动朗读。</p>
     <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">「AI 全新生成」= 每次都是模型现写的，严格跟随你在助理设置里自定义的性格；「内置彩蛋」= 用本地彩蛋库（离线也能用）。自定义主题需要选「AI 全新生成」。</p>
     <div class="row">
       <button class="btn ghost" onclick="closePomoSettings()">取消</button>
@@ -6123,7 +6154,7 @@ function loadPomoData(){
   try{ d = JSON.parse(localStorage.getItem(POMO_KEY)||'null'); }catch(e){}
   if(!d || typeof d!=='object') d = {};
   d.sessions = Array.isArray(d.sessions) ? d.sessions : [];
-  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime', eggOn:true, eggSource:'ai', eggTheme:'random', eggCustom:''}, d.settings||{});
+  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime', eggOn:true, eggSource:'ai', eggTheme:'random', eggCustom:'', noise:'off', noiseVol:50, tts:true, ttsSource:'ai', voice:'gentle', pitch:1.12, rate:0.98}, d.settings||{});
   d.streak = d.streak||0;
   d.lastDate = d.lastDate||'';
   d.lastPreset = d.lastPreset||'study';
@@ -6249,6 +6280,9 @@ function pomoStartPhase(phase){
   const d = pomoDurations();
   const min = phase==='focus' ? d.focus : (phase==='long' ? d.long : d.short);
   ensurePomoAudio();
+  ttsWarmup(); // iOS 解锁（手动点开始是手势，自动连跑靠这次解锁）
+  if(phase==='focus') ttsSpeakAI('用户正在开始一次 ' + min + ' 分钟的专注番茄钟', '开始专注 ' + min + ' 分钟，静下心来。');
+  else ttsSpeakAI('用户刚完成一个番茄，现在进入 ' + min + ' 分钟休息', '休息 ' + min + ' 分钟，起来放松一下。');
   pomo.phase = phase;
   pomo.pendingNext = null;
   pomo.totalMs = min*60000;
@@ -6276,6 +6310,8 @@ function pomoPhaseDone(){
   ring.classList.remove('phase-done'); void ring.offsetWidth; ring.classList.add('phase-done');
   const d = pomoDurations();
   const next = wasFocus ? ((pomo.cycle % d.every === 0) ? 'long' : 'short') : 'focus';
+  if(wasFocus) ttsSpeak(next==='long' ? '这一轮完成啦，好好休息一会儿。' : '这一轮完成啦，休息片刻。');
+  else ttsSpeak('休息结束，准备开始下一个专注。');
   if(pomoData.settings.auto){
     pomo.phase = 'between';
     pomoUI();
@@ -7005,6 +7041,11 @@ function openPomoEgg(){
   hidePomoEggBtn();
   const t = document.getElementById('pomoEggTheme');
   const e = pomoData.egg;
+  // 伴学语音：点开彩蛋时朗读正文（手势触发，iOS 稳定；纯文本去 HTML 标签、限 200 字）
+  if(e && e.text){
+    const plain = String(e.text).replace(/<[^>]+>/g,'').replace(/\s+/g,' ').slice(0,200);
+    setTimeout(()=>ttsSpeak(plain), 400);
+  }
   if(t) t.textContent = '🥚 ' + (POMO_EGG_THEMES[e && e.theme] || '彩蛋') + ' · ' + (e && e.mins ? e.mins+'分钟' : '') + (e && e.taskName ? ' · '+e.taskName : '');
   updatePomoEggUI();
   document.getElementById('pomoEggMask').classList.add('show');
@@ -7037,6 +7078,165 @@ function closePomoEgg(){
   hidePomoEggBtn();
 }
 
+/* ---------- 白噪音（Web Audio 实时合成：粉噪 / 雨声 / 篝火，零音频文件离线可用） ---------- */
+let noiseCtx = null, noiseNodes = null, noiseCrackle = null;
+function noiseType(){ return (pomoData && pomoData.settings) ? (pomoData.settings.noise || 'off') : 'off'; }
+function noiseVol(){ const v = (pomoData && pomoData.settings && pomoData.settings.noiseVol!=null) ? pomoData.settings.noiseVol : 50; return (v/100)*0.7; }
+function noiseBuffer(ctx, seconds, pink){
+  const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate*seconds)), ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  if(pink){ // Paul Kellet 粉噪近似
+    let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+    for(let i=0;i<d.length;i++){
+      const w = Math.random()*2-1;
+      b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
+      b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
+      b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+      d[i]=(b0+b1+b2+b3+b4+b5+b6+w*0.5362)*0.11;
+      b6=w*0.115926;
+    }
+  }else{
+    for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+  }
+  return buf;
+}
+function noiseCrackleBurst(){ // 篝火噼啪：随机短爆音 + 带通
+  try{
+    const ctx = noiseCtx; if(!ctx) return;
+    const dur = 0.03 + Math.random()*0.05;
+    const buf = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate*dur)), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i] = (Math.random()*2-1)*Math.pow(1-i/d.length, 2.2);
+    const s = ctx.createBufferSource(); s.buffer = buf;
+    const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value = 1200+Math.random()*2800; bp.Q.value = 1.3;
+    const g = ctx.createGain(); g.gain.value = 0.4+Math.random()*0.6;
+    s.connect(bp); bp.connect(g); g.connect(ctx.destination);
+    s.start();
+  }catch(e){}
+}
+function applyNoise(){
+  const type = noiseType();
+  if(type==='off'){ noiseStop(); return; }
+  try{
+    if(!noiseCtx) noiseCtx = new (window.AudioContext||window.webkitAudioContext)();
+    if(noiseCtx.state==='suspended'){ try{ noiseCtx.resume(); }catch(e){} }
+    noiseStop();
+    const ctx = noiseCtx;
+    const master = ctx.createGain(); master.gain.value = noiseVol();
+    master.connect(ctx.destination);
+    const src = ctx.createBufferSource();
+    if(type==='rain'){
+      src.buffer = noiseBuffer(ctx, 3, false);
+      const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 1100; lp.Q.value = .4;
+      const g = ctx.createGain(); g.gain.value = .55;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = .12; // 雨势缓变
+      const lfoG = ctx.createGain(); lfoG.gain.value = .28;
+      lfo.connect(lfoG); lfoG.connect(g.gain);
+      src.connect(lp); lp.connect(g); g.connect(master);
+      src.loop = true; src.start(); lfo.start();
+      noiseNodes = {src, master, lfo};
+    }else if(type==='fire'){
+      src.buffer = noiseBuffer(ctx, 3, true);
+      const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 360; lp.Q.value = .5;
+      const g = ctx.createGain(); g.gain.value = .6;
+      src.connect(lp); lp.connect(g); g.connect(master);
+      src.loop = true; src.start();
+      noiseNodes = {src, master};
+      clearInterval(noiseCrackle);
+      noiseCrackle = setInterval(noiseCrackleBurst, 220);
+    }else{ // pink 粉噪：直达
+      src.buffer = noiseBuffer(ctx, 3, true);
+      src.connect(master);
+      src.loop = true; src.start();
+      noiseNodes = {src, master};
+    }
+  }catch(e){ console.error('noise:', e); }
+}
+function noiseStop(){
+  if(noiseCrackle){ clearInterval(noiseCrackle); noiseCrackle = null; }
+  if(noiseNodes){
+    try{ noiseNodes.src.stop(); noiseNodes.master.disconnect(); if(noiseNodes.lfo) noiseNodes.lfo.stop(); }catch(e){}
+    noiseNodes = null;
+  }
+}
+
+/* ---------- 伴学语音（Web Speech API：iOS「婷婷」/ Android 中文声线，声线=音高×语速） ---------- */
+let ttsVoiceList = [];
+function ttsLoadVoices(){
+  try{ if(typeof speechSynthesis==='undefined') return; ttsVoiceList = speechSynthesis.getVoices() || []; }catch(e){}
+}
+if(typeof speechSynthesis !== 'undefined'){
+  ttsLoadVoices();
+  try{ speechSynthesis.onvoiceschanged = ttsLoadVoices; }catch(e){}
+}
+function ttsPickVoice(){
+  const zh = ttsVoiceList.filter(v=>/zh|cmn|yue/i.test(v.lang||''));
+  return zh.find(v=>/female|woman|ting|xiao|mei|女/i.test(v.name||'')) || zh[0] || null;
+}
+function ttsSpeak(text){
+  if(!text) return;
+  try{
+    if(typeof speechSynthesis==='undefined') return;
+    if(pomoData && pomoData.settings && pomoData.settings.tts===false) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'zh-CN';
+    const v = ttsPickVoice(); if(v) u.voice = v;
+    // 音调/语速走用户可调设置（预设只是快捷填充滑块）
+    const s = pomoData && pomoData.settings ? pomoData.settings : {};
+    u.pitch = (s.pitch!=null ? s.pitch : 1.12);
+    u.rate = (s.rate!=null ? s.rate : 0.98);
+    speechSynthesis.speak(u);
+  }catch(e){ console.error('tts:', e); }
+}
+// 伴学文案由 AI 每次现写（跟随助理性格，像彩蛋一样）；无 key / 超时 9s / 失败 → 内置模板兜底
+let ttsAiSeq = 0;
+function ttsSpeakAI(ctxText, fallback){
+  try{
+    if(typeof speechSynthesis==='undefined') return;
+    if(pomoData && pomoData.settings && pomoData.settings.tts===false) return;
+    if((pomoData.settings && pomoData.settings.ttsSource) !== 'ai'){ ttsSpeak(fallback); return; }
+    const cfg = getAiCfg();
+    if(!cfg.apiKey){ ttsSpeak(fallback); return; }
+    const mySeq = ++ttsAiSeq;
+    const persona = (cfg.persona && cfg.persona.trim()) ? cfg.persona : DEFAULT_PERSONA;
+    const messages = [
+      { role:'system', content: persona + '\n\n' + ctxText + '，请用一句 20~40 字的中文口语，像温柔又靠谱的学习搭子那样说出来。\n要求：只输出这一句话本身，不要引号、不要开场白、不要解释。' },
+      { role:'user', content:'给我这句吧。' }
+    ];
+    let settled = false;
+    aiCall(messages, cfg).then(r=>{
+      if(settled) return; settled = true;
+      if(mySeq !== ttsAiSeq) return; // 已被更新的播报覆盖
+      if(r && r.error){ ttsSpeak(fallback); return; }
+      const m = r && r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message;
+      const txt = (m && typeof m.content==='string') ? m.content.trim() : '';
+      ttsSpeak((txt && txt.length>=4) ? txt : fallback);
+    }).catch(()=>{
+      if(!settled){ settled = true; if(mySeq===ttsAiSeq) ttsSpeak(fallback); }
+    });
+    setTimeout(()=>{ if(!settled){ settled = true; if(mySeq===ttsAiSeq) ttsSpeak(fallback); } }, 9000); // 9 秒兜底，绝不冷场
+  }catch(e){ ttsSpeak(fallback); }
+}
+function ttsWarmup(){ // iOS 手势解锁：第一次用户点击时调用，之后自动朗读才不被拦
+  try{
+    if(typeof speechSynthesis==='undefined') return;
+    const u = new SpeechSynthesisUtterance(' '); u.volume = 0;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+// 预设声线一键填充音调/语速滑块（选了预设后仍可手动微调）
+function pomoVoicePreset(){
+  const v = document.getElementById('psVoice').value;
+  const P = { gentle:[112,98], calm:[82,90], lively:[124,112] };
+  if(P[v]){
+    document.getElementById('psPitch').value = P[v][0];
+    document.getElementById('psRate').value = P[v][1];
+    document.getElementById('psPitchVal').textContent = (P[v][0]/100).toFixed(2);
+    document.getElementById('psRateVal').textContent = (P[v][1]/100).toFixed(2);
+  }
+}
+
 /* ---------- 设置 ---------- */
 function openPomoSettings(){
   const s = pomoData.settings;
@@ -7050,6 +7250,16 @@ function openPomoSettings(){
   document.getElementById('psEggSource').value = (s.eggSource==='builtin') ? 'builtin' : 'ai';
   document.getElementById('psEggTheme').value = s.eggTheme || 'random';
   document.getElementById('psEggCustom').value = s.eggCustom || '';
+  document.getElementById('psNoise').value = s.noise || 'off';
+  document.getElementById('psNoiseVol').value = (s.noiseVol!=null ? s.noiseVol : 50);
+  document.getElementById('psTTS').value = (s.tts===false) ? '0' : '1';
+  document.getElementById('psTTSSource').value = (s.ttsSource==='builtin') ? 'builtin' : 'ai';
+  document.getElementById('psVoice').value = s.voice || 'gentle';
+  const pPitch = (s.pitch!=null ? s.pitch : 1.12), pRate = (s.rate!=null ? s.rate : 0.98);
+  document.getElementById('psPitch').value = Math.round(pPitch*100);
+  document.getElementById('psRate').value = Math.round(pRate*100);
+  document.getElementById('psPitchVal').textContent = pPitch.toFixed(2);
+  document.getElementById('psRateVal').textContent = pRate.toFixed(2);
   pomoEggThemeUI();
   document.getElementById('pomoSetMask').classList.add('show');
 }
@@ -7070,6 +7280,13 @@ function savePomoSettings(){
   s.eggSource = document.getElementById('psEggSource').value === 'builtin' ? 'builtin' : 'ai';
   s.eggTheme = document.getElementById('psEggTheme').value || 'random';
   s.eggCustom = String(document.getElementById('psEggCustom').value || '').trim().slice(0,60);
+  s.noise = document.getElementById('psNoise').value || 'off';
+  s.noiseVol = clamp(parseInt(document.getElementById('psNoiseVol').value,10), 0, 100, 50);
+  s.tts = document.getElementById('psTTS').value === '1';
+  s.ttsSource = document.getElementById('psTTSSource').value === 'builtin' ? 'builtin' : 'ai';
+  s.voice = document.getElementById('psVoice').value || 'gentle';
+  s.pitch = clamp(parseInt(document.getElementById('psPitch').value,10), 50, 200, 112)/100;
+  s.rate = clamp(parseInt(document.getElementById('psRate').value,10), 50, 200, 98)/100;
   if(pomoCustomPending){
     pomoPresetKey = 'custom';
     pomoData.lastPreset = 'custom';
@@ -7078,6 +7295,7 @@ function savePomoSettings(){
   }
   savePomoData();
   document.getElementById('pomoSetMask').classList.remove('show');
+  applyNoise(); // 白噪音立即生效（切换/停止）
   if(pomo.phase==='idle') renderPomoIdle();
   if(s.alert==='notify' && 'Notification' in window && Notification.permission==='default'){
     try{ Notification.requestPermission(); }catch(e){}
