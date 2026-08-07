@@ -7281,11 +7281,10 @@ async function ttsMiniMax(text){
   if(!res.ok) throw new Error('mini HTTP '+res.status);
   const j = await res.json().catch(()=>null);
   if(j && j.base_resp && j.base_resp.status_code !== 0) throw new Error(j.base_resp.status_msg || '合成失败');
-  const b64 = j && j.data && j.data.audio;
-  if(!b64) throw new Error('未返回音频');
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  const hex = j && j.data && j.data.audio; // 注意：v2 返回的是 hex 字符串（每 2 字符=1 字节），不是 base64！
+  if(!hex) throw new Error('未返回音频');
+  const bytes = new Uint8Array(hex.length/2);
+  for(let i=0;i<bytes.length;i++) bytes[i] = parseInt(hex.substr(i*2,2), 16);
   return playMiniAudio(new Blob([bytes], {type:'audio/mpeg'}));
 }
 function playMiniAudio(blob){
@@ -7341,11 +7340,10 @@ function pomoMiniTest(){
     return r.json();
   }).then(j=>{
     if(j && j.base_resp && j.base_resp.status_code !== 0) throw new Error(j.base_resp.status_msg || '合成失败');
-    const b64 = j && j.data && j.data.audio;
-    if(!b64) throw new Error('未返回音频');
-    const bin = atob(b64);
-    const bytes = new Uint8Array(bin.length);
-    for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+    const hex = j && j.data && j.data.audio; // v2 返回 hex 字符串，不是 base64
+    if(!hex) throw new Error('未返回音频');
+    const bytes = new Uint8Array(hex.length/2);
+    for(let i=0;i<bytes.length;i++) bytes[i] = parseInt(hex.substr(i*2,2), 16);
     return new Blob([bytes], {type:'audio/mpeg'});
   }).then(blob=>playMiniAudio(blob))
     .then(()=>toast('试听完成 🔊'))
