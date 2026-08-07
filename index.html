@@ -7028,6 +7028,13 @@ function pomoEggAgain(){
 }
 function closePomoEgg(){
   document.getElementById('pomoEggMask').classList.remove('show');
+  // 收下即消费：清空彩蛋，下次进番茄钟不再亮按钮（直到完成下一个番茄重新生成）
+  if(pomoData){
+    pomoData.egg = null;
+    pomoData.eggUnread = false;
+    savePomoData();
+  }
+  hidePomoEggBtn();
 }
 
 /* ---------- 设置 ---------- */
