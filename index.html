@@ -7315,10 +7315,11 @@ function playMiniAudio(blob){
 }
 // 试听：用设置面板当前值（未保存也可）合成一句播放（T2A v2，支持所有模型）
 function pomoMiniTest(){
-  const g = document.getElementById('psMiniGroup').value.trim();
-  const k = document.getElementById('psMiniKey').value.trim();
-  const vid = document.getElementById('psMiniVoiceId').value.trim() || document.getElementById('psMiniVoice').value; // 自定义音色 ID 优先
-  if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
+  try{
+    const g = document.getElementById('psMiniGroup').value.trim();
+    const k = document.getElementById('psMiniKey').value.trim();
+    const vid = document.getElementById('psMiniVoiceId').value.trim() || document.getElementById('psMiniVoice').value; // 自定义音色 ID 优先
+    if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
   const pitch = parseInt(document.getElementById('psPitch').value,10)/100;
   const rate = parseInt(document.getElementById('psRate').value,10)/100;
   const body = {
@@ -7350,61 +7351,66 @@ function pomoMiniTest(){
   }).then(blob=>playMiniAudio(blob))
     .then(()=>toast('试听完成 🔊'))
     .catch(e=>toast('试听失败：' + (e && e.message ? e.message : e)));
+  }catch(e){ console.error('test:', e); toast('试听异常：' + (e && e.message ? e.message : e)); }
 }
 // 音色设计：文字描述生成全新音色 voice_id（首次用于合成时计费 ¥9.9/音色）
 function pomoMiniDesign(){
-  const g = document.getElementById('psMiniGroup').value.trim();
-  const k = document.getElementById('psMiniKey').value.trim();
-  const prompt = document.getElementById('psDesignPrompt').value.trim();
-  if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
-  if(!prompt){ toast('先写一句音色描述，比如：温柔知性、带一点气音的女声'); return; }
-  toast('正在设计音色…');
-  const mdl = document.getElementById('psMiniModel') ? document.getElementById('psMiniModel').value : 'speech-2.8-turbo';
-  fetch('https://api.minimaxi.com/v1/voice_design?GroupId=' + encodeURIComponent(g), {
-    method:'POST',
-    headers:{ 'Authorization':'Bearer '+k, 'Content-Type':'application/json' },
-    body: JSON.stringify({ model: mdl, prompt })
-  }).then(r=>r.json()).then(j=>{
-    if(j && j.base_resp && j.base_resp.status_code !== 0 && j.base_resp.status_code !== 1000) throw new Error(j.base_resp.status_msg || '设计失败');
-    const vid = (j && j.voice_id) || (j && j.data && j.data.voice_id);
-    if(!vid) throw new Error('未返回音色ID');
-    document.getElementById('psMiniVoiceId').value = vid;
-    toast('音色已生成：'+vid+'（保存后生效，首次合成计费）');
-  }).catch(e=>toast('设计失败：' + (e && e.message ? e.message : e)));
+  try{
+    const g = document.getElementById('psMiniGroup').value.trim();
+    const k = document.getElementById('psMiniKey').value.trim();
+    const prompt = document.getElementById('psDesignPrompt').value.trim();
+    if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
+    if(!prompt){ toast('先写一句音色描述，比如：温柔知性、带一点气音的女声'); return; }
+    toast('正在设计音色…');
+    const mdl = document.getElementById('psMiniModel') ? document.getElementById('psMiniModel').value : 'speech-2.8-turbo';
+    fetch('https://api.minimaxi.com/v1/voice_design?GroupId=' + encodeURIComponent(g), {
+      method:'POST',
+      headers:{ 'Authorization':'Bearer '+k, 'Content-Type':'application/json' },
+      body: JSON.stringify({ model: mdl, prompt })
+    }).then(r=>r.json()).then(j=>{
+      if(j && j.base_resp && j.base_resp.status_code !== 0 && j.base_resp.status_code !== 1000) throw new Error(j.base_resp.status_msg || '设计失败');
+      const vid = (j && j.voice_id) || (j && j.data && j.data.voice_id);
+      if(!vid) throw new Error('未返回音色ID');
+      document.getElementById('psMiniVoiceId').value = vid;
+      toast('音色已生成：'+vid+'（保存后生效，首次合成计费）');
+    }).catch(e=>toast('设计失败：' + (e && e.message ? e.message : e)));
+  }catch(e){ console.error('design:', e); toast('设计异常：' + (e && e.message ? e.message : e)); }
 }
 // 声音复刻：上传音频 → file_id → voice_clone → voice_id（首次用于合成时计费 ¥9.9/音色）
 function pomoMiniClone(){
-  const g = document.getElementById('psMiniGroup').value.trim();
-  const k = document.getElementById('psMiniKey').value.trim();
-  const fi = document.getElementById('psCloneFile');
-  const f = fi && fi.files && fi.files[0];
-  if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
-  if(!f){ toast('先选择一段人声音频（10秒-5分钟，mp3/m4a/wav）'); return; }
-  const vid = 'clone_' + Date.now();
-  toast('上传音频…');
-  const fd = new FormData();
-  fd.append('purpose', 'voice_clone');
-  fd.append('file', f, f.name);
-  fetch('https://api.minimaxi.com/v1/files/upload?GroupId=' + encodeURIComponent(g), {
-    method:'POST',
-    headers:{ 'Authorization':'Bearer '+k },
-    body: fd
-  }).then(r=>r.json()).then(j=>{
-    const fid = j && j.file && j.file.file_id;
-    if(!fid) throw new Error(j && j.base_resp ? (j.base_resp.status_msg || '上传失败') : '上传失败');
-    toast('正在复刻音色…');
-    const mdl = document.getElementById('psMiniModel') ? document.getElementById('psMiniModel').value : 'speech-2.8-turbo';
-    return fetch('https://api.minimaxi.com/v1/voice_clone?GroupId=' + encodeURIComponent(g), {
+  try{
+    const g = document.getElementById('psMiniGroup').value.trim();
+    const k = document.getElementById('psMiniKey').value.trim();
+    const fi = document.getElementById('psCloneFile');
+    const f = fi && fi.files && fi.files[0];
+    if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
+    if(!f){ toast('先选择一段人声音频（10秒-5分钟，mp3/m4a/wav）'); return; }
+    const vid = 'clone_' + Date.now();
+    toast('上传音频…');
+    const fd = new FormData();
+    fd.append('purpose', 'voice_clone');
+    fd.append('file', f, f.name);
+    fetch('https://api.minimaxi.com/v1/files/upload?GroupId=' + encodeURIComponent(g), {
       method:'POST',
-      headers:{ 'Authorization':'Bearer '+k, 'Content-Type':'application/json' },
-      body: JSON.stringify({ file_id: fid, voice_id: vid, model: mdl })
-    }).then(r=>r.json()).then(j2=>{
-      if(j2 && j2.base_resp && j2.base_resp.status_code !== 0) throw new Error(j2.base_resp.status_msg || '复刻失败');
-      document.getElementById('psMiniVoiceId').value = vid;
-      toast('复刻完成：'+vid+'（保存后生效，首次合成计费）');
-      if(j2 && j2.demo_audio){ try{ const a = new Audio(j2.demo_audio); a.play(); }catch(e){} }
-    });
-  }).catch(e=>toast('复刻失败：' + (e && e.message ? e.message : e)));
+      headers:{ 'Authorization':'Bearer '+k },
+      body: fd
+    }).then(r=>r.json()).then(j=>{
+      const fid = j && j.file && j.file.file_id;
+      if(!fid) throw new Error(j && j.base_resp ? (j.base_resp.status_msg || '上传失败') : '上传失败');
+      toast('正在复刻音色…');
+      const mdl = document.getElementById('psMiniModel') ? document.getElementById('psMiniModel').value : 'speech-2.8-turbo';
+      return fetch('https://api.minimaxi.com/v1/voice_clone?GroupId=' + encodeURIComponent(g), {
+        method:'POST',
+        headers:{ 'Authorization':'Bearer '+k, 'Content-Type':'application/json' },
+        body: JSON.stringify({ file_id: fid, voice_id: vid, model: mdl })
+      }).then(r=>r.json()).then(j2=>{
+        if(j2 && j2.base_resp && j2.base_resp.status_code !== 0) throw new Error(j2.base_resp.status_msg || '复刻失败');
+        document.getElementById('psMiniVoiceId').value = vid;
+        toast('复刻完成：'+vid+'（保存后生效，首次合成计费）');
+        if(j2 && j2.demo_audio){ try{ const a = new Audio(j2.demo_audio); a.play(); }catch(e){} }
+      });
+    }).catch(e=>toast('复刻失败：' + (e && e.message ? e.message : e)));
+  }catch(e){ console.error('clone:', e); toast('复刻异常：' + (e && e.message ? e.message : e)); }
 }
 // 伴学文案由 AI 每次现写（跟随助理性格，像彩蛋一样）；无 key / 超时 9s / 失败 → 内置模板兜底
 let ttsAiSeq = 0;
