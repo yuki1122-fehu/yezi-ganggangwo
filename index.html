@@ -3312,7 +3312,6 @@ function renderWeather(){
     init(w, h){
       this.w = w; this.h = h;
       this.drops.length = 0;
-      this.splashes = [];
       // 暴雨/雷暴：比大雨更密更快，但保持疏缓（用户：不要过密过快）
       const n = isLowPerf ? 30 : 42;
       for(let i=0;i<n;i++){
@@ -3334,25 +3333,10 @@ function renderWeather(){
       // 白色极淡雨丝（~5%）
       const baseColor = '255,255,255';
       for(const d of this.drops){
-        const prevY = d.y;
         d.y += d.speed * dt;
         d.x += d.speed * d.slope * dt;
-        // 触底生成水花
+        // 触底直接回卷（无溅起水花）
         if(d.y > h - 2){
-          // 1-2 颗溅射粒子向上飞
-          const splashN = Math.random() < 0.5 ? 2 : 1;
-          for(let k=0;k<splashN;k++){
-            this.splashes.push({
-              x: d.x + rand(-3, 3),
-              y: h - 1,
-              vx: rand(-50, 50),
-              vy: rand(-160, -90),
-              r: rand(1.2, 2.2),
-              life: 0,
-              maxLife: rand(0.35, 0.6),
-              alpha: 1
-            });
-          }
           d.y = -d.len;
           d.x = rand(-40, w+40);
         }
@@ -3363,20 +3347,6 @@ function renderWeather(){
         ctx.moveTo(d.x, d.y);
         ctx.lineTo(d.x - d.slope*d.len*1.6, d.y + d.len*1.6);
         ctx.stroke();
-      }
-      // 更新/绘制水花
-      for(let i = this.splashes.length - 1; i >= 0; i--){
-        const s = this.splashes[i];
-        s.life += dt;
-        s.x += s.vx * dt;
-        s.y += s.vy * dt;
-        s.vy += 380 * dt; // 重力
-        const k = 1 - s.life / s.maxLife;
-        if(k <= 0){ this.splashes.splice(i, 1); continue; }
-        ctx.fillStyle = `rgba(${baseColor},${k * 0.4})`;
-        ctx.beginPath();
-        ctx.arc(s.x, s.y, s.r * k, 0, Math.PI*2);
-        ctx.fill();
       }
     }
   }
