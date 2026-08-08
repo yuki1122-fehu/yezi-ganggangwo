@@ -424,7 +424,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .weather-card{
   flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
   gap:7px;padding:14px 8px;border-radius:var(--radius);
-  background:var(--green-soft);border:1px solid var(--green-mid);color:#fff;
+  background:var(--green-soft);border:1px solid var(--green-mid);
   box-shadow:var(--shadow-inset);cursor:pointer;transition:transform .16s var(--ease);
   position:relative;overflow:hidden;
 }
@@ -433,15 +433,32 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .weather-card .w-icon{font-size:46px;line-height:1;}
 .weather-card .w-temp{font-size:24px;font-weight:800;line-height:1;}
 .weather-card .w-desc{font-size:12px;font-weight:700;line-height:1.35;}
-.weather-card .w-meta{font-size:10px;color:rgba(255,255,255,.82);line-height:1.3;}
+.weather-card .w-meta{font-size:10px;color:var(--ink-soft);line-height:1.3;}
 .weather-card.offline{background:var(--glass-strong);border-color:var(--glass-line);color:var(--ink-soft);}
 .weather-card.offline .w-meta{color:var(--ink-soft);}
 /* ===== 天气卡 Canvas 粒子动画（替换原 CSS 装饰为 JS 驱动） ===== */
 /* 三层结构：.weather-bg（CSS 渐变，底层）/ .weather-canvas（JS 粒子，中层）/ .weather-anim（CSS 装饰兜底，顶层只是气泡） */
 .weather-bg,.weather-canvas{position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;}
 .weather-canvas{width:100%;height:100%;display:block;}
-/* 让文字信息浮在粒子之上 */
-.weather-card .w-icon,.weather-card .w-temp,.weather-card .w-desc,.weather-card .w-meta{position:relative;z-index:3;text-shadow:0 1px 3px rgba(0,0,0,.4),0 0 8px rgba(0,0,0,.22);}
+/* 文字浮在粒子之上：默认字体（华康康熙字典体宋体）+ 无阴影 */
+.weather-card .w-icon,.weather-card .w-temp,.weather-card .w-desc,.weather-card .w-meta{
+  position:relative;z-index:3;
+  font-family:var(--font);
+}
+/* 浅色背景（晴/多云/雾/雪）→ 文字继承默认墨色（--ink 自动适配深浅主题） */
+.weather-card[data-weather="sunny"] .w-meta,
+.weather-card[data-weather="cloudy"] .w-meta,
+.weather-card[data-weather="fog"] .w-meta,
+.weather-card[data-weather="snow"] .w-meta{color:var(--ink-soft);}
+/* 深色背景（四种雨）→ 白色文字（深底白字无需阴影即可读） */
+.weather-card[data-weather="rain"],
+.weather-card[data-weather="heavy_rain"],
+.weather-card[data-weather="rainstorm"],
+.weather-card[data-weather="thunderstorm"]{color:#fff;}
+.weather-card[data-weather="rain"] .w-meta,
+.weather-card[data-weather="heavy_rain"] .w-meta,
+.weather-card[data-weather="rainstorm"] .w-meta,
+.weather-card[data-weather="thunderstorm"] .w-meta{color:rgba(255,255,255,.82);}
 .weather-card .w-icon{font-size:46px;line-height:1;animation:wBob 3.4s ease-in-out infinite;}
 @keyframes wBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-3px);}}
 
@@ -530,8 +547,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 [data-theme="dark"] .weather-card[data-weather="snow"]{
   background:linear-gradient(170deg,#37434f 0%,#272f3b 55%,#181e28 100%);
 }
-/* 所有天气统一白字（text-shadow 已兜底对比度），offline 除外 */
-[data-theme="dark"] .weather-card{color:#fff;}
+/* 深色主题：文字颜色由 --ink 自动适配（浅底卡用浅色字、深底卡用白字），offline 除外 */
 [data-theme="dark"] .weather-card.offline{background:var(--glass-strong);border-color:var(--glass-line);color:var(--ink-soft);}
 
 /* ---------- 天气警告条 ---------- */
