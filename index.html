@@ -424,7 +424,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .weather-card{
   flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
   gap:7px;padding:14px 8px;border-radius:var(--radius);
-  background:var(--green-soft);border:1px solid var(--green-mid);
+  background:var(--green-soft);border:1px solid var(--green-mid);color:#fff;
   box-shadow:var(--shadow-inset);cursor:pointer;transition:transform .16s var(--ease);
   position:relative;overflow:hidden;
 }
@@ -433,7 +433,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .weather-card .w-icon{font-size:46px;line-height:1;}
 .weather-card .w-temp{font-size:24px;font-weight:800;line-height:1;}
 .weather-card .w-desc{font-size:12px;font-weight:700;line-height:1.35;}
-.weather-card .w-meta{font-size:10px;color:var(--ink-soft);line-height:1.3;}
+.weather-card .w-meta{font-size:10px;color:rgba(255,255,255,.82);line-height:1.3;}
 .weather-card.offline{background:var(--glass-strong);border-color:var(--glass-line);color:var(--ink-soft);}
 .weather-card.offline .w-meta{color:var(--ink-soft);}
 /* ===== 天气卡 Canvas 粒子动画（替换原 CSS 装饰为 JS 驱动） ===== */
@@ -3227,7 +3227,7 @@ function renderWeather(){
     init(w, h){
       this.w = w; this.h = h;
       this.drops.length = 0;
-      // 小雨：细短慢，无拖影 —— 三档雨里最"轻"的一档
+      // 小雨：细短慢，无拖影 —— 极淡白雨丝（~5% 透明度）
       const n = isLowPerf ? 35 : 50;
       for(let i=0;i<n;i++){
         const d = {
@@ -3235,7 +3235,7 @@ function renderWeather(){
           y: rand(-h, h),
           len: rand(6, 10),
           speed: rand(100, 150),        // 像素/秒
-          alpha: rand(0.3, 0.55),
+          alpha: rand(0.04, 0.07),      // 几乎透明
           slope: rand(0.05, 0.1)        // 微弱倾斜
         };
         this.drops.push(d);
@@ -3245,15 +3245,12 @@ function renderWeather(){
     tick(dt, w, h, ctx){
       ctx.clearRect(0, 0, w, h);
       ctx.lineCap = 'round';
-      const isDark = this.theme === 'dark';
       for(const d of this.drops){
         d.y += d.speed * dt;
         d.x += d.speed * d.slope * dt;
         if(d.y > h){ d.y = -d.len; d.x = rand(-20, w+20); }
         if(d.x > w + 20) d.x = -20;
-        ctx.strokeStyle = isDark
-          ? `rgba(180,205,235,${d.alpha})`
-          : `rgba(110,140,180,${d.alpha})`;
+        ctx.strokeStyle = `rgba(255,255,255,${d.alpha})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(d.x, d.y);
@@ -3280,7 +3277,7 @@ function renderWeather(){
           y: rand(-h, h),
           len: rand(6, 10),
           speed: rand(90, 130),
-          alpha: rand(0.3, 0.5),
+          alpha: rand(0.04, 0.07),      // 几乎透明
           slope: rand(0.05, 0.1)
         });
       }
@@ -3289,8 +3286,8 @@ function renderWeather(){
       // 与小雨一样 clearRect，无拖影
       ctx.clearRect(0, 0, w, h);
       ctx.lineCap = 'round';
-      // 浅色背景（提亮后）用深灰蓝雨丝才看得清；暗色主题用浅色
-      const baseColor = this.theme === 'dark' ? '210,225,245' : '100,125,155';
+      // 白色极淡雨丝（~5%）
+      const baseColor = '255,255,255';
       for(const d of this.drops){
         d.y += d.speed * dt;
         d.x += d.speed * d.slope * dt;
@@ -3324,18 +3321,18 @@ function renderWeather(){
           y: rand(-h, h),
           len: rand(9, 16),
           speed: rand(150, 210),
-          alpha: rand(0.35, 0.55),
+          alpha: rand(0.05, 0.08),      // 几乎透明（暴雨略高一点点）
           slope: rand(0.12, 0.22)
         });
       }
     }
     tick(dt, w, h, ctx){
-      // 拖影：接近背景的灰蓝色
+      // 拖影：极淡的浅灰蓝
       const trailColor = this.theme === 'dark' ? '8,14,28' : '150,165,190';
-      trailFill(ctx, w, h, trailColor, 0.08);
+      trailFill(ctx, w, h, trailColor, 0.04);
       ctx.lineCap = 'round';
-      // 浅色背景用深灰蓝雨丝；暗色主题用浅色
-      const baseColor = this.theme === 'dark' ? '225,235,255' : '80,105,140';
+      // 白色极淡雨丝（~5%）
+      const baseColor = '255,255,255';
       for(const d of this.drops){
         const prevY = d.y;
         d.y += d.speed * dt;
@@ -3376,7 +3373,7 @@ function renderWeather(){
         s.vy += 380 * dt; // 重力
         const k = 1 - s.life / s.maxLife;
         if(k <= 0){ this.splashes.splice(i, 1); continue; }
-        ctx.fillStyle = `rgba(${baseColor},${k * 0.7})`;
+        ctx.fillStyle = `rgba(${baseColor},${k * 0.4})`;
         ctx.beginPath();
         ctx.arc(s.x, s.y, s.r * k, 0, Math.PI*2);
         ctx.fill();
