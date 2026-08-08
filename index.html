@@ -445,20 +445,11 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   position:relative;z-index:3;
   font-family:var(--font);
 }
-/* 浅色背景（晴/多云/雾/雪）→ 文字继承默认墨色（--ink 自动适配深浅主题） */
-.weather-card[data-weather="sunny"] .w-meta,
-.weather-card[data-weather="cloudy"] .w-meta,
-.weather-card[data-weather="fog"] .w-meta,
-.weather-card[data-weather="snow"] .w-meta{color:var(--ink-soft);}
-/* 深色背景（四种雨）→ 白色文字（深底白字无需阴影即可读） */
-.weather-card[data-weather="rain"],
-.weather-card[data-weather="heavy_rain"],
-.weather-card[data-weather="rainstorm"],
-.weather-card[data-weather="thunderstorm"]{color:#fff;}
-.weather-card[data-weather="rain"] .w-meta,
-.weather-card[data-weather="heavy_rain"] .w-meta,
-.weather-card[data-weather="rainstorm"] .w-meta,
-.weather-card[data-weather="thunderstorm"] .w-meta{color:rgba(255,255,255,.82);}
+/* 文字浮在粒子之上：默认字体（华康康熙字典体宋体）+ 无阴影，全天气统一墨字（--ink 自动适配深浅主题） */
+.weather-card .w-icon,.weather-card .w-temp,.weather-card .w-desc,.weather-card .w-meta{
+  position:relative;z-index:3;
+  font-family:var(--font);
+}
 .weather-card .w-icon{font-size:46px;line-height:1;animation:wBob 3.4s ease-in-out infinite;}
 @keyframes wBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-3px);}}
 
@@ -471,17 +462,18 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .weather-card[data-weather="cloudy"]{
   background:linear-gradient(165deg,#dde6f0 0%,#b8c6d8 50%,#9aabc1 100%);
 }
+/* 雨类背景：低饱和柔和灰蓝（贴近页面淡绿米白，降突兀感），文字统一墨字 */
 .weather-card[data-weather="rain"]{
-  background:linear-gradient(170deg,#bfd2e3 0%,#7e97b3 55%,#4a6685 100%);
+  background:linear-gradient(170deg,#e0e7eb 0%,#c3cfd7 55%,#a4b3be 100%);
 }
 .weather-card[data-weather="heavy_rain"]{
-  background:linear-gradient(170deg,#aabdcf 0%,#869bb1 55%,#647c96 100%);
+  background:linear-gradient(170deg,#d8e2e8 0%,#b8c8d1 55%,#96a9b5 100%);
 }
 .weather-card[data-weather="rainstorm"]{
-  background:linear-gradient(170deg,#98adc2 0%,#748ba3 55%,#516a84 100%);
+  background:linear-gradient(170deg,#cfdbe3 0%,#adc0cb 55%,#8aa0ae 100%);
 }
 .weather-card[data-weather="thunderstorm"]{
-  background:linear-gradient(170deg,#8494ad 0%,#62728d 55%,#45536e 100%);
+  background:linear-gradient(170deg,#c6d3dc 0%,#a1b6c2 55%,#7c93a2 100%);
 }
 .weather-card[data-weather="fog"]{
   background:linear-gradient(170deg,#e8eef4 0%,#c9d6e2 55%,#a8bac9 100%);
@@ -3280,25 +3272,25 @@ function renderWeather(){
     init(w, h){
       this.w = w; this.h = h;
       this.drops.length = 0;
-      // 大雨：与小雨完全一致的参数（数量/长度/速度/斜度/透明度），只换白色
-      const n = isLowPerf ? 35 : 50;
+      // 大雨：比小雨更疏更缓（用户：大雨以上不要太密太快）
+      const n = isLowPerf ? 25 : 38;
       for(let i=0;i<n;i++){
         this.drops.push({
           x: rand(-20, w+20),
           y: rand(-h, h),
           len: rand(6, 10),
-          speed: rand(100, 150),
-          alpha: rand(0.3, 0.55),
+          speed: rand(90, 130),
+          alpha: rand(0.3, 0.5),
           slope: rand(0.05, 0.1)
         });
       }
     }
     tick(dt, w, h, ctx){
-      // 与小丽一样 clearRect，无拖影
+      // 与小雨一样 clearRect，无拖影
       ctx.clearRect(0, 0, w, h);
       ctx.lineCap = 'round';
-      // 仅颜色不同：白色雨丝
-      const baseColor = this.theme === 'dark' ? '210,225,245' : '255,255,255';
+      // 浅色背景（提亮后）用深灰蓝雨丝才看得清；暗色主题用浅色
+      const baseColor = this.theme === 'dark' ? '210,225,245' : '100,125,155';
       for(const d of this.drops){
         d.y += d.speed * dt;
         d.x += d.speed * d.slope * dt;
@@ -3324,26 +3316,26 @@ function renderWeather(){
       this.w = w; this.h = h;
       this.drops.length = 0;
       this.splashes = [];
-      // 暴雨/雷暴：雨丝密度频率 = 之前的大雨（数量/长度/速度/斜度），保留拖影 + 水花
-      const n = isLowPerf ? 40 : 55;
+      // 暴雨/雷暴：比大雨更密更快，但保持疏缓（用户：不要过密过快）
+      const n = isLowPerf ? 30 : 42;
       for(let i=0;i<n;i++){
         this.drops.push({
           x: rand(-30, w+30),
           y: rand(-h, h),
           len: rand(9, 16),
-          speed: rand(200, 280),
-          alpha: rand(0.3, 0.5),
+          speed: rand(150, 210),
+          alpha: rand(0.35, 0.55),
           slope: rand(0.12, 0.22)
         });
       }
     }
     tick(dt, w, h, ctx){
       // 拖影：接近背景的灰蓝色
-      const trailColor = this.theme === 'dark' ? '8,14,28' : '130,150,180';
-      trailFill(ctx, w, h, trailColor, 0.10);
+      const trailColor = this.theme === 'dark' ? '8,14,28' : '150,165,190';
+      trailFill(ctx, w, h, trailColor, 0.08);
       ctx.lineCap = 'round';
-      // 雨滴白色
-      const baseColor = this.theme === 'dark' ? '225,235,255' : '255,255,255';
+      // 浅色背景用深灰蓝雨丝；暗色主题用浅色
+      const baseColor = this.theme === 'dark' ? '225,235,255' : '80,105,140';
       for(const d of this.drops){
         const prevY = d.y;
         d.y += d.speed * dt;
