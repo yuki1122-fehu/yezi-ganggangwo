@@ -410,7 +410,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .next-card .btn-go{
   background:rgba(255,255,255,.28);color:#fff;border:1px solid rgba(255,255,255,.4);border-radius:var(--radius-pill);
   padding:9px 18px;font-size:12.5px;font-weight:700;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
-  cursor:pointer;box-shadow:var(--shadow-inset);transition:all .16s var(--ease);
+  cursor:pointer;box-shadow:var(--shadow-inset);transition:transform .16s var(--ease),background .16s var(--ease),box-shadow .16s var(--ease);
 }
 .next-card .btn-go:active{background:rgba(255,255,255,.45);transform:scale(.95);}
 .next-card .tag{background:rgba(255,255,255,.22);font-size:10px;padding:4px 11px;border-radius:var(--radius-pill);font-weight:700;border:1px solid rgba(255,255,255,.2);}
@@ -548,7 +548,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:var(--radius-pill);
   border:1px solid var(--glass-line);background:var(--glass-strong);
   font-size:12px;font-weight:700;color:var(--ink-soft);cursor:pointer;
-  box-shadow:var(--shadow-inset);transition:all .2s var(--ease);white-space:nowrap;flex-shrink:0;min-width:max-content;
+  box-shadow:var(--shadow-inset);transition:transform .2s var(--ease),background .2s var(--ease),box-shadow .2s var(--ease),border-color .2s var(--ease),color .2s var(--ease);white-space:nowrap;flex-shrink:0;min-width:max-content;
 }
 .list-toolbar .chip-toggle.active{
   background:var(--green-soft);border-color:var(--green-mid);color:var(--green-dark);
@@ -573,18 +573,56 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .item-head{display:flex;align-items:flex-start;gap:14px;}
 .check{
   flex:0 0 auto;width:26px;height:26px;border-radius:50%;border:2px solid var(--green-mid);
-  margin-top:2px;display:flex;align-items:center;justify-content:center;
-  background:var(--glass-strong);box-shadow:var(--shadow-inset);
-  transition:all .22s var(--ease);
+  margin-top:2px;display:flex;align-items:center;justify-content:center;position:relative;
+  background:var(--glass-strong);box-shadow:var(--shadow-inset);cursor:pointer;
+  transition:background .22s var(--ease),border-color .22s var(--ease),box-shadow .22s var(--ease);
 }
+/* 圈圈点击热区：透明外扩 10px，仅点击圈圈才切换完成（completing 时该伪元素被光晕覆盖） */
+.check::before{content:"";position:absolute;inset:-10px;border-radius:50%;}
 .item.done .check{background:linear-gradient(135deg,var(--green-deep),var(--green));border-color:transparent;box-shadow:0 4px 12px var(--green-glow);}
-.check svg{width:13px;height:13px;opacity:0;transform:scale(.4);transition:all .22s var(--ease);}
+.check svg{width:13px;height:13px;opacity:0;transform:scale(.4);transition:opacity .22s var(--ease),transform .22s var(--ease);}
 .item.done .check svg{opacity:1;transform:scale(1);stroke:#fff;}
+/* 完成动效 v2：弹跳 + 双层光晕（填充扩散 + 深绿描边环）+ 勾画线 + 整卡绿光呼吸 */
+.item.completing .check{animation:checkPop .55s var(--ease) both;}
+.item.completing .check svg{opacity:1;transform:scale(1);transition:none;}
+.item.completing .check svg path{stroke-dasharray:24;stroke-dashoffset:24;animation:drawCheck .34s var(--ease) .05s both;}
+.item.completing .check::before{content:"";position:absolute;inset:-10px;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle, rgba(130,160,126,.55), rgba(130,160,126,.16) 55%, transparent 74%);
+  opacity:0;animation:checkFill .8s var(--ease) both;}
+.item.completing .check::after{content:"";position:absolute;inset:-5px;border-radius:50%;pointer-events:none;
+  border:2.5px solid var(--green-deep);box-shadow:0 0 12px rgba(130,160,126,.8);
+  opacity:0;animation:checkRing .8s var(--ease) both;}
+.item.completing{animation:itemGlow .8s var(--ease);}
+@keyframes checkPop{0%{transform:scale(1);}35%{transform:scale(1.22);}100%{transform:scale(1);}}
+@keyframes checkFill{0%{opacity:0;transform:scale(.35);}28%{opacity:1;}100%{opacity:0;transform:scale(2.2);}}
+@keyframes checkRing{0%{opacity:.95;transform:scale(.7);}100%{opacity:0;transform:scale(2);}}
+@keyframes drawCheck{to{stroke-dashoffset:0;}}
+@keyframes itemGlow{
+  0%{box-shadow:var(--shadow-sm),var(--shadow-inset);}
+  35%{box-shadow:0 10px 30px rgba(130,160,126,.5),0 0 0 1px var(--green-mid),var(--shadow-inset);}
+  100%{box-shadow:var(--shadow-sm),var(--shadow-inset);}
+}
+/* 完成烟花：半透明粒子从点击处向四周炸开 + 中央爆点 */
+.firework{
+  position:fixed;z-index:60;pointer-events:none;border-radius:50%;
+  will-change:transform,opacity;
+  animation:firePop .85s cubic-bezier(.16,1,.3,1) both;
+}
+@keyframes firePop{
+  0%{transform:translate(0,0) scale(.4);opacity:1;}
+  100%{transform:translate(var(--fx,80px),var(--fy,-80px)) scale(.4);opacity:0;}
+}
+.firework-flash{
+  position:fixed;z-index:60;pointer-events:none;width:12px;height:12px;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,255,255,.95),rgba(165,192,162,.55) 55%,transparent 72%);
+  animation:flashPop .5s ease-out both;
+}
+@keyframes flashPop{0%{transform:scale(.3);opacity:1;}100%{transform:scale(11);opacity:0;}}
 .item.done .txt-title{color:var(--ink-faint);text-decoration:line-through;text-decoration-color:var(--green-mid);}
 .item.expired .txt-title{color:var(--ink-faint);}
 .item.expired .badge-date{background:rgba(216,90,90,.10);color:var(--danger);border-color:rgba(216,90,90,.25);}
 .txt{flex:1;min-width:0;}
-.txt-title{font-size:15.5px;font-weight:700;line-height:1.45;display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--ink);}
+.txt-title{font-size:15.5px;font-weight:700;line-height:1.45;display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:var(--ink);text-decoration:line-through;text-decoration-color:transparent;-webkit-text-decoration-color:transparent;transition:color .32s var(--ease),text-decoration-color .32s var(--ease);}
 .txt-note{font-size:12.5px;color:var(--ink-soft);margin-top:5px;line-height:1.55;}
 .badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;align-items:center;}
 .badge-date{font-size:11px;color:var(--green-dark);background:var(--green-soft);padding:4px 11px;border-radius:var(--radius-pill);font-weight:700;border:1px solid var(--green-mid);}
@@ -700,7 +738,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   box-shadow:var(--shadow),var(--shadow-inset);
 }
 .tabs .tab{flex:1;text-align:center;padding:9px 0 7px;border-radius:var(--radius-pill);color:var(--ink-soft);
-  font-size:11px;font-weight:700;transition:all .22s var(--ease);display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;letter-spacing:.2px;}
+  font-size:11px;font-weight:700;transition:color .22s var(--ease),background .22s var(--ease),box-shadow .22s var(--ease);display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;letter-spacing:.2px;}
 .tabs .tab .ic{width:21px;height:21px;display:block;line-height:0;transition:transform .22s var(--ease);}
 .tabs .tab .ic svg{width:100%;height:100%;display:block;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
 .tabs .tab:active .ic{transform:scale(.85);}
@@ -717,6 +755,14 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   animation:sheetUp .4s var(--ease);
 }
 @keyframes sheetUp{from{transform:translateY(40px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+/* 退场：关闭时先播退场动画再隐藏（emil-design-eng 审查 P0-1） */
+.mask.closing{display:flex;animation:maskOut .22s var(--ease) both;}
+.mask.closing .sheet,.mask.closing .pomo-plant-card{animation:sheetOut .22s var(--ease) both;}
+@keyframes maskOut{from{opacity:1;}to{opacity:0;visibility:hidden;}}
+@keyframes sheetOut{from{transform:translateY(0);opacity:1;}to{transform:translateY(24px);opacity:0;visibility:hidden;}}
+/* 全屏页（AI 助理 / 番茄钟）丝滑上滑入场 + 下滑退场 */
+@keyframes pageIn{from{transform:translateY(7%);opacity:0;}to{transform:translateY(0);opacity:1;}}
+@keyframes pageOut{from{transform:translateY(0);opacity:1;}to{transform:translateY(5%);opacity:0;visibility:hidden;}}
 .sheet h3{margin:0 0 6px;font-size:19px;color:var(--ink);font-weight:800;letter-spacing:.2px;}
 .sheet p{margin:0 0 16px;font-size:13px;color:var(--ink-soft);line-height:1.6;}
 .sheet label{display:block;font-size:12px;font-weight:700;color:var(--ink-soft);margin:14px 0 6px;letter-spacing:.2px;}
@@ -759,14 +805,14 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   animation:fabIn .5s var(--ease);
 }
 .ai-fab:active{transform:scale(.88);}
-@keyframes fabIn{from{transform:scale(0);opacity:0;}to{transform:scale(1);opacity:1;}}
+@keyframes fabIn{from{transform:scale(.92);opacity:0;}to{transform:scale(1);opacity:1;}}
 
 /* ---------- Toast ---------- */
 .toast{position:fixed;bottom:120px;left:50%;transform:translateX(-50%) translateY(20px);
   background:rgba(40,48,40,.92);color:#fff;font-size:13px;padding:12px 22px;border-radius:var(--radius-pill);opacity:0;
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   border:1px solid rgba(255,255,255,.14);box-shadow:var(--shadow);
-  transition:all .32s var(--ease);z-index:80;pointer-events:none;white-space:nowrap;max-width:90%;font-weight:600;}
+  transition:opacity .32s var(--ease),transform .32s var(--ease);z-index:80;pointer-events:none;white-space:nowrap;max-width:90%;font-weight:600;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 
 /* ---------- AI 助理面板 ---------- */
@@ -774,7 +820,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   background-image:
     radial-gradient(60% 50% at 12% -4%, rgba(165,192,162,.30), transparent 60%),
     radial-gradient(50% 45% at 88% 8%, rgba(224,170,112,.12), transparent 58%);}
-#aiMask.show{display:flex;animation:maskIn .3s var(--ease);}
+#aiMask.show{display:flex;animation:pageIn .48s var(--ease) both;}
 .ai-head{display:flex;justify-content:space-between;align-items:center;padding:calc(14px + var(--safe-t)) 16px 13px;border-bottom:1px solid var(--line);background:var(--glass-strong);backdrop-filter:blur(40px) saturate(200%);-webkit-backdrop-filter:blur(40px) saturate(200%);}
 .ai-title{font-size:17px;font-weight:800;color:var(--ink);display:flex;align-items:center;gap:8px;letter-spacing:.2px;}
 .ai-head-actions{display:flex;gap:8px;}
@@ -827,7 +873,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   flex:0 0 auto;padding:8px 14px;border-radius:var(--radius-pill);
   border:1px solid var(--glass-line);background:var(--glass);
   font-size:12.5px;font-weight:600;color:var(--ink-soft);cursor:pointer;
-  box-shadow:var(--shadow-inset);transition:all .16s var(--ease);white-space:nowrap;
+  box-shadow:var(--shadow-inset);transition:transform .16s var(--ease),background .16s var(--ease),color .16s var(--ease),border-color .16s var(--ease),box-shadow .16s var(--ease);white-space:nowrap;
 }
 .ai-chips button:active{transform:scale(.94);background:var(--green-soft);color:var(--green-dark);border-color:var(--green-mid);}
 
@@ -888,7 +934,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     radial-gradient(80% 55% at 50% 112%, rgba(165,192,162,.26), transparent 64%);
   overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
 }
-#pomoMask.show{display:flex;animation:maskIn .3s var(--ease);}
+#pomoMask.show{display:flex;animation:pageIn .48s var(--ease) both;}
 /* 液态光晕层：绿（专注）/ 暖杏（休息）双图层淡入淡出 + 慢速漂移 */
 .pomo-aurora{
   position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;
@@ -1016,7 +1062,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   cursor:pointer;
   box-shadow:inset 0 1px 1px rgba(255,255,255,.85), 0 4px 12px rgba(92,115,89,.06);
   backdrop-filter:blur(16px) saturate(160%);-webkit-backdrop-filter:blur(16px) saturate(160%);
-  transition:all .18s var(--ease);
+  transition:transform .18s var(--ease),background .18s var(--ease),box-shadow .18s var(--ease),border-color .18s var(--ease),color .18s var(--ease);
 }
 .pomo-presets button.active{
   background:linear-gradient(135deg, #9cbb96, var(--green-deep) 60%, #6b8563);
@@ -1095,7 +1141,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   background:var(--warm-deep);border:2px solid #fff;display:none;
 }
 .pomo-egg-btn.ready .egg-badge{display:block;}
-@keyframes eggPop{from{transform:scale(0) rotate(-30deg);opacity:0;}to{transform:scale(1) rotate(0);opacity:1;}}
+@keyframes eggPop{from{transform:scale(.9) rotate(-30deg);opacity:0;}to{transform:scale(1) rotate(0);opacity:1;}}
 @keyframes eggWiggle{0%,100%{transform:rotate(0);}12%{transform:rotate(-8deg);}24%{transform:rotate(7deg);}36%{transform:rotate(-5deg);}48%{transform:rotate(3deg);}60%{transform:rotate(0);}}
 @keyframes eggBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
 .egg-theme{
@@ -1240,7 +1286,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .pg-merge-btn{
   border:1px solid var(--green-mid);background:var(--green-soft);color:var(--green-dark);
   border-radius:var(--radius-pill);padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer;
-  font-family:var(--font);transition:all .18s var(--ease);flex:0 0 auto;
+  font-family:var(--font);transition:transform .18s var(--ease),background .18s var(--ease),box-shadow .18s var(--ease),color .18s var(--ease),border-color .18s var(--ease);flex:0 0 auto;
 }
 .pg-merge-btn:active{transform:scale(.92);}
 .pg-merge-btn.active{background:var(--green-deep);color:#fff;border-color:var(--green-deep);box-shadow:0 4px 12px rgba(130,160,126,.4);}
@@ -1381,6 +1427,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   .pomo-garden{margin-left:12px;margin-right:12px;padding:11px 12px 9px;}
   .pg-hint{font-size:9.5px;}
 }
+/* 全屏页（AI 助理 / 番茄钟）退场：置于 .show 规则之后，同特异性下 closing 胜出 */
+#aiMask.closing,#pomoMask.closing{display:flex;animation:pageOut .34s var(--ease) both;}
 </style>
 </head>
 <body>
@@ -3137,6 +3185,56 @@ function isTaskExpired(t){
 }
 
 /* ====== 渲染列表 ====== */
+let justCompletedId=null;
+/* FLIP：记录各 item 旧位置，render 后 invert+play，让重排顺滑（沉浸感） */
+function snapshotItems(){
+  const map={};
+  document.querySelectorAll('#list .item').forEach(el=>{ const m=el.id.match(/^item-(.+)$/); if(m) map[m[1]]=el.getBoundingClientRect(); });
+  return map;
+}
+function playFlip(oldMap){
+  const items=document.querySelectorAll('#list .item');
+  items.forEach(el=>{
+    const m=el.id.match(/^item-(.+)$/); if(!m||!oldMap[m[1]]) return;
+    const nr=el.getBoundingClientRect(), or=oldMap[m[1]];
+    const dy=or.top-nr.top; if(Math.abs(dy)<1) return;
+    el.style.transition='none'; el.style.transform='translateY('+dy+'px)';
+    requestAnimationFrame(()=>{ requestAnimationFrame(()=>{
+      el.style.transition='transform .42s cubic-bezier(.16,1,.3,1)';
+      el.style.transform='';
+      const clean=(ev)=>{ if(ev.propertyName!=='transform') return; el.style.transition=''; el.style.transform=''; el.removeEventListener('transitionend',clean); };
+      el.addEventListener('transitionend',clean);
+    }); });
+  });
+}
+/* 完成烟花：在 (x,y) 位置炸开 14 颗半透明彩色光点 + 中央闪光 */
+const FIRE_COLORS=['#a5c0a2','#e0aa70','#9fc3b0','#d9a06a','#f5f0e0','#8fb9a8'];
+function celebrate(x,y){
+  const flash=document.createElement('span');
+  flash.className='firework-flash';
+  flash.style.left=(x-6)+'px'; flash.style.top=(y-6)+'px';
+  document.body.appendChild(flash);
+  setTimeout(()=>flash.remove(),600);
+  const n=14;
+  for(let i=0;i<n;i++){
+    const p=document.createElement('span');
+    p.className='firework';
+    const ang=(i/n)*Math.PI*2+(Math.random()*.6-.3);
+    const dist=70+Math.random()*130;
+    const s=5+Math.random()*8;
+    p.style.setProperty('--fx',(Math.cos(ang)*dist).toFixed(0)+'px');
+    p.style.setProperty('--fy',(Math.sin(ang)*dist).toFixed(0)+'px');
+    p.style.width=s+'px'; p.style.height=s+'px';
+    p.style.left=(x-s/2)+'px'; p.style.top=(y-s/2)+'px';
+    const c=FIRE_COLORS[i%FIRE_COLORS.length];
+    p.style.background=c; p.style.boxShadow='0 0 10px '+c;
+    p.style.opacity=(.55+Math.random()*.4).toFixed(2);
+    document.body.appendChild(p);
+    const kill=()=>p.remove();
+    p.addEventListener('animationend',kill,{once:true});
+    setTimeout(kill,1100);
+  }
+}
 function renderList(){
   const list = document.getElementById('list');
   if(curTab==='cal'){ renderCalendar(); return; }
@@ -3166,9 +3264,9 @@ function renderList(){
     const isGenerating = _genStepsBusy.has(t.id);
     const genBtn = !hasSteps ? `<button class="btn primary gen-steps-btn" style="padding:8px 14px;font-size:12px;margin-top:10px;" onclick="generateSteps('${t.id}')" ${isGenerating?'disabled':''}>${isGenerating?'✨ 生成中…':'✨ 一键生成步骤'}</button>` : '';
     const detail = expanded[t.id] ? 'show' : '';
-    return `<div class="item glass ${t.done?'done':''} ${expired?'expired':''}" id="item-${t.id}">
-      <div class="item-head" onclick="toggle('${t.id}')">
-        <div class="check"><svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div>
+    return `<div class="item glass ${t.done?'done':''} ${expired?'expired':''} ${justCompletedId===t.id?'completing':''}" id="item-${t.id}">
+      <div class="item-head">
+        <div class="check" onclick="toggle('${t.id}')" role="button" aria-label="标记完成"><svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div>
         <div class="txt">
           <div class="txt-title">${escHtml(t.title)}${cat}</div>
           <div class="txt-note">${escHtml(t.note)}</div>
@@ -3192,8 +3290,19 @@ function renderList(){
 function toggle(id){
   const t = tasks.find(x=>x.id===id);
   if(!t) return;
+  const wasDone = t.done;
   t.done = !t.done; t.done_at = t.done ? new Date().toISOString() : null;
-  saveLocal(); updateRing(); renderNext(); renderList();
+  saveLocal(); updateRing(); renderNext();
+  if(t.done && !wasDone){
+    justCompletedId = id;
+    const el = document.getElementById('item-'+id);
+    const ck = el ? el.querySelector('.check') : null;
+    if(ck){ const r=ck.getBoundingClientRect(); celebrate(r.left+r.width/2, r.top+r.height/2); }
+  }
+  const oldMap = snapshotItems();
+  renderList();
+  playFlip(oldMap);
+  justCompletedId = null;
 }
 function toggleExpand(id){
   expanded[id]=!expanded[id];
@@ -3432,9 +3541,9 @@ function parseCourseCSV(text){
 function openCourseEdit(){
   document.getElementById('courseBody').value = coursesToCSV();
   document.getElementById('courseMsg').textContent = '';
-  document.getElementById('courseMask').classList.add('show');
+  openMask(document.getElementById('courseMask'));
 }
-function closeCourseEdit(){ document.getElementById('courseMask').classList.remove('show'); }
+function closeCourseEdit(){ closeMask(document.getElementById('courseMask')); }
 function saveCourseEdit(){
   const text = document.getElementById('courseBody').value;
   const parsed = parseCourseCSV(text);
@@ -3470,10 +3579,10 @@ function switchTab(cat){
 
 /* ====== 添加任务 ====== */
 function openAdd(){
-  document.getElementById('addMask').classList.add('show');
+  openMask(document.getElementById('addMask'));
 }
 function closeAdd(){
-  document.getElementById('addMask').classList.remove('show');
+  closeMask(document.getElementById('addMask'));
   document.getElementById('addTitle').value='';
   document.getElementById('addNote').value='';
   document.getElementById('addDeadline').value='';
@@ -3587,10 +3696,10 @@ function openExpenseAdd(){
   document.getElementById('expAmount').value = '';
   document.getElementById('expNote').value = '';
   document.getElementById('expCat').value = '餐饮';
-  document.getElementById('expenseMask').classList.add('show');
+  openMask(document.getElementById('expenseMask'));
 }
 function closeExpenseAdd(){
-  document.getElementById('expenseMask').classList.remove('show');
+  closeMask(document.getElementById('expenseMask'));
 }
 function doExpenseAdd(){
   const amount = parseFloat(document.getElementById('expAmount').value);
@@ -3619,10 +3728,10 @@ function deleteExpense(id){
 }
 function openBudgetSet(){
   document.getElementById('budgetInput').value = EXPENSES.budget;
-  document.getElementById('budgetMask').classList.add('show');
+  openMask(document.getElementById('budgetMask'));
 }
 function closeBudgetSet(){
-  document.getElementById('budgetMask').classList.remove('show');
+  closeMask(document.getElementById('budgetMask'));
 }
 function saveBudget(){
   const v = parseFloat(document.getElementById('budgetInput').value);
@@ -3739,9 +3848,27 @@ function toast(msg){
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),2200);
 }
 
+/* ====== 弹窗退场：先播退场动画再隐藏（emil-design-eng 审查 P0-1） ====== */
+const closeTimers = {};
+function openMask(el){
+  if(!el) return;
+  el.classList.remove('closing');
+  clearTimeout(closeTimers[el.id]);
+  el.classList.add('show');
+}
+function closeMask(el){
+  if(!el || el.classList.contains('closing')) return;
+  el.classList.add('closing');
+  const done = ()=>{ el.classList.remove('closing'); el.classList.remove('show'); };
+  const h = (ev)=>{ if(ev.target===el){ el.removeEventListener('animationend', h); done(); } };
+  el.addEventListener('animationend', h);
+  clearTimeout(closeTimers[el.id]);
+  closeTimers[el.id] = setTimeout(done, 600);
+}
+
 /* ====== 弹窗点击外部关闭 ====== */
 document.querySelectorAll('.mask').forEach(m=>{
-  m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('show'); });
+  m.addEventListener('click',e=>{ if(e.target===m) closeMask(m); });
 });
 
 /* ====== 通用确认/选项弹窗（替代 confirm/prompt：iOS/Android WebView 均可靠） ====== */
@@ -3759,9 +3886,9 @@ function showDialog(title, msg, buttons, asHtml){
     el.onclick = ()=>{ hideDialog(); if(b.fn) b.fn(); };
     box.appendChild(el);
   });
-  document.getElementById('dialogMask').classList.add('show');
+  openMask(document.getElementById('dialogMask'));
 }
-function hideDialog(){ document.getElementById('dialogMask').classList.remove('show'); }
+function hideDialog(){ closeMask(document.getElementById('dialogMask')); }
 
 /* 关闭当前最上层的弹窗/面板；返回 true 表示拦截到了，false 表示没有可关闭的覆盖层。
    Cordova / Capacitor 壳层可把返回键事件交给这个函数，实现「先关弹窗再退出」。 */
@@ -3783,7 +3910,7 @@ function closeTopOverlay(){
   for(const item of stack){
     const el = document.getElementById(item.id);
     if(el && el.classList.contains('show')){
-      try{ item.close(); }catch(e){ el.classList.remove('show'); }
+      try{ item.close(); }catch(e){ closeMask(el); }
       return true;
     }
   }
@@ -4651,10 +4778,10 @@ function openAI(){
   if(!wrap.children.length){
     addAIMsg('sys','我是你的工作台助理 🌿 直接跟我说就行，比如"9月12号10点有个迎新活动""学费交了""我还有啥没做"。');
   }
-  document.getElementById('aiMask').classList.add('show');
+  openMask(document.getElementById('aiMask'));
   setTimeout(()=>document.getElementById('aiInput').focus(), 200);
 }
-function closeAI(){ document.getElementById('aiMask').classList.remove('show'); }
+function closeAI(){ closeMask(document.getElementById('aiMask')); }
 
 function sendQuick(text){
   const input = document.getElementById('aiInput');
@@ -4731,7 +4858,7 @@ function openAISettings(){
   document.getElementById('appTitle').value = getAppTitle()===DEFAULT_TITLE ? '' : getAppTitle();
   document.getElementById('aiSetHint').textContent='';
   updateBackupUI();
-  document.getElementById('aiSetMask').classList.add('show');
+  openMask(document.getElementById('aiSetMask'));
 }
 function resetSystemTpl(){
   const ta = document.getElementById('aiSystemTpl');
@@ -4773,11 +4900,11 @@ async function testVisionConn(){
   const c = r.data.choices[0].message.content || '';
   hint.textContent = '✅ 视觉链路通了！模型 ' + vcfg.model + ' 已响应：' + String(c).slice(0, 60) + ' —— 记得点下面的「保存」。';
 }
-function closeAISettings(){ document.getElementById('aiSetMask').classList.remove('show'); }
+function closeAISettings(){ closeMask(document.getElementById('aiSetMask')); }
 
 /* ====== 查看发送给助理的内容 ====== */
-function openPayloadView(){ renderPayload(); document.getElementById('aiPayloadMask').classList.add('show'); }
-function closePayloadView(){ document.getElementById('aiPayloadMask').classList.remove('show'); }
+function openPayloadView(){ renderPayload(); openMask(document.getElementById('aiPayloadMask')); }
+function closePayloadView(){ closeMask(document.getElementById('aiPayloadMask')); }
 function escHtml(s){
   return String(s==null ? '' : s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
@@ -6263,7 +6390,7 @@ function initPomo(){
 
 /* ---------- 打开 / 关闭 ---------- */
 function openPomodoro(){
-  document.getElementById('pomoMask').classList.add('show');
+  openMask(document.getElementById('pomoMask'));
   renderPomoTaskSel();
   renderGarden();
   gardenTimePhase();  // 打开小园时校准时段（夜晚/晨光即时生效）
@@ -6273,7 +6400,7 @@ function openPomodoro(){
 }
 function closePomodoro(){
   // 只收起页面：计时在后台继续走，阶段完成照样提醒+长叶子
-  document.getElementById('pomoMask').classList.remove('show');
+  closeMask(document.getElementById('pomoMask'));
   hidePomoEggBtn(); // 彩蛋按钮只在番茄钟页面出现
 }
 
@@ -6815,11 +6942,11 @@ function showPlantInfo(p){
   let ts = '';
   try{ ts = '获得于 ' + new Date(p.ts).toLocaleString('zh-CN', {month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit'}); }catch(e){}
   document.getElementById('pomoPlantTime').textContent = ts;
-  el.classList.add('show');
+  openMask(el);
 }
 function closePomoPlant(){
   const el = document.getElementById('pomoPlantMask');
-  if(el) el.classList.remove('show');
+  if(el) closeMask(el);
 }
 
 /* ---------- 合成（3 株同级 → 1 株更高级，可合可不合） ---------- */
@@ -7108,7 +7235,7 @@ function openPomoEgg(){
   }
   if(t) t.textContent = '🥚 ' + (POMO_EGG_THEMES[e && e.theme] || '彩蛋') + ' · ' + (e && e.mins ? e.mins+'分钟' : '') + (e && e.taskName ? ' · '+e.taskName : '');
   updatePomoEggUI();
-  document.getElementById('pomoEggMask').classList.add('show');
+  openMask(document.getElementById('pomoEggMask'));
 }
 function updatePomoEggUI(){
   const body = document.getElementById('pomoEggBody');
@@ -7128,7 +7255,7 @@ function pomoEggAgain(){
   updatePomoEggUI();
 }
 function closePomoEgg(){
-  document.getElementById('pomoEggMask').classList.remove('show');
+  closeMask(document.getElementById('pomoEggMask'));
   // 收下即消费：清空彩蛋，下次进番茄钟不再亮按钮（直到完成下一个番茄重新生成）
   if(pomoData){
     pomoData.egg = null;
@@ -7508,11 +7635,11 @@ function openPomoSettings(){
   document.getElementById('psPitchVal').textContent = pPitch.toFixed(2);
   document.getElementById('psRateVal').textContent = pRate.toFixed(2);
   pomoEggThemeUI();
-  document.getElementById('pomoSetMask').classList.add('show');
+  openMask(document.getElementById('pomoSetMask'));
 }
 function closePomoSettings(){
   pomoCustomPending = false;
-  document.getElementById('pomoSetMask').classList.remove('show');
+  closeMask(document.getElementById('pomoSetMask'));
 }
 function savePomoSettings(){
   const clamp = (v,a,b,d)=> isNaN(v) ? d : Math.min(b, Math.max(a, v));
@@ -7549,7 +7676,7 @@ function savePomoSettings(){
     document.querySelectorAll('#pomoPresets button').forEach(b=>b.classList.toggle('active', b.dataset.p==='custom'));
   }
   savePomoData();
-  document.getElementById('pomoSetMask').classList.remove('show');
+  closeMask(document.getElementById('pomoSetMask'));
   applyNoise(); // 白噪音立即生效（切换/停止）
   if(pomo.phase==='idle') renderPomoIdle();
   if(s.alert==='notify' && 'Notification' in window && Notification.permission==='default'){
