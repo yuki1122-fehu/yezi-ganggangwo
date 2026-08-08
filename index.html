@@ -424,16 +424,114 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .weather-card{
   flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
   gap:7px;padding:14px 8px;border-radius:var(--radius);
-  background:var(--green-soft);border:1px solid var(--green-mid);color:var(--green-dark);
+  background:var(--green-soft);border:1px solid var(--green-mid);color:#fff;
   box-shadow:var(--shadow-inset);cursor:pointer;transition:transform .16s var(--ease);
+  position:relative;overflow:hidden;
 }
+.weather-card .w-icon,.weather-card .w-temp,.weather-card .w-desc,.weather-card .w-meta{position:relative;z-index:1;}
 .weather-card:active{transform:scale(.98);}
-.weather-card .w-icon{font-size:34px;line-height:1;}
+.weather-card .w-icon{font-size:46px;line-height:1;}
 .weather-card .w-temp{font-size:24px;font-weight:800;line-height:1;}
 .weather-card .w-desc{font-size:12px;font-weight:700;line-height:1.35;}
-.weather-card .w-meta{font-size:10px;color:var(--ink-soft);line-height:1.3;}
+.weather-card .w-meta{font-size:10px;color:rgba(255,255,255,.82);line-height:1.3;}
 .weather-card.offline{background:var(--glass-strong);border-color:var(--glass-line);color:var(--ink-soft);}
-[data-theme="dark"] .weather-card{background:rgba(90,110,85,.25);border-color:var(--green-mid);color:#c8ddc4;}
+.weather-card.offline .w-meta{color:var(--ink-soft);}
+/* ===== 天气卡 Canvas 粒子动画（替换原 CSS 装饰为 JS 驱动） ===== */
+/* 三层结构：.weather-bg（CSS 渐变，底层）/ .weather-canvas（JS 粒子，中层）/ .weather-anim（CSS 装饰兜底，顶层只是气泡） */
+.weather-bg,.weather-canvas{position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;}
+.weather-canvas{width:100%;height:100%;display:block;}
+/* 让文字信息浮在粒子之上 */
+.weather-card .w-icon,.weather-card .w-temp,.weather-card .w-desc,.weather-card .w-meta{position:relative;z-index:3;text-shadow:0 1px 3px rgba(0,0,0,.4),0 0 8px rgba(0,0,0,.22);}
+.weather-card .w-icon{font-size:46px;line-height:1;animation:wBob 3.4s ease-in-out infinite;}
+@keyframes wBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-3px);}}
+
+/* ========== CSS 渐变背景：6 种天气状态（浅色） ========== */
+/* 通过 [data-weather="xxx"] 属性选择器切换，平滑过渡 1.2s */
+.weather-card[data-weather="loading"]{background:linear-gradient(160deg,#e6efde 0%,#dee9d3 100%);}
+.weather-card[data-weather="sunny"]{
+  background:linear-gradient(160deg,#fff2cf 0%,#ffd886 45%,#ffb860 100%);
+}
+.weather-card[data-weather="cloudy"]{
+  background:linear-gradient(165deg,#dde6f0 0%,#b8c6d8 50%,#9aabc1 100%);
+}
+.weather-card[data-weather="rain"]{
+  background:linear-gradient(170deg,#bfd2e3 0%,#7e97b3 55%,#4a6685 100%);
+}
+.weather-card[data-weather="heavy_rain"]{
+  background:linear-gradient(170deg,#aabdcf 0%,#869bb1 55%,#647c96 100%);
+}
+.weather-card[data-weather="rainstorm"]{
+  background:linear-gradient(170deg,#98adc2 0%,#748ba3 55%,#516a84 100%);
+}
+.weather-card[data-weather="thunderstorm"]{
+  background:linear-gradient(170deg,#8494ad 0%,#62728d 55%,#45536e 100%);
+}
+.weather-card[data-weather="fog"]{
+  background:linear-gradient(170deg,#e8eef4 0%,#c9d6e2 55%,#a8bac9 100%);
+}
+.weather-card[data-weather="snow"]{
+  background:linear-gradient(170deg,#eef3f8 0%,#c5d3e0 55%,#93a9bd 100%);
+}
+/* 渐变切换平滑过渡（仅在主题色部分；canvas 接管粒子） */
+.weather-card{transition:background-color .8s ease;}
+
+/* 保留旧版装饰动画作为兜底（在 canvas 未渲染或未就绪时显示） */
+.weather-anim{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;border-radius:inherit;opacity:.85;}
+.weather-anim i:nth-child(1){left:16%;animation-delay:0s;}
+.weather-anim i:nth-child(2){left:38%;animation-delay:.25s;}
+.weather-anim i:nth-child(3){left:60%;animation-delay:.5s;}
+.weather-anim i:nth-child(4){left:82%;animation-delay:.75s;}
+/* 兜底：CSS 版雨滴/雪（canvas 接管后此层 opacity 由 JS 控制） */
+.weather-card.w-rain .weather-anim i,.weather-card.w-storm .weather-anim i{
+  position:absolute;top:-10px;width:2px;height:9px;border-radius:2px;
+  background:linear-gradient(180deg,rgba(120,160,210,0),rgba(80,120,175,.85));
+  animation:wRain 1s linear infinite;}
+@keyframes wRain{to{transform:translateY(170px);}}
+.weather-card.w-sunny .weather-anim::before{content:"";position:absolute;inset:-25%;
+  background:radial-gradient(circle at 50% 24%, rgba(255,224,150,.5), transparent 62%);
+  animation:wSun 3.8s ease-in-out infinite;}
+@keyframes wSun{0%,100%{opacity:.4;transform:scale(.92);}50%{opacity:.85;transform:scale(1.06);}}
+.weather-card.w-cloudy .weather-anim::before,.weather-card.w-cloudy .weather-anim::after{
+  content:"";position:absolute;height:16px;border-radius:20px;background:rgba(255,255,255,.5);filter:blur(5px);
+  animation:wCloud 16s linear infinite;}
+.weather-card.w-cloudy .weather-anim::before{width:74px;top:16%;left:-90px;}
+.weather-card.w-cloudy .weather-anim::after{width:52px;top:46%;left:-70px;animation-duration:22s;animation-delay:-9s;}
+@keyframes wCloud{from{transform:translateX(0);}to{transform:translateX(240px);}}
+.weather-card.w-storm .weather-anim::before{content:"";position:absolute;inset:0;background:rgba(230,232,255,.9);opacity:0;
+  animation:wBolt 4.2s linear infinite;}
+@keyframes wBolt{0%,86%,93%,100%{opacity:0;}88%,90%{opacity:.5;}}
+.weather-card.w-snow .weather-anim i{position:absolute;top:-6px;width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.92);
+  animation:wSnow 3s linear infinite;}
+@keyframes wSnow{to{transform:translateY(170px);}}
+
+/* 暗色模式：每种天气重设颜色 + 白色文字保持可读 */
+[data-theme="dark"] .weather-card[data-weather="loading"]{background:linear-gradient(160deg,rgba(110,130,100,.22),rgba(90,110,80,.16));}
+[data-theme="dark"] .weather-card[data-weather="sunny"]{
+  background:linear-gradient(160deg,#4a3d1c 0%,#7a5d24 45%,#a37520 100%);
+}
+[data-theme="dark"] .weather-card[data-weather="cloudy"]{
+  background:linear-gradient(165deg,#3a4456 0%,#2a3245 50%,#1b2233 100%);
+}
+[data-theme="dark"] .weather-card[data-weather="rain"]{
+  background:linear-gradient(170deg,#2e3e54 0%,#1f2c40 55%,#131e2f 100%);
+}
+[data-theme="dark"] .weather-card[data-weather="heavy_rain"]{
+  background:linear-gradient(170deg,#2e3d56 0%,#22304a 55%,#182338 100%);
+}
+[data-theme="dark"] .weather-card[data-weather="rainstorm"]{
+  background:linear-gradient(170deg,#27364f 0%,#1a2740 55%,#111a2e 100%);
+}
+[data-theme="dark"] .weather-card[data-weather="thunderstorm"]{
+  background:linear-gradient(170deg,#252a45 0%,#181e38 55%,#0e1126 100%);
+}
+[data-theme="dark"] .weather-card[data-weather="fog"]{
+  background:linear-gradient(170deg,#3c4654 0%,#2c3542 55%,#1e2630 100%);
+}
+[data-theme="dark"] .weather-card[data-weather="snow"]{
+  background:linear-gradient(170deg,#37434f 0%,#272f3b 55%,#181e28 100%);
+}
+/* 所有天气统一白字（text-shadow 已兜底对比度），offline 除外 */
+[data-theme="dark"] .weather-card{color:#fff;}
 [data-theme="dark"] .weather-card.offline{background:var(--glass-strong);border-color:var(--glass-line);color:var(--ink-soft);}
 
 /* ---------- 天气警告条 ---------- */
@@ -477,7 +575,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   .home-left{width:100%;flex:none;min-width:auto;}
   .home-right{width:100%;flex:none;}
   .weather-card{flex-direction:row;align-items:center;justify-content:center;gap:14px;padding:12px 16px;text-align:left;}
-  .weather-card .w-icon{font-size:30px;}
+  .weather-card .w-icon{font-size:40px;}
   .weather-card .w-temp{font-size:22px;white-space:nowrap;}
   .weather-card .w-desc{text-align:left;}
   .weather-card .w-meta{text-align:left;}
@@ -632,8 +730,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .badge-pri.low{color:var(--ink-soft);background:var(--glass-strong);border:1px solid var(--glass-line);}
 .cat-tag{font-size:10px;color:var(--ink-soft);background:var(--glass-strong);padding:3px 10px;border-radius:var(--radius-pill);font-weight:700;border:1px solid var(--glass-line);}
 
-.detail{display:none;margin-top:15px;padding:15px 16px;background:var(--green-soft);border-radius:var(--radius-sm);border:1px solid var(--green-mid);}
-.detail.show{display:block;animation:fade .24s var(--ease);}
+.detail{display:block;max-height:0;opacity:0;overflow:hidden;margin-top:0;padding:0 16px;border-width:0;
+  background:var(--green-soft);border-radius:var(--radius-sm);border:1px solid var(--green-mid);
+  transition:max-height .32s var(--ease),opacity .26s var(--ease),margin-top .26s var(--ease),padding .26s var(--ease);}
+.detail.show{max-height:900px;opacity:1;margin-top:15px;padding:15px 16px;animation:none;}
 @keyframes fade{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:none;}}
 .detail .h{font-size:12px;font-weight:800;color:var(--green-dark);margin-bottom:10px;letter-spacing:.3px;}
 .step{display:flex;gap:11px;margin-bottom:11px;align-items:flex-start;}
@@ -648,6 +748,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .gen-steps-btn:disabled{opacity:.7;cursor:not-allowed;}
 .expand-hint{font-size:11px;color:var(--ink-faint);margin-top:10px;font-weight:600;}
 .empty{text-align:center;color:var(--ink-faint);font-size:13.5px;padding:52px 24px;font-weight:500;}
+.empty:not(.exp-cat){animation:emptyIn .36s var(--ease);}
+@keyframes emptyIn{from{opacity:0;transform:translateY(12px) scale(.97);}to{opacity:1;transform:none;}}
 
 /* ---------- 日历 ---------- */
 .cal-head{display:flex;align-items:center;justify-content:space-between;padding:4px 6px 12px;}
@@ -655,6 +757,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .cal-head button{background:var(--glass-strong);border:1px solid var(--glass-line);color:var(--green-dark);font-size:20px;width:38px;height:38px;border-radius:var(--radius-xs);box-shadow:var(--shadow-inset);cursor:pointer;transition:transform .16s var(--ease),background .2s;}
 .cal-head button:active{background:var(--green-soft);transform:scale(.9);}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;border-radius:var(--radius);padding:14px 11px;}
+.cal-grid.cal-next{animation:calNext .3s var(--ease);}
+.cal-grid.cal-prev{animation:calPrev .3s var(--ease);}
+@keyframes calNext{from{opacity:0;transform:translateX(26px);}to{opacity:1;transform:none;}}
+@keyframes calPrev{from{opacity:0;transform:translateX(-26px);}to{opacity:1;transform:none;}}
 .cal-grid .wd{font-size:11px;color:var(--ink-faint);text-align:center;padding:4px 0;font-weight:700;letter-spacing:.5px;}
 .cal-cell{aspect-ratio:1/1;display:flex;flex-direction:column;align-items:center;justify-content:center;
   font-size:13px;border-radius:13px;position:relative;color:var(--ink);transition:background .16s var(--ease),transform .16s var(--ease);padding:2px;overflow:hidden;font-weight:600;}
@@ -909,7 +1015,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 
 /* ---------- 减少动效偏好 ---------- */
 @media (prefers-reduced-motion:reduce){
-  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important;}
+  /* 温和降级：停掉 ambient/无限循环/庆祝类动效（前庭刺激主因），保留短促的入场/退场/状态过渡（帮助理解状态变化） */
+  .pomo-aurora,.pomo-bokeh,body::after,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-anim,.weather-anim *,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after{
+    animation:none !important;transition:none !important;
+  }
 }
 
 /* ============================================================
@@ -938,7 +1047,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* 液态光晕层：绿（专注）/ 暖杏（休息）双图层淡入淡出 + 慢速漂移 */
 .pomo-aurora{
   position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;
-  pointer-events:none;filter:blur(70px);opacity:0;transition:opacity 1.2s ease;
+  pointer-events:none;filter:blur(44px);opacity:0;transition:opacity 1.2s ease;
   animation:auroraDrift 26s ease-in-out infinite alternate;
 }
 .aurora-green{
@@ -956,6 +1065,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 }
 #pomoMask.break-mode .aurora-green{opacity:0;}
 #pomoMask.break-mode .aurora-warm{opacity:1;}
+/* 专注计时中：小园与氛围退居背景，聚焦番茄环 */
+#pomoMask:has(.pomo-ring.running) .pomo-garden{opacity:.5;transition:opacity .9s var(--ease);}
+#pomoMask:has(.pomo-ring.running) .pomo-aurora{animation-duration:60s;opacity:.75;}
+#pomoMask:has(.pomo-ring.running) .pomo-bokeh{opacity:.22;}
 @keyframes auroraDrift{
   0%{transform:translate3d(-2%,-1%,0) scale(1);}
   50%{transform:translate3d(2%,2%,0) scale(1.08);}
@@ -1349,7 +1462,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   100%{transform:translate(0,0);opacity:0;}
 }
 /* 小鸟：偶尔飞进歇脚再飞走（JS 调度 on/off，两段 transition 模拟） */
-.pg-bird{position:absolute;left:-44px;z-index:5;pointer-events:none;opacity:0;transition:left 2.8s cubic-bezier(.3,.7,.4,1),top 1.4s ease-in-out,opacity .6s ease;}
+.pg-bird{position:absolute;left:0;top:0;z-index:5;pointer-events:none;opacity:0;transition:transform 2.8s cubic-bezier(.3,.7,.4,1),opacity .6s ease;}
 .pg-bird.on{opacity:1;}
 .pg-bird svg{animation:dragonflyHover 2.2s ease-in-out infinite alternate;}
 .pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2{transform-box:fill-box;transform-origin:15% 50%;animation:dragonflyFlap .16s linear infinite alternate;}
@@ -1366,7 +1479,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 @keyframes owlTurn{0%,46%{transform:rotate(0);}58%{transform:rotate(6deg);}74%{transform:rotate(-4.5deg);}100%{transform:rotate(0);}}
 @keyframes owlBlink{0%,90%,100%{transform:scaleY(1);}94%{transform:scaleY(.08);}}
 /* 瓢虫：土坡上缓慢爬行（JS 调度） */
-.pg-bug{position:absolute;bottom:5px;left:-26px;z-index:2;pointer-events:none;opacity:0;transition:left 11s linear,opacity .8s ease;}
+.pg-bug{position:absolute;bottom:5px;left:0;z-index:2;pointer-events:none;opacity:0;transition:transform 11s linear,opacity .8s ease;}
 .pg-bug.on{opacity:1;}
 .pg-bug svg{animation:bugWobble .9s ease-in-out infinite alternate;}
 @keyframes bugWobble{from{transform:rotate(-2.5deg);}to{transform:rotate(2.5deg);}}
@@ -1485,7 +1598,13 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
         </div>
       </div>
       <div class="home-right">
-        <div class="weather-card" id="weatherCard" onclick="refreshWeatherUI(true)" title="点击刷新天气">
+        <div class="weather-card" id="weatherCard" data-weather="loading" onclick="refreshWeatherUI(true)" title="点击刷新天气">
+          <!-- 渐变背景层：CSS data-weather 切换 -->
+          <div class="weather-bg" id="weatherBg"></div>
+          <!-- Canvas 粒子层：JS 驱动 6 种天气动画 -->
+          <canvas class="weather-canvas" id="weatherCanvas" aria-hidden="true"></canvas>
+          <!-- 旧版 CSS 装饰层（保留闪烁/光晕/闪电过渡，作为底层兜底） -->
+          <div class="weather-anim" id="weatherAnim"><i></i><i></i><i></i><i></i></div>
           <div class="w-icon" id="weatherIcon">🌤</div>
           <div class="w-temp" id="weatherTemp">--°C</div>
           <div class="w-desc" id="weatherDesc">正在获取…</div>
@@ -2604,10 +2723,12 @@ const WEATHER_KEY = 'mhm_hk_weather';
 const WEATHER_TTL_MS = 30 * 60 * 1000; // 30 分钟缓存
 const WEATHER_ICONS = {
   50:'☀️',51:'🌤',52:'⛅',53:'🌦',54:'🌦',
-  60:'☁️',61:'☁️',62:'🌧',63:'🌧',64:'⛈',65:'⛈',
+  60:'☁️',61:'☁️',62:'🌧️',63:'🌧️',64:'🌧️',65:'🌩️',
   70:'☀️',71:'☀️',72:'🌤',73:'⛅',74:'🌤',75:'☀️',76:'☀️',77:'🌤',
   80:'🌫',81:'🌫',82:'🌫',83:'🥵',84:'🥵',85:'🥵',
-  90:'🥶',91:'🥶',92:'🥶',93:'🥶'
+  90:'🥶',91:'🥶',92:'🥶',93:'🥶',
+  // Open-Meteo 后备源雪代码（香港坐标，可能触发）
+  71:'🌨️',73:'🌨️',75:'❄️',77:'🌨️',85:'🌨️',86:'🌨️',48:'🌫'
 };
 const WEATHER_NAMES = {
   50:'天晴',51:'阳光充沛',52:'局部多云',53:'短暂阵雨',54:'间中有雨',
@@ -2752,6 +2873,24 @@ function refreshWeatherUI(force){
   fetchHKWarnings(force); // 同时刷新天气警告
 }
 
+/* 天气卡动态氛围：按天气描述映射到动画类 */
+function weatherKind(){
+  const w = weatherState;
+  if(!w || !w.ok) return '';
+  const d = String(w.desc||'');
+  // 香港天文台 + Open-Meteo 后备源全部可能描述 → 8 种动画类
+  // 顺序：雷暴最优先，雨分强度（小/大/暴），雪/雾各自独立，其余按字面映射
+  if(/雷|雷暴|雷陣|雷陣雨/.test(d)) return 'thunderstorm';
+  if(/暴(雨|風)|豪(雨|大雨)|黑雨/.test(d)) return 'rainstorm';
+  if(/大雨|豪雨|大驟雨/.test(d)) return 'heavy_rain';
+  if(/雪|雹|冰|雪粒|凍雨/.test(d)) return 'snow';          // 雪（Open-Meteo 后备源会出现）
+  if(/雨|驟雨|毛毛雨|微雨|小雨/.test(d)) return 'rain';
+  if(/霧|霧凇|煙霞|霾/.test(d)) return 'fog';               // 有雾/薄雾/烟霞/雾凇
+  if(/陰|密雲|多雲|雲層/.test(d)) return 'cloudy';
+  if(/清涼|寒冷/.test(d)) return 'cloudy';                  // 寒冷 → 阴凉氛围（冷天多阴云）
+  if(/天晴|陽光|晴|晴朗/.test(d)) return 'sunny';
+  return 'sunny'; // 默认晴天（含 "天氣炎熱/酷熱" 等无云无雨描述）
+}
 function renderWeather(){
   try{ gardenWeather(); }catch(e){} // 小园同步真实天气（雨/晴）
   const card = document.getElementById('weatherCard');
@@ -2787,7 +2926,705 @@ function renderWeather(){
     if(!isNaN(t.getTime())) meta += ' · ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
   }
   metaEl.textContent = meta;
+  card.classList.remove('w-sunny','w-rain','w-cloudy','w-storm','w-snow','w-fog');
+  const wk = weatherKind();
+  if(wk) card.classList.add('w-'+wk);
+  // 同步 data-weather 属性，触发 CSS 渐变背景 + 通知 WeatherFX 切换粒子效果
+  card.setAttribute('data-weather', wk || 'loading');
+  if(window.WeatherFX){
+    try{ WeatherFX.set(wk || 'loading'); }catch(e){ console.error('[WeatherFX]', e); }
+  }
 }
+
+/* =====================================================================
+ * WeatherFX —— Canvas 天气粒子系统
+ * ---------------------------------------------------------------------
+ * 6 种天气 / 6 套独立粒子 / 统一接口 / 高性能
+ *   - SunnyEffect        晴天：金色光点 + 太阳光晕
+ *   - CloudyEffect       多云：3 层视差云朵（远/中/近）
+ *   - RainEffect         小雨：60 根细密雨滴
+ *   - HeavyRainEffect    大雨：150 根密集雨滴 + 拖影
+ *   - RainstormEffect    暴雨：220 根高速雨滴 + 地面溅射
+ *   - ThunderstormEffect 雷雨：暴雨 + 随机闪电
+ *
+ * 设计要点：
+ *   1. requestAnimationFrame + deltaTime，时间步长驱动，保证帧率波动时流畅
+ *   2. 粒子对象池（pool），避免 GC 抖动
+ *   3. DPR 自适应 + ResizeObserver 监听卡片尺寸
+ *   4. visibilitychange 暂停渲染，降低后台耗电
+ *   5. 低性能设备（mobilePointer）自动降采样
+ *   6. 拖影特效：不清屏，用半透明背景色覆盖（仅大雨/暴雨）
+ * ===================================================================== */
+(function(){
+  /**
+   * WeatherFX —— Canvas 天气粒子系统（每张卡片独立实例）
+   *
+   * 公开 API：
+   *   WeatherFX.init(el)      // 初始化并返回该卡片专属实例
+   *   WeatherFX.set(kind)     // 快捷方式：操作当前默认卡片（向后兼容旧调用）
+   *
+   * 单卡片实例 API（init 返回值）：
+   *   instance.set(kind)      // 切换粒子效果
+   *   instance.stop()         // 暂停渲染
+   *   instance.start()        // 恢复渲染
+   *
+   * 设计要点：
+   *   1. requestAnimationFrame + deltaTime，时间步长驱动，保证帧率波动时流畅
+   *   2. 粒子对象池（pool），避免 GC 抖动
+   *   3. DPR 自适应 + ResizeObserver 监听卡片尺寸
+   *   4. visibilitychange 暂停渲染，降低后台耗电
+   *   5. 低性能设备（mobilePointer）自动降采样
+   *   6. 拖影特效：不清屏，用半透明背景色覆盖（仅大雨/暴雨）
+   */
+  const WeatherFX = {};
+  const instances = new WeakMap();   // 卡片元素 → 实例
+  let defaultInstance = null;         // 单卡片默认实例（兼容旧调用）
+
+  /* ---------- 性能检测 ---------- */
+  // 简易降采样：低配设备粒子数减半
+  const isLowPerf = (function(){
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
+    const lowMem = (navigator.deviceMemory && navigator.deviceMemory <= 2);
+    const lowCpu = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
+    return isMobile || lowMem || lowCpu;
+  })();
+
+  /* ---------- 创建单个卡片实例 ---------- */
+  function createInstance(card){
+    const canvas = card.querySelector('canvas.weather-canvas');
+    if(!canvas) return null;
+    const ctx = canvas.getContext('2d');
+    const inst = {
+      card, canvas, ctx,
+      dpr: 1, width: 0, height: 0,
+      currentKind: 'loading', effect: null,
+      lastTime: 0, running: false, rafId: 0, theme: 'light',
+      resize(){
+        const rect = card.getBoundingClientRect();
+        this.width = Math.max(1, rect.width);
+        this.height = Math.max(1, rect.height);
+        this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.floor(this.width * this.dpr);
+        canvas.height = Math.floor(this.height * this.dpr);
+        canvas.style.width = this.width + 'px';
+        canvas.style.height = this.height + 'px';
+        ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+        if(this.effect && this.effect.resize) this.effect.resize(this.width, this.height);
+      },
+      detectTheme(){
+        this.theme = (document.documentElement.getAttribute('data-theme') === 'dark') ? 'dark' : 'light';
+      },
+      loop(now){
+        if(!this.running) return;
+        this.rafId = requestAnimationFrame((t)=>this.loop(t));
+        const dt = Math.min(0.05, (now - this.lastTime) / 1000);
+        this.lastTime = now;
+        if(this.effect && this.effect.tick){
+          this.effect.tick(dt, this.width, this.height, ctx, this.theme);
+        }
+      },
+      start(){
+        if(this.running) return;
+        this.running = true;
+        this.lastTime = performance.now();
+        this.rafId = requestAnimationFrame((t)=>this.loop(t));
+      },
+      stop(){
+        this.running = false;
+        if(this.rafId){ cancelAnimationFrame(this.rafId); this.rafId = 0; }
+      },
+      set(kind){
+        if(this.currentKind === kind && this.effect) return;
+        const Ctor = EFFECTS[kind] || EFFECTS.sunny;
+        this.effect = new Ctor();
+        this.currentKind = kind;
+        if(this.width > 0 && this.height > 0) this.effect.init(this.width, this.height);
+        if(!this.running) this.start();
+      }
+    };
+    inst.detectTheme();
+    inst.resize();
+    // 尺寸/主题响应
+    if(typeof ResizeObserver !== 'undefined'){
+      const ro = new ResizeObserver(()=>inst.resize());
+      ro.observe(card);
+    } else {
+      window.addEventListener('resize', ()=>inst.resize());
+    }
+    const themeObs = new MutationObserver(()=>inst.detectTheme());
+    themeObs.observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
+    // 页面可见性
+    document.addEventListener('visibilitychange', ()=>{
+      if(document.hidden) inst.stop();
+      else if(inst.effect) inst.start();
+    });
+    return inst;
+  }
+
+  /* ---------- 粒子基类 ---------- */
+  class Particle {
+    constructor(){ this.reset(); }
+    reset(){
+      this.x = 0; this.y = 0; this.vx = 0; this.vy = 0;
+      this.life = 0; this.maxLife = 1; this.size = 1;
+      this.alpha = 1; this.color = '#fff'; this.dead = true;
+    }
+    // 子类必须实现：update(dt) / draw(ctx)
+  }
+
+  /* ---------- 公共工具 ---------- */
+  function rand(a, b){ return Math.random() * (b - a) + a; }
+  // 拖影覆盖：用当前背景主色 + 低 alpha 矩形代替 clearRect
+  function trailFill(ctx, w, h, baseRgb, alpha){
+    ctx.fillStyle = `rgba(${baseRgb}, ${alpha})`;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  /* =====================================================================
+   * Effect 1 / 6 —— Sunny 晴天
+   *   - 太阳光晕：左上方大圆 + 径向渐变，缓慢呼吸缩放
+   *   - 8-12 颗金色光点粒子，缓慢上下飘动 + 透明度呼吸
+   * ===================================================================== */
+  class SunnyEffect {
+    constructor(){
+      this.dots = [];
+      this.t = 0;
+    }
+    init(w, h){
+      this.dots.length = 0;
+      const n = isLowPerf ? 6 : 10;
+      for(let i=0;i<n;i++){
+        const p = {};
+        p.x = rand(0, w);
+        p.y = rand(0, h);
+        p.size = rand(2, 4);
+        p.vy = rand(-8, -4);   // 缓慢上浮
+        p.phase = rand(0, Math.PI*2);
+        p.alpha = rand(0.4, 0.85);
+        this.dots.push(p);
+      }
+    }
+    resize(w, h){ this.init(w, h); }
+    tick(dt, w, h, ctx){
+      this.t += dt;
+      ctx.clearRect(0, 0, w, h);
+      // 太阳光晕：左上方
+      const cx = w*0.25, cy = h*0.28;
+      const baseR = Math.min(w, h) * 0.22;
+      const pulse = 1 + Math.sin(this.t * 1.4) * 0.08;
+      const grd = ctx.createRadialGradient(cx, cy, baseR*0.1, cx, cy, baseR*2.2 * pulse);
+      grd.addColorStop(0, this.theme === 'dark' ? 'rgba(255,210,120,0.55)' : 'rgba(255,225,150,0.55)');
+      grd.addColorStop(0.45, this.theme === 'dark' ? 'rgba(255,180,90,0.18)' : 'rgba(255,200,120,0.22)');
+      grd.addColorStop(1, 'rgba(255,200,100,0)');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, 0, w, h);
+      // 太阳核心
+      ctx.beginPath();
+      ctx.arc(cx, cy, baseR * 0.32 * pulse, 0, Math.PI*2);
+      ctx.fillStyle = this.theme === 'dark' ? 'rgba(255,225,140,0.85)' : 'rgba(255,250,200,0.95)';
+      ctx.fill();
+      // 光点
+      for(const p of this.dots){
+        p.y += p.vy * dt;
+        p.x += Math.sin(this.t*0.6 + p.phase) * dt * 4;
+        if(p.y < -10){ p.y = h + 10; p.x = rand(0, w); }
+        const a = p.alpha * (0.6 + 0.4 * Math.sin(this.t*1.5 + p.phase));
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+        ctx.fillStyle = this.theme === 'dark'
+          ? `rgba(255,220,150,${a})`
+          : `rgba(255,255,220,${a})`;
+        ctx.fill();
+      }
+    }
+  }
+
+  /* =====================================================================
+   * Effect 2 / 6 —— Cloudy 多云
+   *   - 3 层云（远/中/近），每层若干"软云"，由 5-7 个重叠圆构成
+   *   - 视差：远层 8 像素/秒，中层 16，近层 28
+   * ===================================================================== */
+  class CloudyEffect {
+    constructor(){ this.t = 0; }
+    init(w, h){
+      this.w = w; this.h = h;
+      this.layers = [];
+      // 远/中/近 三层
+      const configs = [
+        {n: isLowPerf ? 2 : 3, baseSize: 0.16, speed: 8,  alpha: 0.35, scale: 0.7},
+        {n: isLowPerf ? 2 : 3, baseSize: 0.22, speed: 16, alpha: 0.55, scale: 1.0},
+        {n: isLowPerf ? 1 : 2, baseSize: 0.28, speed: 28, alpha: 0.75, scale: 1.3}
+      ];
+      for(const cfg of configs){
+        const layer = {clouds: [], ...cfg};
+        for(let i=0;i<cfg.n;i++){
+          const cw = w * cfg.baseSize * (0.8 + Math.random()*0.6);
+          const ch = cw * 0.45;
+          const cloud = {
+            x: rand(-cw, w + cw),
+            y: rand(h*0.15, h*0.7),
+            w: cw,
+            h: ch,
+            puffs: [] // 每朵云由若干圆构造
+          };
+          // 5-7 个圆构造一朵云
+          const puffN = 5 + Math.floor(Math.random()*3);
+          for(let j=0;j<puffN;j++){
+            cloud.puffs.push({
+              ox: rand(-0.35, 0.35) * cw,
+              oy: rand(-0.25, 0.15) * ch,
+              r: rand(0.25, 0.45) * cw
+            });
+          }
+          layer.clouds.push(cloud);
+        }
+        this.layers.push(layer);
+      }
+    }
+    resize(w, h){ this.init(w, h); }
+    drawCloud(ctx, cloud, alpha, isDark){
+      ctx.beginPath();
+      // 用 PUFFS 列表构造：用 moveTo 起始，arc 添加每个圆
+      for(const puff of cloud.puffs){
+        ctx.moveTo(cloud.x + puff.ox + puff.r, cloud.y + puff.oy);
+        ctx.arc(cloud.x + puff.ox, cloud.y + puff.oy, puff.r, 0, Math.PI*2);
+      }
+      ctx.fillStyle = isDark ? `rgba(220,225,235,${alpha})` : `rgba(255,255,255,${alpha})`;
+      ctx.fill();
+    }
+    tick(dt, w, h, ctx){
+      this.t += dt;
+      ctx.clearRect(0, 0, w, h);
+      for(const layer of this.layers){
+        for(const cloud of layer.clouds){
+          cloud.x += layer.speed * dt;
+          if(cloud.x > w + cloud.w){
+            cloud.x = -cloud.w;
+            cloud.y = rand(h*0.15, h*0.7);
+          }
+          this.drawCloud(ctx, cloud, layer.alpha, this.theme === 'dark');
+        }
+      }
+    }
+  }
+
+  /* =====================================================================
+   * Effect 3 / 6 —— Rain 小雨
+   *   - 60-80 根细密雨滴，缓速下落，透明度分层
+   * ===================================================================== */
+  class RainEffect {
+    constructor(){ this.drops = []; }
+    init(w, h){
+      this.w = w; this.h = h;
+      this.drops.length = 0;
+      // 小雨：细短慢，无拖影 —— 三档雨里最"轻"的一档
+      const n = isLowPerf ? 35 : 50;
+      for(let i=0;i<n;i++){
+        const d = {
+          x: rand(-20, w+20),
+          y: rand(-h, h),
+          len: rand(6, 10),
+          speed: rand(100, 150),        // 像素/秒
+          alpha: rand(0.3, 0.55),
+          slope: rand(0.05, 0.1)        // 微弱倾斜
+        };
+        this.drops.push(d);
+      }
+    }
+    resize(w, h){ this.init(w, h); }
+    tick(dt, w, h, ctx){
+      ctx.clearRect(0, 0, w, h);
+      ctx.lineCap = 'round';
+      const isDark = this.theme === 'dark';
+      for(const d of this.drops){
+        d.y += d.speed * dt;
+        d.x += d.speed * d.slope * dt;
+        if(d.y > h){ d.y = -d.len; d.x = rand(-20, w+20); }
+        if(d.x > w + 20) d.x = -20;
+        ctx.strokeStyle = isDark
+          ? `rgba(180,205,235,${d.alpha})`
+          : `rgba(110,140,180,${d.alpha})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x - d.slope*d.len, d.y + d.len);
+        ctx.stroke();
+      }
+    }
+  }
+
+  /* =====================================================================
+   * Effect 4 / 6 —— HeavyRain 大雨
+   *   - 与小雨（RainEffect）同一套雨丝参数，仅把雨丝改成白色
+   *   - 无拖影：保持和小雨完全一致的观感
+   * ===================================================================== */
+  class HeavyRainEffect extends RainEffect {
+    init(w, h){
+      this.w = w; this.h = h;
+      this.drops.length = 0;
+      // 大雨：与小雨完全一致的参数（数量/长度/速度/斜度/透明度），只换白色
+      const n = isLowPerf ? 35 : 50;
+      for(let i=0;i<n;i++){
+        this.drops.push({
+          x: rand(-20, w+20),
+          y: rand(-h, h),
+          len: rand(6, 10),
+          speed: rand(100, 150),
+          alpha: rand(0.3, 0.55),
+          slope: rand(0.05, 0.1)
+        });
+      }
+    }
+    tick(dt, w, h, ctx){
+      // 与小丽一样 clearRect，无拖影
+      ctx.clearRect(0, 0, w, h);
+      ctx.lineCap = 'round';
+      // 仅颜色不同：白色雨丝
+      const baseColor = this.theme === 'dark' ? '210,225,245' : '255,255,255';
+      for(const d of this.drops){
+        d.y += d.speed * dt;
+        d.x += d.speed * d.slope * dt;
+        if(d.y > h){ d.y = -d.len; d.x = rand(-20, w+20); }
+        if(d.x > w + 20) d.x = -20;
+        ctx.strokeStyle = `rgba(${baseColor},${d.alpha})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x - d.slope*d.len, d.y + d.len);
+        ctx.stroke();
+      }
+    }
+  }
+
+  /* =====================================================================
+   * Effect 5 / 6 —— Rainstorm 暴雨（高速 + 拖影 + 地面溅射）
+   *   - 220 根高速雨滴，更强拖影
+   *   - 当雨滴到底部时，触发 1 颗地面溅射粒子（向上飞溅 + 衰减）
+   * ===================================================================== */
+  class RainstormEffect extends HeavyRainEffect {
+    init(w, h){
+      this.w = w; this.h = h;
+      this.drops.length = 0;
+      this.splashes = [];
+      // 暴雨/雷暴：雨丝密度频率 = 之前的大雨（数量/长度/速度/斜度），保留拖影 + 水花
+      const n = isLowPerf ? 40 : 55;
+      for(let i=0;i<n;i++){
+        this.drops.push({
+          x: rand(-30, w+30),
+          y: rand(-h, h),
+          len: rand(9, 16),
+          speed: rand(200, 280),
+          alpha: rand(0.3, 0.5),
+          slope: rand(0.12, 0.22)
+        });
+      }
+    }
+    tick(dt, w, h, ctx){
+      // 拖影：接近背景的灰蓝色
+      const trailColor = this.theme === 'dark' ? '8,14,28' : '130,150,180';
+      trailFill(ctx, w, h, trailColor, 0.10);
+      ctx.lineCap = 'round';
+      // 雨滴白色
+      const baseColor = this.theme === 'dark' ? '225,235,255' : '255,255,255';
+      for(const d of this.drops){
+        const prevY = d.y;
+        d.y += d.speed * dt;
+        d.x += d.speed * d.slope * dt;
+        // 触底生成水花
+        if(d.y > h - 2){
+          // 1-2 颗溅射粒子向上飞
+          const splashN = Math.random() < 0.5 ? 2 : 1;
+          for(let k=0;k<splashN;k++){
+            this.splashes.push({
+              x: d.x + rand(-3, 3),
+              y: h - 1,
+              vx: rand(-50, 50),
+              vy: rand(-160, -90),
+              r: rand(1.2, 2.2),
+              life: 0,
+              maxLife: rand(0.35, 0.6),
+              alpha: 1
+            });
+          }
+          d.y = -d.len;
+          d.x = rand(-40, w+40);
+        }
+        if(d.x > w + 40) d.x = -40;
+        ctx.strokeStyle = `rgba(${baseColor},${d.alpha})`;
+        ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x - d.slope*d.len*1.6, d.y + d.len*1.6);
+        ctx.stroke();
+      }
+      // 更新/绘制水花
+      for(let i = this.splashes.length - 1; i >= 0; i--){
+        const s = this.splashes[i];
+        s.life += dt;
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        s.vy += 380 * dt; // 重力
+        const k = 1 - s.life / s.maxLife;
+        if(k <= 0){ this.splashes.splice(i, 1); continue; }
+        ctx.fillStyle = `rgba(${baseColor},${k * 0.7})`;
+        ctx.beginPath();
+        ctx.arc(s.x, s.y, s.r * k, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+  }
+
+  /* =====================================================================
+   * Effect 6 / 6 —— Thunderstorm 雷雨（暴雨 + 随机闪电）
+   *   - 继承 RainstormEffect 的所有粒子
+   *   - 闪电：随机间隔，0.1 秒全屏白闪 + 折线
+   * ===================================================================== */
+  class ThunderstormEffect extends RainstormEffect {
+    constructor(){ super(); this.flashAlpha = 0; this.flashNext = 2; this.lightning = null; }
+    init(w, h){
+      super.init(w, h);
+      this.flashAlpha = 0;
+      this.flashNext = rand(2, 4.5);
+    }
+    tick(dt, w, h, ctx){
+      // 1) 暴雨本体（含拖影 + 水花）
+      super.tick(dt, w, h, ctx);
+      // 2) 闪电计时
+      this.flashNext -= dt;
+      if(this.flashNext <= 0 && !this.lightning){
+        // 触发一次闪电
+        this.lightning = this.makeLightning(w, h);
+        this.flashAlpha = 0.85;
+      }
+      // 3) 全屏闪光衰减
+      if(this.flashAlpha > 0){
+        this.flashAlpha = Math.max(0, this.flashAlpha - dt * 5);
+        ctx.fillStyle = `rgba(235,240,255,${this.flashAlpha * 0.7})`;
+        ctx.fillRect(0, 0, w, h);
+      }
+      // 4) 绘制折线闪电
+      if(this.lightning){
+        ctx.strokeStyle = `rgba(255,255,255,${this.flashAlpha + 0.15})`;
+        ctx.lineWidth = 1.8;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        let x = this.lightning.startX, y = 0;
+        ctx.moveTo(x, y);
+        for(const seg of this.lightning.segs){
+          x += seg.dx; y += seg.dy;
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        // 闪电衰减到消失
+        this.lightning.life -= dt;
+        if(this.lightning.life <= 0){
+          this.lightning = null;
+          this.flashNext = rand(3, 7);
+        }
+      }
+    }
+    // 构造一条折线闪电：从顶部某点出发，向下锯齿延展
+    makeLightning(w, h){
+      const segs = [];
+      let dx = rand(-6, 6);
+      let dy = rand(8, 14);
+      let steps = Math.floor(h / 18) + 6;
+      for(let i=0;i<steps;i++){
+        segs.push({dx, dy});
+        // 每步微调
+        dx += rand(-12, 12);
+        dx = Math.max(-14, Math.min(14, dx));
+        dy = rand(8, 18);
+      }
+      return {
+        startX: rand(w*0.2, w*0.8),
+        segs,
+        life: rand(0.15, 0.35)
+      };
+    }
+  }
+
+  /* =====================================================================
+   * Effect 7 / 8 —— Fog 雾（有雾/薄雾/烟霞/雾凇）
+   *   - 3 层半透明白色雾带，缓慢横向漂移（视差）
+   *   - 每层雾带由 3-5 个扁平椭圆重叠而成，宽度超过卡片实现无缝循环
+   *   - 匹配 HKO 80/81/82（有雾/薄雾/烟霞）与 Open-Meteo 45/48
+   * ===================================================================== */
+  class FogEffect {
+    constructor(){ this.layers = []; this.t = 0; }
+    init(w, h){
+      this.w = w; this.h = h;
+      this.layers.length = 0;
+      // 三层雾带：速度 / 透明度 / 纵向位置比例
+      const configs = [
+        {spd: 6,  alpha: 0.10, y: 0.30, hScale: 0.14},
+        {spd: 12, alpha: 0.16, y: 0.55, hScale: 0.18},
+        {spd: 20, alpha: 0.24, y: 0.80, hScale: 0.22}
+      ];
+      for(const cfg of configs){
+        const bandH = h * cfg.hScale;
+        const puffN = 3 + Math.floor(Math.random()*3);
+        const puffs = [];
+        for(let i=0;i<puffN;i++){
+          puffs.push({
+            ox: rand(-w*0.5, w*0.5),
+            oy: rand(-bandH*0.5, bandH*0.5),
+            rx: rand(w*0.28, w*0.42),
+            ry: rand(bandH*0.5, bandH*0.75)
+          });
+        }
+        this.layers.push({
+          spd: cfg.spd,
+          alpha: cfg.alpha,
+          y: h * cfg.y,
+          bandH,
+          x: rand(-w*0.5, 0),
+          w,
+          puffs
+        });
+      }
+    }
+    resize(w, h){ this.init(w, h); }
+    tick(dt, w, h, ctx){
+      this.t += dt;
+      ctx.clearRect(0, 0, w, h);
+      const isDark = this.theme === 'dark';
+      for(const L of this.layers){
+        L.x += L.spd * dt;
+        // 整条雾带宽度 = 2*卡片宽（含两侧扩展），漂出后无缝回卷
+        const bandW = w * 2;
+        if(L.x > bandW) L.x = -bandW;
+        for(const p of L.puffs){
+          // 每个 puff 以带内位置绘制，产生水平移动
+          let px = p.ox + L.x;
+          // 画三份实现无缝循环（左/中/右）
+          for(const dx of [-bandW, 0, bandW]){
+            const cx = px + dx;
+            ctx.beginPath();
+            ctx.ellipse(cx, L.y + p.oy, p.rx, p.ry, 0, 0, Math.PI*2);
+            ctx.fillStyle = isDark
+              ? `rgba(200,210,225,${L.alpha})`
+              : `rgba(255,255,255,${L.alpha})`;
+            ctx.fill();
+          }
+        }
+      }
+    }
+  }
+
+  /* =====================================================================
+   * Effect 8 / 8 —— Snow 雪（小雪/中雪/大雪/阵雪/雪粒）
+   *   - 白色雪粒圆点，缓慢下落 + 正弦左右飘摆
+   *   - 匹配 Open-Meteo 后备源 71-77 / 85-86（香港高海拔或冷锋可能触发）
+   * ===================================================================== */
+  class SnowEffect {
+    constructor(){ this.flakes = []; this.t = 0; }
+    init(w, h){
+      this.w = w; this.h = h;
+      this.flakes.length = 0;
+      const n = isLowPerf ? 35 : 55;
+      for(let i=0;i<n;i++){
+        this.flakes.push({
+          x: rand(0, w),
+          y: rand(-h, h),
+          size: rand(1.2, 2.8),
+          speed: rand(35, 80),          // 缓速下落
+          sway: rand(0.6, 1.6),          // 左右摆动幅度
+          phase: rand(0, Math.PI*2),     // 摆动相位
+          freq: rand(1.2, 2.2),          // 摆动频率
+          alpha: rand(0.5, 0.9)
+        });
+      }
+    }
+    resize(w, h){ this.init(w, h); }
+    tick(dt, w, h, ctx){
+      this.t += dt;
+      ctx.clearRect(0, 0, w, h);
+      const isDark = this.theme === 'dark';
+      for(const f of this.flakes){
+        f.y += f.speed * dt;
+        f.x += Math.sin(this.t * f.freq + f.phase) * f.sway * dt * 2;
+        if(f.y > h + 4){ f.y = -4; f.x = rand(0, w); }
+        if(f.x > w + 4) f.x = -4;
+        else if(f.x < -4) f.x = w + 4;
+        ctx.beginPath();
+        ctx.arc(f.x, f.y, f.size, 0, Math.PI*2);
+        ctx.fillStyle = isDark
+          ? `rgba(235,242,250,${f.alpha})`
+          : `rgba(255,255,255,${f.alpha})`;
+        ctx.fill();
+      }
+    }
+  }
+
+  /* ---------- 对外 API ---------- */
+  // 初始化一张卡片，返回该卡专属实例
+  WeatherFX.init = function(card){
+    if(!card) return null;
+    if(instances.has(card)) return instances.get(card);
+    const inst = createInstance(card);
+    if(inst){ instances.set(card, inst); }
+    return inst;
+  };
+  // 旧签名兼容：WeatherFX.set(kind)
+  //  - 不传 card：操作当前默认卡片
+  //  - 传 card + kind：操作指定卡片
+  WeatherFX.set = function(a, b){
+    if(typeof a === 'string'){
+      // 旧调用：WeatherFX.set('rainy')
+      if(!defaultInstance){
+        const card = document.getElementById('weatherCard');
+        if(card){ defaultInstance = WeatherFX.init(card); }
+      }
+      if(defaultInstance) defaultInstance.set(a);
+    } else if(a && typeof b === 'string'){
+      // 新签名：WeatherFX.set(cardElement, 'rain')
+      const inst = WeatherFX.init(a);
+      if(inst) inst.set(b);
+    }
+    return a;
+  };
+  WeatherFX.stop = function(){
+    instances && document.querySelectorAll('.weather-card').forEach(c=>{
+      const ins = instances.get(c);
+      if(ins) ins.stop();
+    });
+  };
+
+  /* ---------- 工厂：8 种效果 ---------- */
+  const EFFECTS = {
+    sunny: SunnyEffect,
+    cloudy: CloudyEffect,
+    rain: RainEffect,
+    heavy_rain: HeavyRainEffect,
+    rainstorm: RainstormEffect,
+    thunderstorm: ThunderstormEffect,
+    fog: FogEffect,
+    snow: SnowEffect,
+    loading: SunnyEffect // 默认呈现太阳（与 sunny 同效果）
+  };
+
+  /* ---------- 初始化（页面加载后） ---------- */
+  function bootstrap(){
+    // 为页面上所有 .weather-card 创建独立实例（首页通常只有一张）
+    document.querySelectorAll('.weather-card').forEach(card=>{
+      const inst = WeatherFX.init(card);
+      // 读取卡片当前 data-weather 默认值，决定初始效果
+      if(inst){
+        const kind = card.getAttribute('data-weather') || 'loading';
+        inst.set(kind);
+      }
+    });
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', bootstrap);
+  } else {
+    bootstrap();
+  }
+  window.WeatherFX = WeatherFX;
+})();
 
 function getWeatherSummary(){
   if(!weatherState || !weatherState.ok) return '';
@@ -3306,7 +4143,18 @@ function toggle(id){
 }
 function toggleExpand(id){
   expanded[id]=!expanded[id];
-  renderList();
+  /* 手风琴：不重建 DOM，原地切 show 类 + 用 scrollHeight 精确定高，max-height 过渡才生效 */
+  const item = document.getElementById('item-'+id);
+  if(!item) return;
+  const d = item.querySelector('.detail');
+  const h = item.querySelector('.expand-hint');
+  if(expanded[id]){
+    if(d){ d.classList.add('show'); d.style.maxHeight = (d.scrollHeight + 40) + 'px'; } /* +40 缓冲覆盖展开后 padding 增量，避免底部按钮被裁 */
+    if(h) h.textContent = '▲ 收起';
+  } else {
+    if(d){ d.style.maxHeight = '0px'; d.classList.remove('show'); }
+    if(h) h.textContent = '▼ 查看怎么做';
+  }
 }
 
 function deleteTask(id){
@@ -3426,7 +4274,9 @@ function renderTodayClass(){
 }
 
 /* ====== 日历 ====== */
+let calDir = 0;
 function renderCalendar(){
+  const dir = calDir; calDir = 0;
   document.getElementById('viewName').textContent = '日历';
   document.getElementById('viewCount').textContent = '';
   const list = document.getElementById('list');
@@ -3438,7 +4288,7 @@ function renderCalendar(){
   const wd = ['日','一','二','三','四','五','六'];
   let html = `<div class="cal-head"><button onclick="calMove(-1)">‹</button><div class="m">${calY} 年 ${calM+1} 月</div><button onclick="calMove(1)">›</button></div>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin:-4px 4px 10px;"><button class="btn ghost" style="font-size:12px;padding:6px 10px;" onclick="openCourseEdit()">✎ 编辑课表</button></div>
-    <div class="cal-grid glass">`;
+    <div class="cal-grid glass ${dir>0?'cal-next':(dir<0?'cal-prev':'')}">`;
   html += wd.map(w=>`<div class="wd">${w}</div>`).join('');
   for(let i=0;i<startW;i++) html += `<div class="cal-cell dim"></div>`;
   for(let d=1; d<=days; d++){
@@ -3487,7 +4337,7 @@ function renderCalendar(){
   }
   list.innerHTML = html;
 }
-function calMove(n){ calM+=n; if(calM<0){calM=11;calY--;} if(calM>11){calM=0;calY++;} calSel=undefined; updateRing(); renderCalendar(); }
+function calMove(n){ calM+=n; if(calM<0){calM=11;calY--;} if(calM>11){calM=0;calY++;} calSel=undefined; calDir=n; updateRing(); renderCalendar(); }
 function calPick(ds){ calSel = (calSel===ds)?undefined:ds; renderCalendar(); }
 
 // CSV 字段转义：含逗号/引号/换行时用双引号包裹
@@ -6893,12 +7743,13 @@ function gardenBirdSchedule(){
   if(!bird) return;
   clearTimeout(gardenBirdTimer);
   const run = ()=>{
-    bird.style.left = '-44px';
-    bird.style.top = (18 + Math.random()*34) + 'px';
+    const sw = (document.getElementById('pgScene')||{}).clientWidth || 300;
+    const y = 18 + Math.random()*34;
+    bird.style.transform = 'translate(-52px,'+y.toFixed(0)+'px)';
     bird.classList.remove('on'); void bird.offsetWidth; // 重置 transition
     bird.classList.add('on');
-    setTimeout(()=>{ bird.style.left = (40 + Math.random()*28) + '%'; }, 60);   // 飞入歇脚
-    setTimeout(()=>{ bird.style.left = '106%'; setTimeout(()=>bird.classList.remove('on'), 700); }, 4200); // 飞走
+    setTimeout(()=>{ bird.style.transform = 'translate('+(sw*(0.40+Math.random()*0.28)).toFixed(0)+'px,'+y.toFixed(0)+'px)'; }, 60);   // 飞入歇脚
+    setTimeout(()=>{ bird.style.transform = 'translate('+(sw+52)+'px,'+y.toFixed(0)+'px)'; setTimeout(()=>bird.classList.remove('on'), 700); }, 4200); // 飞走
     gardenBirdTimer = setTimeout(run, 16000 + Math.random()*30000);
   };
   gardenBirdTimer = setTimeout(run, 9000 + Math.random()*20000);
@@ -6910,10 +7761,11 @@ function gardenBugSchedule(){
   if(!bug) return;
   clearTimeout(gardenBugTimer);
   const run = ()=>{
-    bug.style.left = '-26px';
+    const sw = (document.getElementById('pgScene')||{}).clientWidth || 300;
+    bug.style.transform = 'translate(-30px,0)';
     bug.classList.remove('on'); void bug.offsetWidth;
     bug.classList.add('on');
-    setTimeout(()=>{ bug.style.left = '92%'; }, 80);
+    setTimeout(()=>{ bug.style.transform = 'translate('+(sw*0.92).toFixed(0)+'px,0)'; }, 80);
     setTimeout(()=>bug.classList.remove('on'), 13500); // 11s 爬完 + 停留
     gardenBugTimer = setTimeout(run, 30000 + Math.random()*50000);
   };
