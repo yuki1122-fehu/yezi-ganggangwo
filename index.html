@@ -2914,14 +2914,14 @@ function weatherKind(){
   // 香港天文台 + Open-Meteo 后备源全部可能描述 → 8 种动画类
   // 顺序：雷暴最优先，雨分强度（小/大/暴），雪/雾各自独立，其余按字面映射
   if(/雷|雷暴|雷陣|雷陣雨/.test(d)) return 'thunderstorm';
-  if(/暴(雨|風)|豪(雨|大雨)|黑雨/.test(d)) return 'rainstorm';
-  if(/大雨|豪雨|大驟雨/.test(d)) return 'heavy_rain';
-  if(/雪|雹|冰|雪粒|凍雨/.test(d)) return 'snow';          // 雪（Open-Meteo 后备源会出现）
-  if(/雨|驟雨|毛毛雨|微雨|小雨/.test(d)) return 'rain';
-  if(/霧|霧凇|煙霞|霾/.test(d)) return 'fog';               // 有雾/薄雾/烟霞/雾凇
-  if(/陰|密雲|多雲|雲層/.test(d)) return 'cloudy';
-  if(/清涼|寒冷/.test(d)) return 'cloudy';                  // 寒冷 → 阴凉氛围（冷天多阴云）
-  if(/天晴|陽光|晴|晴朗/.test(d)) return 'sunny';
+  if(/暴(雨|風|风)|豪(雨|大雨)|黑雨/.test(d)) return 'rainstorm';
+  if(/大雨|豪雨|大驟雨|大骤雨/.test(d)) return 'heavy_rain';
+  if(/雪|雹|冰|雪粒|凍雨|冻雨/.test(d)) return 'snow';      // 雪（Open-Meteo 后备源会出现）
+  if(/雨|驟雨|骤雨|毛毛雨|微雨|小雨/.test(d)) return 'rain';
+  if(/霧|霧凇|煙霞|霾|雾|雾凇|烟霞/.test(d)) return 'fog';  // 有雾/薄雾/烟霞/雾凇
+  if(/陰|密雲|多雲|雲層|阴|密云|多云|云层/.test(d)) return 'cloudy';
+  if(/清涼|清凉|寒冷/.test(d)) return 'cloudy';             // 寒冷 → 阴凉氛围（冷天多阴云）
+  if(/天晴|陽光|阳光|晴|晴朗/.test(d)) return 'sunny';
   return 'sunny'; // 默认晴天（含 "天氣炎熱/酷熱" 等无云无雨描述）
 }
 function renderWeather(){
