@@ -1915,6 +1915,30 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     </div>
 
     <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;color:var(--green-dark);">🔊 助手语音</div>
+        <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+          <input type="checkbox" id="aiTtsOn" onchange="aiTtsUI()" style="opacity:0;width:0;height:0;position:absolute;">
+          <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+        </label>
+      </div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
+        AI 回复后用语音自动朗读。声音沿用番茄钟里的「语音引擎、声线、音调、语速」，先在番茄钟设置里配好音色，这里只管 AI 助手要不要读。
+      </p>
+      <div id="aiTtsFields" style="transition:opacity .25s;">
+        <label>朗读范围</label>
+        <select id="aiTtsMode">
+          <option value="full">完整回复</option>
+          <option value="brief">只读开头 200 字</option>
+        </select>
+        <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;">
+          <button class="btn ghost" type="button" onclick="aiTtsTest()" style="flex:0 0 auto;">🔊 试听</button>
+          <span id="aiTtsHint" style="font-size:11px;color:var(--ink-soft);line-height:1.5;">试听使用当前番茄钟语音设置。</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
       <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">📎 发送给助理的内容</div>
       <div class="row" style="margin:0;gap:10px;align-items:flex-end;">
         <div style="flex:1;">
@@ -5275,6 +5299,8 @@ function getAiCfg(){
     cfg.systemTpl = DEFAULT_SYSTEM_TPL;
   }
   if(cfg.persona === undefined) cfg.persona = DEFAULT_PERSONA;
+  if(cfg.aiTts === undefined) cfg.aiTts = true;
+  if(cfg.aiTtsMode === undefined) cfg.aiTtsMode = 'full';
   return cfg;
 }
 // 发送前裁剪上下文：保留 system + 最近若干条，并把历史中的图片 base64 替换为占位（保留本轮图片），
@@ -5697,6 +5723,11 @@ function openAISettings(){
   document.getElementById('aiVisionKey').value = cfg.visionKey||'';
   document.getElementById('aiVisionModel').value = cfg.visionModel||'';
   document.getElementById('visionHint').textContent = '';
+  // 助手语音
+  document.getElementById('aiTtsOn').checked = (cfg.aiTts !== false);
+  document.getElementById('aiTtsMode').value = (cfg.aiTtsMode === 'full' ? 'full' : 'brief');
+  document.getElementById('aiTtsHint').textContent='';
+  aiTtsUI();
   document.getElementById('aiSystemTpl').value = (cfg.systemTpl!==undefined ? cfg.systemTpl : DEFAULT_SYSTEM_TPL);
   document.getElementById('tplHint').textContent='';
   document.getElementById('aiPersona').value = (cfg.persona!==undefined ? cfg.persona : DEFAULT_PERSONA);
@@ -5725,6 +5756,14 @@ function resetPersona(){
 function syncVisionUI(){
   const on = document.getElementById('aiVisionOn').checked;
   const fields = document.getElementById('visionFields');
+  if(!fields) return;
+  fields.style.opacity = on ? '1' : '.35';
+  fields.style.pointerEvents = on ? 'auto' : 'none';
+}
+/* ---- 助手语音开关联动：关闭时配置区变灰禁用 ---- */
+function aiTtsUI(){
+  const on = document.getElementById('aiTtsOn').checked;
+  const fields = document.getElementById('aiTtsFields');
   if(!fields) return;
   fields.style.opacity = on ? '1' : '.35';
   fields.style.pointerEvents = on ? 'auto' : 'none';
@@ -5886,6 +5925,8 @@ function saveAISettings(){
     daysTask: clampInt(document.getElementById('aiDaysTask').value, 0, 120, 21),
     daysCourse: clampInt(document.getElementById('aiDaysCourse').value, 0, 120, 21),
     roundsConv: clampInt(document.getElementById('aiRounds').value, 0, 40, 8),
+    aiTts: document.getElementById('aiTtsOn').checked,
+    aiTtsMode: document.getElementById('aiTtsMode').value === 'full' ? 'full' : 'brief',
   };
   localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg));
   // 工作台名称
@@ -6241,6 +6282,7 @@ async function sendAI(){
   addAIMsg('user', display.trim(), uid);
   aiPendingFiles = [];
   renderAiAttach();
+  ttsWarmup(); // iOS 手势解锁：让本轮 AI 回复可以自动语音朗读
 
   if(!aiConv) aiReset();
   else aiConv[0] = { role:'system', content: buildSystem() }; // 每轮刷新 system，带上最新日程
@@ -6375,7 +6417,10 @@ async function aiRun(){
         if(stepEl) stepEl.remove(); // 工具步骤完成，去掉过程提示
         // 部分多模态接口返回的 content 是数组，防御性判断后再展示
         const content = (typeof msg.content === 'string') ? msg.content : (Array.isArray(msg.content) ? msg.content.map(p=>p&&p.text?p.text:'').join(' ').trim() : '');
-        if(content) addAIMsg('ai', content, msg.id);
+        if(content){
+          addAIMsg('ai', content, msg.id);
+          aiTtsSpeak(content);
+        }
         break;
       }
     }
@@ -8433,6 +8478,42 @@ function ttsWarmup(){ // iOS 手势解锁：第一次用户点击时调用，之
     const u = new SpeechSynthesisUtterance(' '); u.volume = 0;
     speechSynthesis.speak(u);
   }catch(e){}
+}
+/* ---------- AI 助手回复语音（沿用番茄钟语音引擎：系统语音 / MiniMax + 音色/音调/语速） ---------- */
+function aiTtsClean(text){
+  let t = String(text||'');
+  t = t.replace(/```[\s\S]*?```/g, '。代码部分省略。');
+  t = t.replace(/`([^`]*)`/g, '$1');
+  t = t.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');
+  t = t.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1');
+  t = t.replace(/<[^>]+>/g, ' ');
+  t = t.replace(/^\s*(?:[-*•]|\d+[.、）)])\s+/gm, ' ');
+  t = t.replace(/[#*_~|]+/g, ' ');
+  t = t.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '');
+  t = t.replace(/\s+/g, ' ').trim();
+  return t;
+}
+function aiTtsRoute(text){
+  if(!text) return;
+  if(ttsEngineReady()){ ttsMiniMax(text).catch(()=>ttsSpeakSys(text)); return; }
+  ttsSpeakSys(text);
+}
+function aiTtsSpeak(text, force){
+  if(!text) return;
+  if(!force){
+    const cfg = getAiCfg();
+    if(cfg.aiTts === false) return;
+  }
+  let t = aiTtsClean(text);
+  if(!t) return;
+  const cfg = getAiCfg();
+  if(cfg.aiTtsMode === 'brief') t = t.slice(0, 200);
+  aiTtsRoute(t);
+}
+function aiTtsTest(){
+  const hint = document.getElementById('aiTtsHint');
+  if(hint) hint.textContent = '正在朗读试听…';
+  aiTtsSpeak('你好，我是你的工作台助理。以后每次回复，我都会用这个声音读给你听。', true);
 }
 // 预设声线一键填充音调/语速滑块（选了预设后仍可手动微调）
 function pomoVoicePreset(){
