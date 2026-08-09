@@ -631,6 +631,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   margin:0 16px 12px;display:flex;flex-direction:column;gap:10px;
   animation:fade .32s var(--ease);
 }
+#list{transition:opacity .16s var(--ease),transform .16s var(--ease);}
 .list-toolbar .search-wrap{position:relative;}
 .list-toolbar input[type="search"]{
   width:100%;padding:11px 14px 11px 38px;border-radius:var(--radius-pill);
@@ -738,10 +739,11 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .badge-pri.low{color:var(--ink-soft);background:var(--glass-strong);border:1px solid var(--glass-line);}
 .cat-tag{font-size:10px;color:var(--ink-soft);background:var(--glass-strong);padding:3px 10px;border-radius:var(--radius-pill);font-weight:700;border:1px solid var(--glass-line);}
 
-.detail{display:block;max-height:0;opacity:0;overflow:hidden;margin-top:0;padding:0 16px;border-width:0;
-  background:var(--green-soft);border-radius:var(--radius-sm);border:1px solid var(--green-mid);
-  transition:max-height .32s var(--ease),opacity .26s var(--ease),margin-top .26s var(--ease),padding .26s var(--ease);}
-.detail.show{max-height:900px;opacity:1;margin-top:15px;padding:15px 16px;animation:none;}
+.detail{display:grid;grid-template-rows:0fr;opacity:0;overflow:hidden;margin-top:0;
+  background:var(--green-soft);border-radius:var(--radius-sm);border:1px solid transparent;
+  transition:grid-template-rows .28s var(--ease),opacity .22s var(--ease),margin-top .22s var(--ease),border-color .22s var(--ease);}
+.detail-inner{min-height:0;overflow:hidden;padding:15px 16px;}
+.detail.show{grid-template-rows:1fr;opacity:1;margin-top:15px;border-color:var(--green-mid);}
 @keyframes fade{from{opacity:0;transform:translateY(-6px);}to{opacity:1;transform:none;}}
 .detail .h{font-size:12px;font-weight:800;color:var(--green-dark);margin-bottom:10px;letter-spacing:.3px;}
 .step{display:flex;gap:11px;margin-bottom:11px;align-items:flex-start;}
@@ -764,11 +766,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .cal-head .m{font-size:16px;font-weight:800;color:var(--ink);letter-spacing:.3px;}
 .cal-head button{background:var(--glass-strong);border:1px solid var(--glass-line);color:var(--green-dark);font-size:20px;width:38px;height:38px;border-radius:var(--radius-xs);box-shadow:var(--shadow-inset);cursor:pointer;transition:transform .16s var(--ease),background .2s;}
 .cal-head button:active{background:var(--green-soft);transform:scale(.9);}
-.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;border-radius:var(--radius);padding:14px 11px;}
-.cal-grid.cal-next{animation:calNext .3s var(--ease);}
-.cal-grid.cal-prev{animation:calPrev .3s var(--ease);}
-@keyframes calNext{from{opacity:0;transform:translateX(26px);}to{opacity:1;transform:none;}}
-@keyframes calPrev{from{opacity:0;transform:translateX(-26px);}to{opacity:1;transform:none;}}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;border-radius:var(--radius);padding:14px 11px;
+  transition:transform .22s var(--ease),opacity .22s var(--ease);}
+.cal-grid.cal-next{transform:translateX(18px);opacity:0;}
+.cal-grid.cal-prev{transform:translateX(-18px);opacity:0;}
 .cal-grid .wd{font-size:11px;color:var(--ink-faint);text-align:center;padding:4px 0;font-weight:700;letter-spacing:.5px;}
 .cal-cell{aspect-ratio:1/1;display:flex;flex-direction:column;align-items:center;justify-content:center;
   font-size:13px;border-radius:13px;position:relative;color:var(--ink);transition:background .16s var(--ease),transform .16s var(--ease);padding:2px;overflow:hidden;font-weight:600;}
@@ -788,7 +789,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* ---------- 记账卡 ---------- */
 .expense-card{border-radius:var(--radius);padding:18px 18px 14px;margin-bottom:15px;background:var(--glass-strong);
   backdrop-filter:blur(40px) saturate(200%);-webkit-backdrop-filter:blur(40px) saturate(200%);
-  border:1px solid var(--glass-line);box-shadow:var(--shadow-sm),var(--shadow-inset);animation:fade .32s var(--ease);}
+  border:1px solid var(--glass-line);box-shadow:var(--shadow-sm),var(--shadow-inset);}
 .exp-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;}
 .exp-title{font-size:12.5px;font-weight:800;color:var(--ink-soft);letter-spacing:.3px;}
 .exp-title small{font-weight:600;color:var(--ink-faint);margin-left:4px;font-size:11px;}
@@ -800,7 +801,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .exp-total{font-size:32px;font-weight:800;color:var(--ink);letter-spacing:.5px;margin:6px 0 10px;font-variant-numeric:tabular-nums;}
 .exp-bar{height:9px;border-radius:var(--radius-pill);background:var(--ring-track);overflow:hidden;box-shadow:var(--shadow-inset);}
 .exp-bar i{display:block;height:100%;border-radius:var(--radius-pill);
-  background:linear-gradient(90deg,var(--green-deep),var(--green));transition:width .5s var(--ease);}
+  background:linear-gradient(90deg,var(--green-deep),var(--green));transform-origin:left center;transition:transform .5s var(--ease);}
 .exp-bar i.over{background:linear-gradient(90deg,#c57474,var(--danger));}
 .exp-remain{font-size:12.5px;font-weight:700;color:var(--green-dark);margin:8px 0 13px;display:flex;justify-content:space-between;align-items:center;}
 .exp-remain.over{color:var(--danger);}
@@ -1024,7 +1025,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* ---------- 减少动效偏好 ---------- */
 @media (prefers-reduced-motion:reduce){
   /* 温和降级：停掉 ambient/无限循环/庆祝类动效（前庭刺激主因），保留短促的入场/退场/状态过渡（帮助理解状态变化） */
-  .pomo-aurora,.pomo-bokeh,body::after,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-anim,.weather-anim *,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after{
+  .pomo-aurora,.pomo-bokeh,body::after,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-anim,.weather-anim *,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after,.pomo-tip{
     animation:none !important;transition:none !important;
   }
 }
@@ -1055,7 +1056,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* 液态光晕层：绿（专注）/ 暖杏（休息）双图层淡入淡出 + 慢速漂移 */
 .pomo-aurora{
   position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:0;
-  pointer-events:none;filter:blur(44px);opacity:0;transition:opacity 1.2s ease;
+  pointer-events:none;filter:blur(20px);opacity:0;transition:opacity 1.2s var(--ease);
   animation:auroraDrift 26s ease-in-out infinite alternate;
 }
 .aurora-green{
@@ -1075,7 +1076,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 #pomoMask.break-mode .aurora-warm{opacity:1;}
 /* 专注计时中：小园与氛围退居背景，聚焦番茄环 */
 #pomoMask:has(.pomo-ring.running) .pomo-garden{opacity:.5;transition:opacity .9s var(--ease);}
-#pomoMask:has(.pomo-ring.running) .pomo-aurora{animation-duration:60s;opacity:.75;}
+#pomoMask:has(.pomo-ring.running) .pomo-aurora{animation:none;opacity:.75;}
 #pomoMask:has(.pomo-ring.running) .pomo-bokeh{opacity:.22;}
 @keyframes auroraDrift{
   0%{transform:translate3d(-2%,-1%,0) scale(1);}
@@ -1086,7 +1087,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .pomo-bokeh{
   position:fixed;width:110px;height:110px;border-radius:50%;z-index:0;pointer-events:none;
   background:radial-gradient(circle at 35% 30%, rgba(255,255,255,.9), rgba(255,255,255,0) 68%);
-  filter:blur(26px);opacity:.5;animation:bokehFloat 16s ease-in-out infinite alternate;
+  filter:blur(12px);opacity:.5;animation:bokehFloat 16s ease-in-out infinite alternate;
 }
 .pomo-bokeh.b1{left:8%;top:22%;animation-duration:17s;}
 .pomo-bokeh.b2{right:6%;top:38%;width:80px;height:80px;animation-duration:21s;animation-delay:2s;opacity:.38;}
@@ -1342,7 +1343,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .sprout.ms{width:34px;}
 @keyframes sproutSway{from{transform:rotate(-2.5deg);}to{transform:rotate(3deg);}}
 .sprout.grow>svg{animation:growIn .75s cubic-bezier(.34,1.56,.64,1) both;transform-origin:50% 100%;}
-@keyframes growIn{from{transform:scale(0) rotate(-10deg);opacity:0;}60%{transform:scale(1.14) rotate(3deg);}to{transform:scale(1) rotate(0);opacity:1;}}
+@keyframes growIn{from{transform:scale(.9) rotate(-10deg);opacity:0;}60%{transform:scale(1.14) rotate(3deg);}to{transform:scale(1) rotate(0);opacity:1;}}
 .sleaf{
   transform-box:fill-box;transform-origin:50% 100%;
   animation:leafFlutter 3.2s ease-in-out infinite alternate;
@@ -2998,6 +2999,7 @@ function renderWeather(){
     const lowCpu = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
     return isMobile || lowMem || lowCpu;
   })();
+  const reduceMQ = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   /* ---------- 创建单个卡片实例 ---------- */
   function createInstance(card){
@@ -3008,7 +3010,7 @@ function renderWeather(){
       card, canvas, ctx,
       dpr: 1, width: 0, height: 0,
       currentKind: 'loading', effect: null,
-      lastTime: 0, running: false, rafId: 0, theme: 'light',
+      lastTime: 0, running: false, rafId: 0, theme: 'light', reduceMotion: reduceMQ.matches,
       resize(){
         const rect = card.getBoundingClientRect();
         this.width = Math.max(1, rect.width);
@@ -3034,7 +3036,7 @@ function renderWeather(){
         }
       },
       start(){
-        if(this.running) return;
+        if(this.running || this.reduceMotion) return;
         this.running = true;
         this.lastTime = performance.now();
         this.rafId = requestAnimationFrame((t)=>this.loop(t));
@@ -3049,7 +3051,7 @@ function renderWeather(){
         this.effect = new Ctor();
         this.currentKind = kind;
         if(this.width > 0 && this.height > 0) this.effect.init(this.width, this.height);
-        if(!this.running) this.start();
+        if(!this.running && !this.reduceMotion) this.start();
       }
     };
     inst.detectTheme();
@@ -3066,6 +3068,12 @@ function renderWeather(){
     // 页面可见性
     document.addEventListener('visibilitychange', ()=>{
       if(document.hidden) inst.stop();
+      else if(inst.effect && !inst.reduceMotion) inst.start();
+    });
+    // 系统减弱动效偏好变化
+    reduceMQ.addEventListener('change', (e)=>{
+      inst.reduceMotion = e.matches;
+      if(e.matches) inst.stop();
       else if(inst.effect) inst.start();
     });
     return inst;
@@ -4087,12 +4095,14 @@ function renderList(){
         </div>
       </div>
       <div class="detail ${detail}" onclick="event.stopPropagation()">
-        <div class="h">怎么做</div>
-        ${hasSteps ? steps : '<div class="steps-empty">还没有步骤</div>'}
-        ${t.tip?`<div class="tip">💡 ${escHtml(t.tip)}</div>`:''}
-        ${genBtn}
-        <div style="display:flex;gap:8px;margin-top:12px;">
-          <button class="btn ghost" style="padding:8px 12px;font-size:12px;" onclick="deleteTask('${t.id}')">删除</button>
+        <div class="detail-inner">
+          <div class="h">怎么做</div>
+          ${hasSteps ? steps : '<div class="steps-empty">还没有步骤</div>'}
+          ${t.tip?`<div class="tip">💡 ${escHtml(t.tip)}</div>`:''}
+          ${genBtn}
+          <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn ghost" style="padding:8px 12px;font-size:12px;" onclick="deleteTask('${t.id}')">删除</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -4118,16 +4128,15 @@ function toggle(id){
 }
 function toggleExpand(id){
   expanded[id]=!expanded[id];
-  /* 手风琴：不重建 DOM，原地切 show 类 + 用 scrollHeight 精确定高，max-height 过渡才生效 */
   const item = document.getElementById('item-'+id);
   if(!item) return;
   const d = item.querySelector('.detail');
   const h = item.querySelector('.expand-hint');
   if(expanded[id]){
-    if(d){ d.classList.add('show'); d.style.maxHeight = (d.scrollHeight + 40) + 'px'; } /* +40 缓冲覆盖展开后 padding 增量，避免底部按钮被裁 */
+    if(d) d.classList.add('show');
     if(h) h.textContent = '▲ 收起';
   } else {
-    if(d){ d.style.maxHeight = '0px'; d.classList.remove('show'); }
+    if(d) d.classList.remove('show');
     if(h) h.textContent = '▼ 查看怎么做';
   }
 }
@@ -4311,6 +4320,12 @@ function renderCalendar(){
     html += `<div class="cal-detail"><div class="empty glass">点有颜色小条的日期，看当天上什么课 ✦</div></div>`;
   }
   list.innerHTML = html;
+  const grid = list.querySelector('.cal-grid');
+  if(grid && dir !== 0){
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      grid.classList.remove('cal-next','cal-prev');
+    }));
+  }
 }
 function calMove(n){ calM+=n; if(calM<0){calM=11;calY--;} if(calM>11){calM=0;calY++;} calSel=undefined; calDir=n; updateRing(); renderCalendar(); }
 function calPick(ds){ calSel = (calSel===ds)?undefined:ds; renderCalendar(); }
@@ -4400,6 +4415,15 @@ function switchTab(cat){
   const tb = document.getElementById('listToolbar');
   if(tb) tb.style.display = (cat==='cal') ? 'none' : '';
   updateRing(); renderList();
+  const list = document.getElementById('list');
+  if(list){
+    list.style.opacity = '0';
+    list.style.transform = 'translateY(4px)';
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      list.style.opacity = '';
+      list.style.transform = '';
+    }));
+  }
 }
 
 /* ====== 添加任务 ====== */
@@ -4509,7 +4533,7 @@ function renderExpenseCard(){
       </div>
     </div>
     <div class="exp-total">${fmtHKD(total)}</div>
-    <div class="exp-bar"><i style="width:${pct}%"></i></div>
+    <div class="exp-bar"><i style="transform:scaleX(${Math.max(0, Math.min(100, pct)) / 100})"></i></div>
     <div class="exp-remain ${over?'over':''}">${over ? '已超支 '+fmtHKD(-remain) : '预算剩余 '+fmtHKD(remain)}<span class="exp-remain-pct">${pct}%</span></div>
     <div class="exp-cats">${topHtml}</div>
     ${recentHtml ? `<div class="exp-recent" style="max-height:210px;overflow:auto;-webkit-overflow-scrolling:touch;">${recentHtml}</div>` : ''}
