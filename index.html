@@ -2342,6 +2342,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <button type="button" class="btn ghost" onclick="pomoMiniTest()" style="width:100%;margin-top:6px;">🔊 试听当前音色（用上方音调/语速）</button>
       <label style="margin-top:14px;">自定义音色 ID（设计/复刻/官网生成，填这里优先于系统音色）</label>
       <input type="text" id="psMiniVoiceId" placeholder="例如 ttv-voice-xxx 或 MiniMaxVoice001（留空则用上方系统音色）">
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 0;line-height:1.5;">自定义音色绑定创建它的 GroupId，更换账号/GroupId 后原音色会失效；想用系统音色请把这里清空。</p>
       <label style="margin-top:14px;">音色设计（文字描述生成全新音色，首次合成时计费 ¥9.9/音色）</label>
       <div style="display:flex;gap:6px;">
         <input type="text" id="psDesignPrompt" placeholder="如：温柔知性、带一点气音的女声" style="flex:1;">
@@ -8381,7 +8382,11 @@ function pomoMiniTest(){
     return new Blob([bytes], {type:'audio/mpeg'});
   }).then(blob=>playMiniAudio(blob))
     .then(()=>toast('试听完成 🔊'))
-    .catch(e=>toast('试听失败：' + (e && e.message ? e.message : e)));
+    .catch(e=>{
+      const custom = document.getElementById('psMiniVoiceId') && document.getElementById('psMiniVoiceId').value.trim();
+      const extra = custom ? '（自定义音色绑定原 GroupId，换账号后请重新复刻或清空该 ID）' : '';
+      toast('试听失败：' + (e && e.message ? e.message : e) + extra);
+    });
   }catch(e){ console.error('test:', e); toast('试听异常：' + (e && e.message ? e.message : e)); }
 }
 // 音色设计：文字描述生成全新音色 voice_id（首次用于合成时计费 ¥9.9/音色）
