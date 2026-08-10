@@ -945,6 +945,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .ai-msg{max-width:82%;padding:12px 15px;border-radius:19px;font-size:14.5px;line-height:1.6;word-break:break-word;white-space:pre-wrap;animation:msgIn .28s var(--ease);position:relative;}
 .ai-msg .del{position:absolute;top:-8px;right:-8px;width:20px;height:20px;border-radius:50%;background:rgba(90,90,90,.8);color:#fff;font-size:15px;line-height:18px;text-align:center;cursor:pointer;border:1.5px solid rgba(255,255,255,.92);opacity:.5;transition:opacity .15s,transform .1s;z-index:2;-webkit-tap-highlight-color:transparent;}
 .ai-msg .del:hover,.ai-msg .del:active{opacity:1;transform:scale(1.14);}
+.ai-msg .tts-btn{position:absolute;right:-8px;bottom:-8px;width:24px;height:24px;border-radius:50%;background:var(--green);color:#fff;font-size:13px;line-height:20px;text-align:center;cursor:pointer;border:1.5px solid rgba(255,255,255,.92);box-shadow:0 3px 8px rgba(0,0,0,.18);opacity:.92;z-index:2;transition:opacity .15s,transform .1s;-webkit-tap-highlight-color:transparent;}
+.ai-msg .tts-btn:hover,.ai-msg .tts-btn:active{opacity:1;transform:scale(1.12);}
 @keyframes msgIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
 .ai-msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--green-deep),var(--green));color:#fff;border-bottom-right-radius:6px;box-shadow:0 6px 18px rgba(130,160,126,.34);}
 .ai-msg.ai{align-self:flex-start;background:var(--glass-strong);color:var(--ink);border-bottom-left-radius:6px;border:1px solid var(--glass-line);box-shadow:var(--shadow-sm);}
@@ -5868,6 +5870,8 @@ function clearAIConv(){
   showDialog('清空对话', '确定清空全部对话记录吗？清空后不可恢复（任务、课表、记账不受影响）。', [
     {label:'清空', cls:'danger', fn:()=>{
       aiReset();
+      aiTtsClearLast();
+      aiTtsPending = null;
       const wrap = document.getElementById('aiMsgs');
       if(wrap) wrap.innerHTML='';
       addAIMsg('sys','对话已清空（任务与课表不受影响）。继续说吧～');
@@ -5885,6 +5889,7 @@ function deleteConvMsg(mid){
   if(!el) return;
   // 纯展示消息（报错/解析提示等，不在 aiConv 里）：无需确认，直接移除气泡
   if(!aiConv || !aiConv.some(m=>m.id===mid)){
+    if(aiTtsLast && aiTtsLast.mid===mid) aiTtsClearLast();
     el.remove();
     return;
   }
@@ -5899,6 +5904,7 @@ function deleteConvMsg(mid){
       }
       const el2 = document.querySelector('#aiMsgs [data-mid="'+mid+'"]');
       if(el2) el2.remove();
+      if(aiTtsLast && aiTtsLast.mid===mid) aiTtsClearLast();
       saveConv();
     }},
     {label:'取消', cls:'ghost'}
@@ -6419,7 +6425,7 @@ async function aiRun(){
         const content = (typeof msg.content === 'string') ? msg.content : (Array.isArray(msg.content) ? msg.content.map(p=>p&&p.text?p.text:'').join(' ').trim() : '');
         if(content){
           addAIMsg('ai', content, msg.id);
-          aiTtsSpeak(content);
+          aiTtsSpeak(content, false, msg.id);
         }
         break;
       }
@@ -8310,7 +8316,9 @@ async function ttsMiniMax(text){
   if(!hex) throw new Error('未返回音频');
   const bytes = new Uint8Array(hex.length/2);
   for(let i=0;i<bytes.length;i++) bytes[i] = parseInt(hex.substr(i*2,2), 16);
-  return playMiniAudio(new Blob([bytes], {type:'audio/mpeg'}));
+  const blob = new Blob([bytes], {type:'audio/mpeg'});
+  if(typeof aiTtsCaptureAudio === 'function'){ try{ aiTtsCaptureAudio(blob); }catch(e){} }
+  return playMiniAudio(blob);
 }
 function playMiniAudio(blob){
   return new Promise((resolve,reject)=>{
@@ -8480,6 +8488,53 @@ function ttsWarmup(){ // iOS 手势解锁：第一次用户点击时调用，之
   }catch(e){}
 }
 /* ---------- AI 助手回复语音（沿用番茄钟语音引擎：系统语音 / MiniMax + 音色/音调/语速） ---------- */
+let aiTtsLast = null;    // 最近一次 AI 语音：{mid, text, url, el}
+let aiTtsPending = null; // 正在朗读的 AI 消息：{mid, text}
+
+function aiTtsClearLast(){
+  if(!aiTtsLast) return;
+  if(aiTtsLast.url){ try{ URL.revokeObjectURL(aiTtsLast.url); }catch(e){} }
+  if(aiTtsLast.el && aiTtsLast.el.parentNode) aiTtsLast.el.remove();
+  aiTtsLast = null;
+}
+function aiTtsAddBtn(mid){
+  const d = document.querySelector('#aiMsgs [data-mid="'+mid+'"]');
+  if(!d || d.querySelector('.tts-btn')) return;
+  const b = document.createElement('span');
+  b.className = 'tts-btn';
+  b.textContent = '🔊';
+  b.title = '重复播放这条语音';
+  b.setAttribute('onclick', 'aiTtsReplay()');
+  d.appendChild(b);
+  if(aiTtsLast) aiTtsLast.el = b;
+}
+function aiTtsCaptureAudio(blob){ // 由 ttsMiniMax 在播放前调用，只保存最近一次音频
+  const p = aiTtsPending;
+  if(!p || !p.mid || !blob) return;
+  aiTtsClearLast();
+  aiTtsLast = {mid: p.mid, text: p.text, url: URL.createObjectURL(blob), el: null};
+  aiTtsAddBtn(p.mid);
+}
+function aiTtsStoreSys(){ // 系统语音没有音频文件，保存文本供重播时重新合成
+  const p = aiTtsPending;
+  if(!p || !p.mid) return;
+  aiTtsClearLast();
+  aiTtsLast = {mid: p.mid, text: p.text, url: null, el: null};
+  aiTtsAddBtn(p.mid);
+}
+function aiTtsReplay(){
+  const last = aiTtsLast;
+  if(!last) return;
+  ttsWarmup(); // iOS 手势解锁
+  if(last.url){
+    try{
+      const a = new Audio(last.url);
+      a.play().catch(()=>{ if(last.text) ttsSpeakSys(last.text); });
+    }catch(e){ if(last.text) ttsSpeakSys(last.text); }
+  }else if(last.text){
+    ttsSpeakSys(last.text);
+  }
+}
 function aiTtsClean(text){
   let t = String(text||'');
   t = t.replace(/```[\s\S]*?```/g, '。代码部分省略。');
@@ -8495,10 +8550,14 @@ function aiTtsClean(text){
 }
 function aiTtsRoute(text){
   if(!text) return;
-  if(ttsEngineReady()){ ttsMiniMax(text).catch(()=>ttsSpeakSys(text)); return; }
+  if(ttsEngineReady()){
+    ttsMiniMax(text).catch(()=>{ ttsSpeakSys(text); aiTtsStoreSys(); });
+    return;
+  }
   ttsSpeakSys(text);
+  aiTtsStoreSys();
 }
-function aiTtsSpeak(text, force){
+function aiTtsSpeak(text, force, mid){
   if(!text) return;
   if(!force){
     const cfg = getAiCfg();
@@ -8508,6 +8567,8 @@ function aiTtsSpeak(text, force){
   if(!t) return;
   const cfg = getAiCfg();
   if(cfg.aiTtsMode === 'brief') t = t.slice(0, 200);
+  aiTtsPending = mid ? {mid: mid, text: t} : null;
+  if(mid) aiTtsClearLast(); // 新回复开始，只保留最近一次：移除旧按钮、释放旧音频
   aiTtsRoute(t);
 }
 function aiTtsTest(){
