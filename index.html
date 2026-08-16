@@ -4962,91 +4962,95 @@ function buildBillCanvas(items, from, to){
   const days = Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0]));
   const dayCount = days.length;
   const avg = dayCount ? Math.round(total/dayCount*100)/100 : 0;
-  // 高度预估
-  const H = 170 + 216 + 48 + cats.length*64 + 52 + days.reduce((s,d)=>s+60+d[1].length*50,0) + 120;
+  const W = 1080, P = 84, CW = W - 2*P, R = 30;
+  const catH = 116 + cats.length*66;
+  const dayH = 128 + days.reduce((s,d)=>s+48+d[1].length*50,0);
+  const H = 608 + catH + dayH;
   const canvas = document.createElement('canvas');
-  canvas.width = 1080; canvas.height = Math.max(1200, H);
+  canvas.width = W; canvas.height = Math.max(1150, H);
   const ctx = canvas.getContext('2d');
-  const W = 1080, P = 64;
-  const C = { bg1:'#F7F9F3', bg2:'#E9F0E0', ink:'#27332B', soft:'#5E6D61', faint:'#8E9B90',
-    green:'#4F7A5B', greenDeep:'#2E5238', card:'#FFFFFF', line:'#E2EBDC',
-    dot:['#E07B54','#4E8FD8','#9B6BD0','#D4537E','#4FA46B','#C9A227','#6E7B8B','#2FA8A0'] };
+  const C = { ink:'#2E3A31', soft:'#5E6C62', faint:'#97A397', green:'#4F7A5B',
+    bar1:'#7FA284', bar2:'#5E8A66', line:'rgba(255,255,255,.75)' };
   const font = (s,w)=>{ ctx.font = (w||'600')+' '+s+'px -apple-system,"PingFang SC","Helvetica Neue",sans-serif'; };
   const trunc = (str,max)=>{ const s=String(str||''); return s.length>max ? s.slice(0,max-1)+'…' : s; };
   const fmtN = n=>Math.round(n*100)/100;
   const money = n=>'HK$ '+fmtN(n).toLocaleString();
-  // 背景
-  const bg = ctx.createLinearGradient(0,0,0,canvas.height);
-  bg.addColorStop(0,C.bg1); bg.addColorStop(1,C.bg2);
-  ctx.fillStyle = bg; ctx.fillRect(0,0,W,canvas.height);
-  // 顶部
-  font(24,'700'); ctx.fillStyle = C.green; ctx.textAlign='left';
-  ctx.fillText('🌿 叶子港港窝', P, 64);
-  font(20,'600'); ctx.fillStyle = C.faint; ctx.textAlign='right';
-  ctx.fillText('月度账单', W-P, 64);
-  // 标题月份
-  const m0 = from.slice(0,4), m1 = from.slice(5,7), m2 = to.slice(5,7);
+  // 液态玻璃卡：阴影 + 半透明白渐变 + 细白边 + 顶部高光
+  const glass = (x,y,w,h,r)=>{
+    ctx.save();
+    ctx.shadowColor='rgba(92,112,98,.26)'; ctx.shadowBlur=44; ctx.shadowOffsetY=18;
+    ctx.beginPath(); if(ctx.roundRect){ctx.roundRect(x,y,w,h,r)}else{ctx.rect(x,y,w,h)};
+    const g=ctx.createLinearGradient(x,y,x,y+h); g.addColorStop(0,'rgba(255,255,255,.7)'); g.addColorStop(1,'rgba(255,255,255,.4)');
+    ctx.fillStyle=g; ctx.fill();
+    ctx.restore();
+    ctx.beginPath(); if(ctx.roundRect){ctx.roundRect(x,y,w,h,r)}else{ctx.rect(x,y,w,h)};
+    ctx.strokeStyle='rgba(255,255,255,.92)'; ctx.lineWidth=1.6; ctx.stroke();
+    ctx.save(); ctx.beginPath(); if(ctx.roundRect){ctx.roundRect(x+6,y+2,w-12,Math.min(64,h-8),r-6)}else{ctx.rect(x+6,y+2,w-12,Math.min(64,h-8))};
+    ctx.clip();
+    const hl=ctx.createLinearGradient(x,y,x,y+64); hl.addColorStop(0,'rgba(255,255,255,.9)'); hl.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=hl; ctx.fillRect(x,y,w,64);
+    ctx.restore();
+  };
+  const blob = (x,y,r,col)=>{ const g=ctx.createRadialGradient(x,y,0,x,y,r); g.addColorStop(0,col); g.addColorStop(1,'rgba(255,255,255,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill(); };
+  // 背景：柔和渐变 + 光斑
+  const bg=ctx.createLinearGradient(0,0,0,canvas.height); bg.addColorStop(0,'#F4F7EF'); bg.addColorStop(1,'#E5ECE0');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,canvas.height);
+  blob(120,140,260,'rgba(180,208,170,.5)');
+  blob(W-140,90,230,'rgba(255,255,255,.75)');
+  blob(W/2,canvas.height-160,320,'rgba(210,222,196,.5)');
+  // 顶部（背景上）
+  font(24,'700'); ctx.fillStyle=C.green; ctx.textAlign='left'; ctx.fillText('🌿 叶子港港窝', P, 58);
+  font(20,'600'); ctx.fillStyle=C.faint; ctx.textAlign='right'; ctx.fillText('月度账单', W-P, 58);
+  const m0=from.slice(0,4),m1=from.slice(5,7),m2=to.slice(5,7);
   const rangeLabel = m1===m2 ? (m0+' 年 '+parseInt(m1,10)+' 月') : (from+' ~ '+to);
-  font(52,'800'); ctx.fillStyle = C.ink; ctx.textAlign='left';
-  ctx.fillText(rangeLabel, P, 128);
-  font(22,'500'); ctx.fillStyle = C.faint;
-  ctx.fillText((from==to ? from : from+' — '+to)+' · 共 '+dayCount+' 天', P, 162);
-  // 总计卡（深绿圆角卡）
-  let y = 196;
-  const cardH = 190;
-  rr(ctx, P, y, W-2*P, cardH, 28, C.greenDeep);
-  font(22,'600'); ctx.fillStyle='rgba(255,255,255,.72)'; ctx.fillText('总支出', P+44, y+52);
-  font(64,'800'); ctx.fillStyle='#FFFFFF'; ctx.fillText(money(total), P+44, y+122);
-  font(22,'600'); ctx.fillStyle='rgba(255,255,255,.8)'; ctx.textAlign='right';
-  ctx.fillText(items.length+' 笔 · 日均 '+money(avg), W-P-44, y+118);
-  ctx.textAlign='left';
-  y += cardH + 42;
-  // 分类分布
-  font(26,'800'); ctx.fillStyle = C.ink; ctx.fillText('分类分布', P, y); y += 46;
-  cats.forEach(([c,v],i)=>{
-    const ratio = maxCat ? v/maxCat : 0;
-    font(22,'700'); ctx.fillStyle = C.ink; ctx.textAlign='left';
-    ctx.fillText(trunc(c,8), P, y+28);
-    ctx.textAlign='right';
-    font(22,'700'); ctx.fillStyle = C.ink;
-    ctx.fillText(money(v), W-P, y+28);
-    ctx.textAlign='left';
-    rr(ctx, P, y+40, W-2*P, 8, 4, C.line);
-    rr(ctx, P, y+40, Math.max(24,(W-2*P)*ratio), 8, 4, C.green);
-    y += 66;
+  font(54,'800'); ctx.fillStyle=C.ink; ctx.textAlign='left'; ctx.fillText(rangeLabel, P, 122);
+  font(22,'500'); ctx.fillStyle=C.faint; ctx.fillText((from===to?from:from+' — '+to)+' · 共 '+dayCount+' 天', P, 160);
+  // 总支出玻璃卡
+  let y=188;
+  glass(P,y,CW,210,R);
+  font(21,'600'); ctx.fillStyle=C.soft; ctx.fillText('总支出', P+46, y+58);
+  font(66,'800'); ctx.fillStyle=C.ink; ctx.fillText(money(total), P+46, y+132);
+  font(21,'600'); ctx.fillStyle=C.faint; ctx.textAlign='right'; ctx.fillText(items.length+' 笔 · 日均 '+money(avg), W-P-46, y+126); ctx.textAlign='left';
+  y += 210+28;
+  // 分类玻璃卡
+  const cy=y, ch=catH;
+  glass(P,cy,CW,ch,R);
+  font(24,'800'); ctx.fillStyle=C.ink; ctx.fillText('分类分布', P+46, cy+64);
+  cats.forEach((c,i)=>{ const ratio=maxCat?c[1]/maxCat:0; const base=cy+118+66*i;
+    font(21,'700'); ctx.fillStyle=C.ink; ctx.textAlign='left'; ctx.fillText(trunc(c[0],8), P+46, base+32);
+    ctx.textAlign='right'; font(21,'700'); ctx.fillStyle=C.ink; ctx.fillText(money(c[1]), W-P-46, base+32); ctx.textAlign='left';
+    rr(ctx, P+46, base+44, CW-92, 9, 4.5, 'rgba(255,255,255,.8)');
+    if(ratio>0.01){ const g2=ctx.createLinearGradient(P+46,0,P+46+CW-92,0); g2.addColorStop(0,C.bar1); g2.addColorStop(1,C.bar2);
+      ctx.beginPath(); if(ctx.roundRect){ctx.roundRect(P+46,base+44,Math.max(30,(CW-92)*ratio),9,4.5)}else{ctx.rect(P+46,base+44,Math.max(30,(CW-92)*ratio),9)}; ctx.fillStyle=g2; ctx.fill(); }
   });
-  y += 8;
-  // 每日明细
-  font(26,'800'); ctx.fillStyle = C.ink; ctx.fillText('每日明细', P, y); y += 52;
+  y = cy+ch+28;
+  // 每日明细玻璃卡
+  const dy=y, dh=dayH;
+  glass(P,dy,CW,dh,R);
+  font(24,'800'); ctx.fillStyle=C.ink; ctx.fillText('每日明细', P+46, dy+64);
+  let rowY = dy+118;
   days.forEach(([date,list])=>{
-    const dayTotal = list.reduce((s,e)=>s+(+e.amount||0),0);
-    const x = new Date(date+'T00:00:00');
-    const wd = ['周日','周一','周二','周三','周四','周五','周六'][x.getDay()];
-    font(22,'700'); ctx.fillStyle = C.green;
-    ctx.fillText((parseInt(date.slice(5,7),10)+'月'+parseInt(date.slice(8,10),10)+'日 '+wd), P, y+20);
-    font(22,'800'); ctx.fillStyle = C.ink; ctx.textAlign='right';
-    ctx.fillText(money(dayTotal), W-P, y+20); ctx.textAlign='left';
-    y += 42;
+    const dayTotal=list.reduce((s,e)=>s+(+e.amount||0),0);
+    const x=new Date(date+'T00:00:00');
+    const wd=['周日','周一','周二','周三','周四','周五','周六'][x.getDay()];
+    font(21,'700'); ctx.fillStyle=C.green; ctx.fillText((parseInt(date.slice(5,7),10)+'月'+parseInt(date.slice(8,10),10)+'日 '+wd), P+46, rowY);
+    font(22,'800'); ctx.fillStyle=C.ink; ctx.textAlign='right'; ctx.fillText(money(dayTotal), W-P-46, rowY); ctx.textAlign='left';
+    rowY += 48;
     list.forEach(e=>{
-      const ci = (String(e.cat||'其他')||'其他').split('').reduce((h,ch)=>h=(h*31+ch.charCodeAt(0))%997,0);
-      const dotColor = C.dot[ci % C.dot.length];
-      ctx.beginPath(); ctx.arc(P+9, y-6, 6, 0, Math.PI*2); ctx.fillStyle = dotColor; ctx.fill();
-      font(19,'600'); ctx.fillStyle = C.soft;
-      ctx.fillText(trunc(e.cat||'其他',6), P+30, y);
-      ctx.fillText(trunc(e.note||'（无备注）',18), P+150, y);
-      font(20,'700'); ctx.fillStyle = C.ink; ctx.textAlign='right';
-      ctx.fillText('-'+fmtN(+e.amount||0), W-P, y); ctx.textAlign='left';
-      y += 50;
+      ctx.beginPath(); ctx.arc(P+56, rowY-8, 6, 0, Math.PI*2); ctx.fillStyle=catColor(e.cat); ctx.fill();
+      font(19,'600'); ctx.fillStyle=C.soft; ctx.fillText(trunc(e.cat||'其他',6), P+80, rowY);
+      ctx.fillText(trunc(e.note||'（无备注）',18), P+200, rowY);
+      font(20,'700'); ctx.fillStyle=C.ink; ctx.textAlign='right'; ctx.fillText('-'+fmtN(+e.amount||0), W-P-46, rowY); ctx.textAlign='left';
+      rowY += 50;
     });
   });
+  y = dy+dh+46;
   // footer
-  y += 24;
-  ctx.beginPath(); ctx.moveTo(P, y); ctx.lineTo(W-P, y); ctx.strokeStyle = C.line; ctx.lineWidth=2; ctx.stroke();
-  y += 36;
-  font(20,'600'); ctx.fillStyle = C.faint; ctx.textAlign='center';
-  ctx.fillText('叶子港港窝 · 记录每一天', W/2, y);
-  font(17,'500'); ctx.fillStyle = 'rgba(142,155,144,.7)';
-  const now = new Date();
+  ctx.beginPath(); ctx.moveTo(P,y); ctx.lineTo(W-P,y); ctx.strokeStyle=C.line; ctx.lineWidth=1.5; ctx.stroke();
+  y += 34;
+  font(20,'600'); ctx.fillStyle=C.faint; ctx.textAlign='center'; ctx.fillText('叶子港港窝 · 记录每一天', W/2, y);
+  font(17,'500'); ctx.fillStyle='rgba(151,163,151,.75)';
+  const now=new Date();
   ctx.fillText('生成于 '+now.getFullYear()+'/'+(now.getMonth()+1)+'/'+now.getDate()+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'), W/2, y+34);
   ctx.textAlign='left';
   return canvas;
