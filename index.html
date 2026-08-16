@@ -2915,54 +2915,78 @@ function parseHKOWeather(data){
   };
 }
 
-async function fetchHKWeather(force){
-  const cached = !force ? getCachedWeather() : null;
-  if(cached && cached.ok){
-    weatherState = cached;
-    renderWeather();
-    return weatherState;
-  }
-  // 主源：香港天文台实况（偶发超时自动重试 1 次，再失败才回退）
-  let data = null, lastErr = null;
+/* 任意缓存（含过期，用于网络全挂时兜底显示，避免永远"正在获取"） */
+function getAnyCachedWeather(){
   try{
-    data = await fetchHKORaw(8000);
-  }catch(e1){
-    console.error('HKO 首次失败，重试一次:', e1 && e1.message);
+    const raw = localStorage.getItem(WEATHER_KEY);
+    if(!raw) return null;
+    const data = JSON.parse(raw);
+    if(!data || !data.ok) return null;
+    return data;
+  }catch(e){ return null; }
+}
+
+/* 后台主流程：HKO(自动重试1次) → Open-Meteo → 过期缓存 → 失败态。
+   整体 25s 兜底超时，保证天气卡绝不停留在"正在获取" */
+async function fetchHKWeatherFresh(){
+  let done = false;
+  const guard = new Promise(resolve=>setTimeout(()=>{ if(!done){ done = true; resolve('TIMEOUT'); } }, 25000));
+  const main = (async()=>{
+    let data = null;
     try{
       data = await fetchHKORaw(6000);
-    }catch(e2){
-      lastErr = e2;
-      console.error('HKO 重试仍失败:', e2 && e2.message);
+    }catch(e1){
+      console.error('HKO 首次失败，重试一次:', e1 && e1.message);
+      try{
+        data = await fetchHKORaw(5000);
+      }catch(e2){
+        console.error('HKO 重试仍失败:', e2 && e2.message);
+      }
     }
-  }
-  if(data){
-    const payload = parseHKOWeather(data);
-    weatherState = payload;
-    setCachedWeather(payload);
-    renderWeather();
-    return payload;
-  }
-  // 后备数据源：Open-Meteo（数值模型预报值，HKO 失败/超时时自动接管）
-  try{
-    const alt = await fetchOpenMeteo();
-    weatherState = alt;
-    setCachedWeather(alt);
-    renderWeather();
-    return alt;
-  }catch(e2){
-    console.error('fetchOpenMeteo error:', e2 && e2.message);
-  }
-  // 后备也失败，退回缓存
-  const fallback = getCachedWeather();
-  if(fallback && fallback.ok){
-    weatherState = fallback;
+    if(data){
+      const payload = parseHKOWeather(data);
+      weatherState = payload;
+      setCachedWeather(payload);
+      renderWeather();
+      return payload;
+    }
+    // 后备数据源：Open-Meteo（数值模型预报值，HKO 失败/超时时自动接管）
+    try{
+      const alt = await fetchOpenMeteo();
+      weatherState = alt;
+      setCachedWeather(alt);
+      renderWeather();
+      return alt;
+    }catch(e2){
+      console.error('fetchOpenMeteo error:', e2 && e2.message);
+    }
+    return null;
+  })();
+  const winner = await Promise.race([main, guard]);
+  done = true;
+  if(winner && winner !== 'TIMEOUT') return winner;
+  // 超时或全部数据源失败：用任意缓存兜底（含过期，标注离线缓存），实在没有才失败态
+  const anyCache = getAnyCachedWeather();
+  if(anyCache && anyCache.ok){
+    weatherState = { ...anyCache, stale: true };
     renderWeather();
     return weatherState;
   }
-  const isCors = /cors|cross-origin|blocked|network|failed to fetch|abort/i.test((lastErr && lastErr.message) || '');
-  weatherState = {ok:false, error: (lastErr && lastErr.message) || '获取失败', isCorsOrNetwork: isCors};
+  weatherState = {ok:false, error: '网络异常，获取失败', isCorsOrNetwork: true};
   renderWeather();
   return weatherState;
+}
+
+async function fetchHKWeather(force){
+  const cached = !force ? (getCachedWeather() || getAnyCachedWeather()) : null;
+  if(cached && cached.ok){
+    // 有缓存（含过期）先立即显示，再后台静默刷新，成功后自动替换
+    weatherState = { ...cached, stale: (Date.now() - (cached.time || 0)) > WEATHER_TTL_MS };
+    renderWeather();
+    fetchHKWeatherFresh();
+    return weatherState;
+  }
+  return fetchHKWeatherFresh();
 }
 
 function refreshWeatherUI(force){
@@ -3021,6 +3045,7 @@ function renderWeather(){
   tempEl.textContent = (weatherState.temp!==null ? weatherState.temp : '--') + '°C';
   descEl.textContent = weatherState.desc;
   let meta = (weatherState.source === 'Open-Meteo' ? '模型预报' : '实况');
+  if(weatherState.stale) meta = '离线缓存 · ' + meta; // 网络全挂时显示的上次数据
   if(weatherState.updateTime){
     const t = new Date(weatherState.updateTime);
     if(!isNaN(t.getTime())) meta += ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
