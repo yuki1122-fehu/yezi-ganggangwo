@@ -820,6 +820,18 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .exp-row-amt{flex:0 0 auto;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;}
 .exp-row-del{flex:0 0 auto;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:50%;color:var(--ink-faint);font-size:16px;line-height:1;cursor:pointer;margin-left:2px;transition:background .15s,color .15s;}
 .exp-row-del:hover,.exp-row-del:active{background:rgba(200,60,60,.14);color:#c0392b;}
+/* 展开本月明细（按天分组，完整备注） */
+.exp-full-toggle{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:11px;padding:7px;font-size:12px;font-weight:800;color:var(--green-dark);cursor:pointer;border:1px dashed var(--green-mid);border-radius:var(--radius-sm);transition:background .15s;}
+.exp-full-toggle:active{background:var(--green-soft);}
+.exp-full-wrap{margin-top:12px;border-top:1px dashed var(--green-mid);padding-top:10px;max-height:55vh;overflow:auto;-webkit-overflow-scrolling:touch;}
+.exp-full-title{font-size:11px;font-weight:800;color:var(--ink-faint);letter-spacing:.5px;margin-bottom:8px;}
+.exp-day{margin-bottom:9px;}
+.exp-day-head{display:flex;justify-content:space-between;align-items:center;padding:6px 2px 5px;border-bottom:1px solid var(--line);}
+.exp-day-date{font-size:12px;font-weight:800;color:var(--ink);}
+.exp-day-total{font-size:12px;font-weight:800;color:var(--green-dark);font-variant-numeric:tabular-nums;}
+.exp-full-row{display:flex;align-items:flex-start;gap:8px;padding:6px 2px;font-size:12.5px;border-bottom:1px solid var(--line);}
+.exp-full-note{flex:1;min-width:0;color:var(--ink-soft);white-space:normal;word-break:break-word;line-height:1.45;}
+.exp-full-empty{font-size:12px;color:var(--ink-faint);padding:14px 4px;text-align:center;font-weight:600;}
 .course-item{border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:11px;background:var(--glass);--course-c1:var(--green-deep);--course-c2:var(--green);
   backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
   border:1px solid var(--glass-line);box-shadow:var(--shadow-sm),var(--shadow-inset);position:relative;overflow:hidden;
@@ -4651,6 +4663,7 @@ async function doAdd(){
 
 /* ====== 记账 ====== */
 let EXPENSES = {budget: DEFAULT_BUDGET, items: []};
+let expenseFullOpen = false; // 本月明细展开状态（重渲染后保持）
 
 function loadExpenses(){
   try{
@@ -4712,6 +4725,26 @@ function renderExpenseCard(){
       <span class="exp-row-amt">-${Math.round((+e.amount||0)*100)/100}</span>
       <span class="exp-row-del" onclick="deleteExpense('${e.id}')" title="删除此笔">×</span>
     </div>`).join('') : '';
+  // 展开明细：按天分组（降序），每天显示合计 + 完整备注
+  const byDate = {};
+  recent.forEach(e=>{ const d = e.date||'未知'; (byDate[d]=byDate[d]||[]).push(e); });
+  const dayGroups = Object.entries(byDate).sort((a,b)=>b[0].localeCompare(a[0]));
+  const fullHtml = dayGroups.length ? dayGroups.map(([date,list])=>{
+    const dayTotal = list.reduce((s,e)=>s+(+e.amount||0),0);
+    return `<div class="exp-day">
+      <div class="exp-day-head">
+        <span class="exp-day-date">${fmtDay(date)}</span>
+        <span class="exp-day-total">${fmtHKD(dayTotal)}</span>
+      </div>
+      ${list.map(e=>`
+      <div class="exp-full-row">
+        <span class="exp-row-cat">${escHtml(e.cat||'其他')}</span>
+        <span class="exp-full-note">${escHtml(e.note||'（无备注）')}</span>
+        <span class="exp-row-amt">-${Math.round((+e.amount||0)*100)/100}</span>
+        <span class="exp-row-del" onclick="deleteExpense('${e.id}')" title="删除此笔">×</span>
+      </div>`).join('')}
+    </div>`;
+  }).join('') : `<div class="exp-full-empty">本月还没有记账 🌿</div>`;
   return `<div class="expense-card glass">
     <div class="exp-head">
       <div class="exp-title">本月支出 <small>${mk}</small></div>
@@ -4725,7 +4758,28 @@ function renderExpenseCard(){
     <div class="exp-remain ${over?'over':''}">${over ? '已超支 '+fmtHKD(-remain) : '预算剩余 '+fmtHKD(remain)}<span class="exp-remain-pct">${pct}%</span></div>
     <div class="exp-cats">${topHtml}</div>
     ${recentHtml ? `<div class="exp-recent" style="max-height:210px;overflow:auto;-webkit-overflow-scrolling:touch;">${recentHtml}</div>` : ''}
+    <div class="exp-full-toggle" onclick="toggleExpenseFull()"><span id="expFullLabel">${expenseFullOpen ? '收起本月明细 ▴' : '展开本月明细 ▾'}</span></div>
+    <div class="exp-full-wrap" id="expFullWrap" style="display:${expenseFullOpen ? 'block' : 'none'}">
+      <div class="exp-full-title">${mk} · 按天汇总（完整备注）</div>
+      ${fullHtml}
+    </div>
   </div>`;
+}
+/* 日期 "2026-08-16" → "8月16日 周六" */
+function fmtDay(date){
+  try{
+    const x = new Date(String(date)+'T00:00:00');
+    if(isNaN(x.getTime())) return String(date||'').slice(5);
+    const wd = ['周日','周一','周二','周三','周四','周五','周六'][x.getDay()];
+    return (x.getMonth()+1)+'月'+x.getDate()+'日 '+wd;
+  }catch(e){ return String(date||'').slice(5); }
+}
+function toggleExpenseFull(){
+  expenseFullOpen = !expenseFullOpen;
+  const wrap = document.getElementById('expFullWrap');
+  const label = document.getElementById('expFullLabel');
+  if(wrap) wrap.style.display = expenseFullOpen ? 'block' : 'none';
+  if(label) label.textContent = expenseFullOpen ? '收起本月明细 ▴' : '展开本月明细 ▾';
 }
 
 function openExpenseAdd(){
