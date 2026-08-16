@@ -1791,6 +1791,39 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   </div>
 </div>
 
+<!-- 导出账单弹窗（日期范围选择） -->
+<div class="mask" id="expenseExportMask">
+  <div class="sheet glass-strong">
+    <h3>导出账单图片</h3>
+    <p>选择日期范围，生成一张美观的账单图，可直接分享到社交平台。</p>
+    <label>开始日期</label>
+    <input type="date" id="expFrom">
+    <label>结束日期</label>
+    <input type="date" id="expTo">
+    <div class="row" style="justify-content:center;gap:8px;">
+      <button class="btn ghost" onclick="expQuickRange(7)">近 7 天</button>
+      <button class="btn ghost" onclick="expQuickRange(0)">本月全部</button>
+    </div>
+    <div class="row">
+      <button class="btn ghost" onclick="closeExpenseExport()">取消</button>
+      <button class="btn primary" onclick="doExpenseExport()">生成图片</button>
+    </div>
+  </div>
+</div>
+
+<!-- 账单图片预览弹窗 -->
+<div class="mask" id="expensePreviewMask">
+  <div class="sheet glass-strong" style="max-height:82vh;overflow:auto;">
+    <h3>账单已生成 ✨</h3>
+    <img id="expPreviewImg" style="width:100%;border-radius:14px;border:1px solid var(--line);box-shadow:var(--shadow-xs);">
+    <div class="row">
+      <a class="btn primary" id="expPreviewDl" download="bill.png" style="display:inline-flex;align-items:center;justify-content:center;text-decoration:none;">保存图片</a>
+      <button class="btn ghost" onclick="closeMask(document.getElementById('expensePreviewMask'))">完成</button>
+    </div>
+    <p style="font-size:11px;color:var(--ink-faint);margin-top:8px;text-align:center;">支持长按图片保存到相册，或点「保存图片」下载</p>
+  </div>
+</div>
+
 
 <!-- 助理面板 -->
 <div id="aiMask">
@@ -4770,6 +4803,7 @@ function renderExpenseCard(){
     <div class="exp-head">
       <div class="exp-title">本月支出 <small>${mk}</small></div>
       <div class="exp-actions">
+        <button class="exp-btn" onclick="openExpenseExport()">导出</button>
         <button class="exp-btn" onclick="openBudgetSet()">预算</button>
         <button class="exp-btn primary" onclick="openExpenseAdd()">＋ 记一笔</button>
       </div>
@@ -4860,6 +4894,167 @@ function saveBudget(){
   closeBudgetSet();
   renderList();
   toast('月度预算已设为 '+fmtHKD(EXPENSES.budget));
+}
+
+/* ====== 导出账单图片（canvas 高清绘制，可分享社交平台） ====== */
+function openExpenseExport(){
+  const mk = monthKey();
+  document.getElementById('expFrom').value = mk+'-01';
+  document.getElementById('expTo').value = todayStr();
+  openMask(document.getElementById('expenseExportMask'));
+}
+function closeExpenseExport(){
+  closeMask(document.getElementById('expenseExportMask'));
+}
+function expQuickRange(kind){
+  const to = todayStr();
+  let from;
+  if(kind===7){ // 近 7 天
+    const d = new Date(to+'T00:00:00'); d.setDate(d.getDate()-6); from = d.toISOString().slice(0,10);
+  }else{ // 本月全部
+    from = monthKey()+'-01';
+  }
+  document.getElementById('expFrom').value = from;
+  document.getElementById('expTo').value = to;
+}
+function doExpenseExport(){
+  const from = document.getElementById('expFrom').value;
+  const to = document.getElementById('expTo').value;
+  if(!from || !to){ toast('请选择日期范围'); return; }
+  if(from>to){ toast('开始日期不能晚于结束日期'); return; }
+  closeExpenseExport();
+  const items = EXPENSES.items.filter(e=>{ const d=e.date||''; return d && d>=from && d<=to; });
+  if(!items.length){ toast('这个时间段还没有记账'); return; }
+  try{
+    const canvas = buildBillCanvas(items, from, to);
+    // 优先系统分享（移动端可直接发微信/朋友圈等）
+    if(canvas.toBlob && navigator.canShare && navigator.share && navigator.canShare({files:[new File(['x'],'b.png',{type:'image/png'})]})){
+      canvas.toBlob(blob=>{
+        const file = new File([blob], 'bill-'+from+'_'+to+'.png', {type:'image/png'});
+        navigator.share({files:[file], title:'我的账单', text:'叶子港港窝 · 账单分享'}).catch(()=>showBillPreview(canvas, from, to));
+      }, 'image/png');
+    }else{
+      showBillPreview(canvas, from, to);
+    }
+  }catch(e){
+    console.error('buildBillCanvas error:', e);
+    toast('生成图片失败，请重试');
+  }
+}
+function showBillPreview(canvas, from, to){
+  const url = canvas.toDataURL('image/png');
+  document.getElementById('expPreviewImg').src = url;
+  const dl = document.getElementById('expPreviewDl');
+  dl.href = url;
+  dl.download = 'bill-'+from+'_'+to+'.png';
+  openMask(document.getElementById('expensePreviewMask'));
+}
+
+/* 高清账单图绘制（1080 宽，按内容自适应高度） */
+function buildBillCanvas(items, from, to){
+  const total = items.reduce((s,e)=>s+(+e.amount||0),0);
+  const byCat = {};
+  items.forEach(e=>{ byCat[e.cat||'其他']=(byCat[e.cat||'其他']||0)+(+e.amount||0); });
+  const cats = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+  const maxCat = cats.length ? cats[0][1] : 0;
+  const byDate = {};
+  items.forEach(e=>{ const d=e.date||'未知'; (byDate[d]=byDate[d]||[]).push(e); });
+  const days = Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0]));
+  const dayCount = days.length;
+  const avg = dayCount ? Math.round(total/dayCount*100)/100 : 0;
+  // 高度预估
+  const H = 170 + 216 + 48 + cats.length*64 + 52 + days.reduce((s,d)=>s+60+d[1].length*50,0) + 120;
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080; canvas.height = Math.max(1200, H);
+  const ctx = canvas.getContext('2d');
+  const W = 1080, P = 64;
+  const C = { bg1:'#F7F9F3', bg2:'#E9F0E0', ink:'#27332B', soft:'#5E6D61', faint:'#8E9B90',
+    green:'#4F7A5B', greenDeep:'#2E5238', card:'#FFFFFF', line:'#E2EBDC',
+    dot:['#E07B54','#4E8FD8','#9B6BD0','#D4537E','#4FA46B','#C9A227','#6E7B8B','#2FA8A0'] };
+  const font = (s,w)=>{ ctx.font = (w||'600')+' '+s+'px -apple-system,"PingFang SC","Helvetica Neue",sans-serif'; };
+  const trunc = (str,max)=>{ const s=String(str||''); return s.length>max ? s.slice(0,max-1)+'…' : s; };
+  const fmtN = n=>Math.round(n*100)/100;
+  const money = n=>'HK$ '+fmtN(n).toLocaleString();
+  // 背景
+  const bg = ctx.createLinearGradient(0,0,0,canvas.height);
+  bg.addColorStop(0,C.bg1); bg.addColorStop(1,C.bg2);
+  ctx.fillStyle = bg; ctx.fillRect(0,0,W,canvas.height);
+  // 顶部
+  font(24,'700'); ctx.fillStyle = C.green; ctx.textAlign='left';
+  ctx.fillText('🌿 叶子港港窝', P, 64);
+  font(20,'600'); ctx.fillStyle = C.faint; ctx.textAlign='right';
+  ctx.fillText('月度账单', W-P, 64);
+  // 标题月份
+  const m0 = from.slice(0,4), m1 = from.slice(5,7), m2 = to.slice(5,7);
+  const rangeLabel = m1===m2 ? (m0+' 年 '+parseInt(m1,10)+' 月') : (from+' ~ '+to);
+  font(52,'800'); ctx.fillStyle = C.ink; ctx.textAlign='left';
+  ctx.fillText(rangeLabel, P, 128);
+  font(22,'500'); ctx.fillStyle = C.faint;
+  ctx.fillText((from==to ? from : from+' — '+to)+' · 共 '+dayCount+' 天', P, 162);
+  // 总计卡（深绿圆角卡）
+  let y = 196;
+  const cardH = 190;
+  rr(ctx, P, y, W-2*P, cardH, 28, C.greenDeep);
+  font(22,'600'); ctx.fillStyle='rgba(255,255,255,.72)'; ctx.fillText('总支出', P+44, y+52);
+  font(64,'800'); ctx.fillStyle='#FFFFFF'; ctx.fillText(money(total), P+44, y+122);
+  font(22,'600'); ctx.fillStyle='rgba(255,255,255,.8)'; ctx.textAlign='right';
+  ctx.fillText(items.length+' 笔 · 日均 '+money(avg), W-P-44, y+118);
+  ctx.textAlign='left';
+  y += cardH + 42;
+  // 分类分布
+  font(26,'800'); ctx.fillStyle = C.ink; ctx.fillText('分类分布', P, y); y += 46;
+  cats.forEach(([c,v],i)=>{
+    const ratio = maxCat ? v/maxCat : 0;
+    font(22,'700'); ctx.fillStyle = C.ink; ctx.textAlign='left';
+    ctx.fillText(trunc(c,8), P, y+28);
+    ctx.textAlign='right';
+    font(22,'700'); ctx.fillStyle = C.ink;
+    ctx.fillText(money(v), W-P, y+28);
+    ctx.textAlign='left';
+    rr(ctx, P, y+40, W-2*P, 8, 4, C.line);
+    rr(ctx, P, y+40, Math.max(24,(W-2*P)*ratio), 8, 4, C.green);
+    y += 66;
+  });
+  y += 8;
+  // 每日明细
+  font(26,'800'); ctx.fillStyle = C.ink; ctx.fillText('每日明细', P, y); y += 52;
+  days.forEach(([date,list])=>{
+    const dayTotal = list.reduce((s,e)=>s+(+e.amount||0),0);
+    const x = new Date(date+'T00:00:00');
+    const wd = ['周日','周一','周二','周三','周四','周五','周六'][x.getDay()];
+    font(22,'700'); ctx.fillStyle = C.green;
+    ctx.fillText((parseInt(date.slice(5,7),10)+'月'+parseInt(date.slice(8,10),10)+'日 '+wd), P, y+20);
+    font(22,'800'); ctx.fillStyle = C.ink; ctx.textAlign='right';
+    ctx.fillText(money(dayTotal), W-P, y+20); ctx.textAlign='left';
+    y += 42;
+    list.forEach(e=>{
+      const ci = (String(e.cat||'其他')||'其他').split('').reduce((h,ch)=>h=(h*31+ch.charCodeAt(0))%997,0);
+      const dotColor = C.dot[ci % C.dot.length];
+      ctx.beginPath(); ctx.arc(P+9, y-6, 6, 0, Math.PI*2); ctx.fillStyle = dotColor; ctx.fill();
+      font(19,'600'); ctx.fillStyle = C.soft;
+      ctx.fillText(trunc(e.cat||'其他',6), P+30, y);
+      ctx.fillText(trunc(e.note||'（无备注）',18), P+150, y);
+      font(20,'700'); ctx.fillStyle = C.ink; ctx.textAlign='right';
+      ctx.fillText('-'+fmtN(+e.amount||0), W-P, y); ctx.textAlign='left';
+      y += 50;
+    });
+  });
+  // footer
+  y += 24;
+  ctx.beginPath(); ctx.moveTo(P, y); ctx.lineTo(W-P, y); ctx.strokeStyle = C.line; ctx.lineWidth=2; ctx.stroke();
+  y += 36;
+  font(20,'600'); ctx.fillStyle = C.faint; ctx.textAlign='center';
+  ctx.fillText('叶子港港窝 · 记录每一天', W/2, y);
+  font(17,'500'); ctx.fillStyle = 'rgba(142,155,144,.7)';
+  const now = new Date();
+  ctx.fillText('生成于 '+now.getFullYear()+'/'+(now.getMonth()+1)+'/'+now.getDate()+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'), W/2, y+34);
+  ctx.textAlign='left';
+  return canvas;
+}
+function rr(ctx,x,y,w,h,r,color){
+  ctx.beginPath();
+  if(ctx.roundRect){ ctx.roundRect(x,y,w,h,r); }else{ ctx.rect(x,y,w,h); }
+  ctx.fillStyle = color; ctx.fill();
 }
 
 /* ====== 心情记录 ====== */
