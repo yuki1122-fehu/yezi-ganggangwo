@@ -2876,7 +2876,8 @@ function parseHKOWeather(data){
   const humItem = data.humidity && data.humidity.data && data.humidity.data[0];
   const iconCode = data.icon && data.icon[0];
   // 雨量纠偏：天文台天气图标可能滞后 1-2 小时（iconUpdateTime 早于 updateTime），
-  // 若全港过去时段完全无雨而图标却显示"雨/雷"，按实况雨量改为天晴
+  // 若天文台所在区（油尖旺）过去时段无雨而图标却显示"雨/雷"，按实况雨量改为天晴
+  // （图标是天文台站观测，所以按油尖旺判定；个别区有雨（如西贡）不代表天文台在下雨）
   let desc = weatherName(iconCode), emoji = weatherIcon(iconCode), icon = iconCode;
   try{
     const rainArr = data.rainfall && data.rainfall.data;
@@ -2884,11 +2885,13 @@ function parseHKOWeather(data){
       const endT = data.rainfall.endTime ? new Date(data.rainfall.endTime).getTime() : 0;
       const fresh = !!endT && (Date.now() - endT) < 120 * 60 * 1000; // 雨量区间须在 2 小时内才有参考价值
       if(fresh){
-        const anyRain = rainArr.some(x=>{
+        const hasRain = x=>{
           const m = x.main, mx = x.max;
           return (typeof m === 'number' && m > 0) || (typeof mx === 'number' && mx > 0)
               || (typeof m === 'string' && m !== '' && !/false/i.test(m) && parseFloat(m) > 0);
-        });
+        };
+        const refStation = rainArr.find(x=>x.place==='油尖旺') || null; // 天文台所在区
+        const anyRain = refStation ? hasRain(refStation) : rainArr.some(hasRain);
         if(!anyRain && /雨|陣|骤|雷/.test(desc)){
           desc = '天晴'; emoji = '☀️'; icon = 50; // HKO 图标 50 = 天晴
         }
