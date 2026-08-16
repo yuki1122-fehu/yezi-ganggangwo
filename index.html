@@ -2764,7 +2764,7 @@ function dateLabel(t){
 
 /* ====== 香港天气（天文台开放数据，无需 API Key） ====== */
 const WEATHER_KEY = 'mhm_hk_weather';
-const WEATHER_TTL_MS = 30 * 60 * 1000; // 30 分钟缓存
+const WEATHER_TTL_MS = 5 * 60 * 1000; // 5 分钟缓存（天文台数据约 10 分钟一更，尽量贴近实况）
 const WEATHER_ICONS = {
   50:'☀️',51:'🌤',52:'⛅',53:'🌦',54:'🌦',
   60:'☁️',61:'☁️',62:'🌧️',63:'🌧️',64:'🌧️',65:'🌩️',
@@ -2825,6 +2825,7 @@ async function fetchOpenMeteo(){
       emoji: w.emoji,
       desc: w.desc,
       source:'Open-Meteo',
+      isForecast: true, // Open-Meteo 的 current 是数值模型预报值，非气象站实测
       updateTime: c.time || null
     };
   }catch(e){
@@ -2863,6 +2864,26 @@ async function fetchHKWeather(force){
     const tempItem = data.temperature && data.temperature.data && data.temperature.data.find(x=>x.place==='香港天文台');
     const humItem = data.humidity && data.humidity.data && data.humidity.data[0];
     const iconCode = data.icon && data.icon[0];
+    // 雨量纠偏：天文台天气图标可能滞后 1-2 小时（iconUpdateTime 早于 updateTime），
+    // 若全港过去时段完全无雨而图标却显示"雨/雷"，按实况雨量改为天晴
+    let desc = weatherName(iconCode), emoji = weatherIcon(iconCode), icon = iconCode;
+    try{
+      const rainArr = data.rainfall && data.rainfall.data;
+      if(rainArr && rainArr.length){
+        const endT = data.rainfall.endTime ? new Date(data.rainfall.endTime).getTime() : 0;
+        const fresh = !!endT && (Date.now() - endT) < 120 * 60 * 1000; // 雨量区间须在 2 小时内才有参考价值
+        if(fresh){
+          const anyRain = rainArr.some(x=>{
+            const m = x.main, mx = x.max;
+            return (typeof m === 'number' && m > 0) || (typeof mx === 'number' && mx > 0)
+                || (typeof m === 'string' && m !== '' && !/false/i.test(m) && parseFloat(m) > 0);
+          });
+          if(!anyRain && /雨|陣|骤|雷/.test(desc)){
+            desc = '天晴'; emoji = '☀️'; icon = 50; // HKO 图标 50 = 天晴
+          }
+        }
+      }
+    }catch(e){}
     const warning = (data.warningMessage||'').trim();
     const tcMsg = (data.tcmessage||[])[0] || '';
     const payload = {
@@ -2871,8 +2892,9 @@ async function fetchHKWeather(force){
       tempUnit: tempItem ? tempItem.unit : 'C',
       humidity: humItem ? humItem.value : null,
       humidityUnit: humItem ? humItem.unit : 'percent',
-      icon: iconCode,
-      desc: weatherName(iconCode),
+      icon: icon,
+      desc: desc,
+      emoji: emoji,
       warning: warning,
       tcMessage: tcMsg,
       updateTime: data.updateTime || data.iconUpdateTime || null
@@ -2963,12 +2985,12 @@ function renderWeather(){
   iconEl.textContent = weatherState.emoji || weatherIcon(weatherState.icon);
   tempEl.textContent = (weatherState.temp!==null ? weatherState.temp : '--') + '°C';
   descEl.textContent = weatherState.desc;
-  let meta = (weatherState.source === 'Open-Meteo' ? 'Open-Meteo 数据' : '香港天文台');
-  if(weatherState.humidity!==null) meta = '湿度 ' + weatherState.humidity + '%';
+  let meta = (weatherState.source === 'Open-Meteo' ? '模型预报' : '实况');
   if(weatherState.updateTime){
     const t = new Date(weatherState.updateTime);
-    if(!isNaN(t.getTime())) meta += ' · ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
+    if(!isNaN(t.getTime())) meta += ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
   }
+  if(weatherState.humidity!==null) meta += ' · 湿度 ' + weatherState.humidity + '%';
   metaEl.textContent = meta;
   card.classList.remove('w-sunny','w-rain','w-cloudy','w-storm','w-snow','w-fog');
   const wk = weatherKind();
@@ -3649,7 +3671,8 @@ function getWeatherSummary(){
   const parts = [];
   if(weatherState.temp!==null) parts.push(`气温 ${weatherState.temp}°C`);
   if(weatherState.humidity!==null) parts.push(`湿度 ${weatherState.humidity}%`);
-  parts.push(`天气：${weatherState.desc}`);
+  const isFc = weatherState.source === 'Open-Meteo';
+  parts.push(`天气：${weatherState.desc}${isFc ? '（Open-Meteo 数值模型预报值，非气象站实测，仅供参考）' : '（香港天文台实况）'}`);
   const warnText = getWarningSummary(true);
   if(warnText) parts.push(warnText);
   return parts.join('，') + '。如果用户问穿什么、要不要带伞、今天适不适合出门，请结合以上天气和生效中的天气警告给出具体建议（如高温防暑、下雨带伞、台风天减少外出）。';
