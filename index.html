@@ -840,6 +840,14 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .today-class .tc-pill{font-size:10px;font-weight:800;color:#fff;padding:2px 9px;border-radius:var(--radius-pill);margin-right:6px;box-shadow:var(--shadow-xs);--course-c1:var(--green-deep);--course-c2:var(--green);
   background:linear-gradient(135deg,var(--course-c1),var(--course-c2));}
 /* 课表类型统一上色 */
+/* 课程课室完整地址（2026-08-16 浸大上课地点） */
+.cs-room-full{font-weight:600;color:var(--ink-soft);}
+.today-class .cs-room-full{font-weight:500;color:var(--ink-soft);}
+.today-class .cs-room-code{font-weight:700;color:var(--ink);}
+/* 恶劣天气停课/停考提示（2026-08-16，依据浸大教务恶劣天气上课安排） */
+.cs-suspend{margin-top:9px;padding:8px 11px;border-radius:8px;background:rgba(220,38,38,.10);color:#991b1b;font-size:12px;font-weight:700;line-height:1.55;border-left:3px solid #dc2626;}
+.cs-suspend b{color:#991b1b;}
+.cs-suspend small{display:block;font-weight:500;color:#991b1b;opacity:.78;margin-top:3px;font-size:11px;line-height:1.5;}
 
 /* ---------- 底部标签（液态胶囊） ---------- */
 .tabs{
@@ -3719,6 +3727,7 @@ async function fetchHKWarnings(force){
   if(cached && cached.ok){
     warningState = cached;
     renderWarningBar();
+    refreshClassWithWarnings();
     return warningState;
   }
   const controller = new AbortController();
@@ -3733,6 +3742,7 @@ async function fetchHKWarnings(force){
     warningState = payload;
     setCachedWarning(payload);
     renderWarningBar();
+    refreshClassWithWarnings();
     alertImportantWarnings(list);
     return payload;
   }catch(e){
@@ -3742,12 +3752,19 @@ async function fetchHKWarnings(force){
     if(fallback && fallback.ok){
       warningState = fallback;
       renderWarningBar();
+      refreshClassWithWarnings();
       return warningState;
     }
     warningState = {ok:false, list:[]};
     renderWarningBar();
+    refreshClassWithWarnings();
     return warningState;
   }
+}
+/* 警告状态变化时，让首页今日课程横幅 + 日历课程详情刷新（让其反映最新停课提示） */
+function refreshClassWithWarnings(){
+  try{ renderTodayClass(); }catch(e){}
+  try{ if(typeof calSel!=='undefined' && calSel && document.getElementById('viewName') && document.getElementById('viewName').textContent==='日历') renderCalendar(); }catch(e){}
 }
 
 function renderWarningBar(){
@@ -3815,9 +3832,19 @@ function showWarningDetails(){
     if(times.length) s += `<br><small style="color:var(--ink-faint)">${times.join(' · ')}</small>`;
     return `<div style="margin:10px 0;line-height:1.5;">${s}</div>`;
   }).join('');
+  // 高影响警告 + 本机未来课程：列出可能受影响的课程便于直达（2026-08-16）
+  const highCodes = new Set(['TC8NE','TC8SE','TC8NW','TC8SW','TC9','TC10','WRAINB','WL','WTMW']);
+  const hasHigh = warningState.list.some(w => highCodes.has(w.code));
+  const today = todayStr();
+  const affected = hasHigh && Array.isArray(COURSES) ? COURSES.filter(c => c && c.date && c.date >= today).slice(0,3) : [];
+  const affectedLine = affected.length
+    ? `<div style="margin:12px 0 0;padding:9px 11px;border-radius:8px;background:rgba(220,38,38,.08);color:#991b1b;font-size:12px;line-height:1.6;border-left:3px solid #dc2626;">
+        ⚠️ 本机近期课程中以下可能停课/延期：<br>${affected.map(c=>`· <b>${escHtml(c.subj)}</b>（${escHtml(c.date)} · ${escHtml(roomFull(c.room)||'待定')}）`).join('<br>')}<br><small style="color:#991b1b;opacity:.78;">回首页或日历 tab 看每节课的停课提示</small>
+       </div>`
+    : (hasHigh ? '<div style="margin-top:10px;font-size:12px;color:var(--ink-soft);">⚠️ 本机近期无课程安排，但交通/外出仍需注意安全</div>' : '');
   const checked = fmtWarnTime(warningState.updateTime);
   const checkLine = checked ? `<div style="font-size:11px;color:var(--ink-faint);margin-top:10px;">最近检查：${checked} · 数据来源：香港天文台</div>` : '<div style="font-size:11px;color:var(--ink-faint);margin-top:10px;">数据来源：香港天文台</div>';
-  showDialog('当前天气警告', lines + checkLine, [{label:'知道了', cls:'ghost'}], true);
+  showDialog('当前天气警告', lines + affectedLine + checkLine, [{label:'知道了', cls:'ghost'}], true);
 }
 
 function alertImportantWarnings(list){
@@ -4273,6 +4300,49 @@ function updateRing(){
 }
 
 /* ====== 今日课程（首页横幅） ====== */
+/* 课室代码→完整地址（浸大中医健康管理硕士常用教室，2026-08-16）
+ * 来自校方课表「课室备注栏」：DLB404=逸夫校园思齐楼404、SCT501(LT1)=善衡校园
+ * 查济民科学大楼5楼501（演讲厅LT1）、WLB103/104/204=逸夫校园永隆银行商学大楼、
+ * WYS609=浸会大学道15号伍宜孙博士大楼6楼609。 */
+const ROOM_NAMES = {
+  'DLB404':'浸大逸夫校園思齊樓404室',
+  'SCT501(LT1)':'浸大善衡校園查濟民科學大樓5樓501室（演講廳 LT1）',
+  'WLB103':'浸大逸夫校園永隆銀行商學大樓103室',
+  'WLB104':'浸大逸夫校園永隆銀行商學大樓104室',
+  'WLB204':'浸大逸夫校園永隆銀行商學大樓204室',
+  'WYS609':'浸會大學道15號伍宜孫博士大樓6樓609室'
+};
+function roomFull(code){
+  if(!code) return '';
+  const c = String(code).trim();
+  if(!c || c==='待定') return c;
+  return ROOM_NAMES[c] || c;
+}
+/* 依据浸大教务「恶劣天气上课及考试安排」（2021-08-13版）：
+ *   - 8号风球或以上 / 黑色暴雨 / 「极端情况」警告生效中：进行中课堂立即停课/考试取消并延期
+ *   - 黄雨 / 红雨：学生必须如常回校上课及考试（故不在停课键内）
+ * 注：HKO warnsum 中「极端情况」一般映射到山泥倾泻 (WL) 或海啸 (WTMW)，已纳入。 */
+function suspendClassTips(c){
+  try{
+    if(!warningState || !warningState.ok || !warningState.list || !warningState.list.length) return '';
+    const SUSPEND_CODES = new Set(['TC8NE','TC8SE','TC8NW','TC8SW','TC9','TC10','WRAINB','WL','WTMW']);
+    const hits = warningState.list.filter(w => w && SUSPEND_CODES.has(w.code));
+    if(!hits.length) return '';
+    const labels = hits.map(w => w.levelName ? `${w.label}·${w.levelName}` : w.label).join('、');
+    const noteStr = String((c&&c.note)||'');
+    const subjStr = String((c&&c.subj)||'');
+    const sesStr = String((c&&c.ses)||'');
+    const isExam = sesStr.includes('考试') || noteStr.includes('考试') || /(考試)/.test(subjStr);
+    const labelEsc = escHtml(labels);
+    if(isExam){
+      return `<div class="cs-suspend">⚠️ 当前 <b>${labelEsc}</b> 生效，考试取消并延期举行，请关注学院最新通告<small>依据：浸大教务恶劣天气上课安排 · 黑雨/八号风球/山泥倾泻/海啸影响下，本部考试取消，将另行安排</small></div>`;
+    }
+    return `<div class="cs-suspend">⚠️ 当前 <b>${labelEsc}</b> 生效，课堂可能取消/改期，请关注学院最新通知<small>依据：浸大教务恶劣天气上课安排 · 警告生效中：进行中课堂立即停课；6:15后生效→11:00前开始的课取消；11:00-15:00生效→15:00前开始的课取消；15:00后生效→17:00后开始的课取消</small></div>`;
+  }catch(e){
+    console.error('suspendClassTips error:', e && e.message);
+    return '';
+  }
+}
 function renderTodayClass(){
   const el = document.getElementById('todayClass');
   if(!el) return;
@@ -4281,7 +4351,8 @@ function renderTodayClass(){
   if(!cs.length){ el.classList.remove('show'); el.innerHTML=''; return; }
   const c = cs[0]; const tp = courseType(c);
   el.classList.add('show');
-  el.innerHTML = `<span class="tc-pill ${tp}" style="${courseStyle(c)}">${escHtml(courseTag(c))}</span>${escHtml(c.subj)} · ${escHtml(courseTime(c))} · ${escHtml(c.room)}`;
+  const room = c.room ? `<span class="cs-room-code">${escHtml(c.room)}</span><span class="cs-room-full"> · ${escHtml(roomFull(c.room))}</span>` : '';
+  el.innerHTML = `<span class="tc-pill ${tp}" style="${courseStyle(c)}">${escHtml(courseTag(c))}</span>${escHtml(c.subj)} · ${escHtml(courseTime(c))} · ${room}${suspendClassTips(c) ? ' ' + suspendClassTips(c) : ''}`;
 }
 
 /* ====== 日历 ====== */
@@ -4327,9 +4398,12 @@ function renderCalendar(){
       html += dayCourses.map(c=>{
         const tp = courseType(c);
         const st = courseStyle(c);
+        const fullRoom = c.room && c.room!=='待定' ? `${escHtml(c.room)}（<span class="cs-room-full">${escHtml(roomFull(c.room))}</span>）` : escHtml(c.room||'');
+        const suspend = suspendClassTips(c);
         return `<div class="course-item ${tp}" style="${st}">
           <div class="cs-top"><span class="cs-subj">${escHtml(c.subj)}</span><span class="cs-tag ${tp}" style="${st}">${escHtml(courseTag(c))}</span></div>
-          <div class="cs-meta"><b>导师：</b>${escHtml(c.teacher)}　<b>课室：</b>${escHtml(c.room)}<br><b>时间：</b>${escHtml(courseTime(c))}${c.note?('　<b>备注：</b>'+escHtml(c.note)):''}</div>
+          <div class="cs-meta"><b>导师：</b>${escHtml(c.teacher)}　<b>课室：</b>${fullRoom}<br><b>时间：</b>${escHtml(courseTime(c))}${c.note?('　<b>备注：</b>'+escHtml(c.note)):''}</div>
+          ${suspend}
         </div>`;
       }).join('');
     }
