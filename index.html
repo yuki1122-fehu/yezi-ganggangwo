@@ -2898,8 +2898,8 @@ function parseHKOWeather(data){
       }
     }
   }catch(e){}
-  const warning = (data.warningMessage||'').trim();
-  const tcMsg = (data.tcmessage||[])[0] || '';
+  const warning = ((data.warningMessage && (Array.isArray(data.warningMessage) ? data.warningMessage.join('') : (data.warningMessage||''))) || '').trim(); // HKO 返回数组或字符串都兼容
+  const tcMsg = (data.tcmessage&&Array.isArray(data.tcmessage) && data.tcmessage[0]) || (typeof data.tcmessage==='string' ? data.tcmessage : '') || '';
   return {
     ok:true,
     temp: tempItem ? tempItem.value : null,
@@ -2944,11 +2944,15 @@ async function fetchHKWeatherFresh(){
       }
     }
     if(data){
-      const payload = parseHKOWeather(data);
-      weatherState = payload;
-      setCachedWeather(payload);
-      renderWeather();
-      return payload;
+      try{
+        const payload = parseHKOWeather(data);
+        weatherState = payload;
+        setCachedWeather(payload);
+        renderWeather();
+        return payload;
+      }catch(parseErr){
+        console.error('parseHKOWeather error:', parseErr && parseErr.message);
+      }
     }
     // 后备数据源：Open-Meteo（数值模型预报值，HKO 失败/超时时自动接管）
     try{
@@ -2961,7 +2965,7 @@ async function fetchHKWeatherFresh(){
       console.error('fetchOpenMeteo error:', e2 && e2.message);
     }
     return null;
-  })();
+  })().catch(masterErr=>{ console.error('fetchHKWeatherFresh master error:', masterErr && masterErr.message); return null; });
   const winner = await Promise.race([main, guard]);
   done = true;
   if(winner && winner !== 'TIMEOUT') return winner;
