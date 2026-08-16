@@ -820,18 +820,29 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .exp-row-amt{flex:0 0 auto;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;}
 .exp-row-del{flex:0 0 auto;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border-radius:50%;color:var(--ink-faint);font-size:16px;line-height:1;cursor:pointer;margin-left:2px;transition:background .15s,color .15s;}
 .exp-row-del:hover,.exp-row-del:active{background:rgba(200,60,60,.14);color:#c0392b;}
-/* 展开本月明细（按天分组，完整备注） */
-.exp-full-toggle{display:flex;align-items:center;justify-content:center;gap:4px;margin-top:11px;padding:7px;font-size:12px;font-weight:800;color:var(--green-dark);cursor:pointer;border:1px dashed var(--green-mid);border-radius:var(--radius-sm);transition:background .15s;}
-.exp-full-toggle:active{background:var(--green-soft);}
-.exp-full-wrap{margin-top:12px;border-top:1px dashed var(--green-mid);padding-top:10px;max-height:55vh;overflow:auto;-webkit-overflow-scrolling:touch;}
-.exp-full-title{font-size:11px;font-weight:800;color:var(--ink-faint);letter-spacing:.5px;margin-bottom:8px;}
-.exp-day{margin-bottom:9px;}
-.exp-day-head{display:flex;justify-content:space-between;align-items:center;padding:6px 2px 5px;border-bottom:1px solid var(--line);}
-.exp-day-date{font-size:12px;font-weight:800;color:var(--ink);}
-.exp-day-total{font-size:12px;font-weight:800;color:var(--green-dark);font-variant-numeric:tabular-nums;}
-.exp-full-row{display:flex;align-items:flex-start;gap:8px;padding:6px 2px;font-size:12.5px;border-bottom:1px solid var(--line);}
-.exp-full-note{flex:1;min-width:0;color:var(--ink-soft);white-space:normal;word-break:break-word;line-height:1.45;}
-.exp-full-empty{font-size:12px;color:var(--ink-faint);padding:14px 4px;text-align:center;font-weight:600;}
+/* 展开本月明细 · 账本式高级排版 */
+.exp-full-toggle{display:flex;align-items:center;justify-content:center;gap:5px;margin-top:12px;padding:8px;font-size:12px;font-weight:800;color:var(--green-dark);cursor:pointer;border:1px dashed var(--green-mid);border-radius:12px;transition:background .15s,transform .15s;}
+.exp-full-toggle:active{background:var(--green-soft);transform:scale(.98);}
+.exp-full-wrap{margin-top:14px;border-top:1px dashed var(--green-mid);padding-top:13px;max-height:62vh;overflow:auto;-webkit-overflow-scrolling:touch;padding-right:2px;}
+.exp-full-summary{display:flex;align-items:center;gap:9px;padding:9px 13px;margin-bottom:13px;background:var(--green-soft);border:1px solid var(--green-mid);border-radius:13px;font-size:11.5px;font-weight:700;color:var(--green-dark);letter-spacing:.3px;}
+.exp-full-summary b{font-size:13px;font-variant-numeric:tabular-nums;}
+.exp-full-summary .sep{width:1px;height:13px;background:var(--green-mid);flex:0 0 auto;}
+.exp-day{background:var(--glass);border:1px solid var(--glass-line);border-radius:15px;padding:11px 13px 9px;margin-bottom:11px;box-shadow:var(--shadow-xs);animation:expDayIn .34s var(--ease) both;}
+@keyframes expDayIn{from{opacity:0;transform:translateY(7px) scale(.985);}to{opacity:1;transform:none;}}
+.exp-day-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:7px;}
+.exp-day-l{display:flex;align-items:baseline;gap:8px;}
+.exp-day-d{font-size:25px;font-weight:800;color:var(--ink);line-height:1;font-variant-numeric:tabular-nums;letter-spacing:.5px;}
+.exp-day-m{font-size:10.5px;font-weight:700;color:var(--ink-faint);letter-spacing:.6px;padding-bottom:2px;}
+.exp-day-r{display:flex;align-items:center;gap:8px;}
+.exp-day-count{font-size:10px;font-weight:800;color:var(--ink-faint);background:var(--glass-line);border-radius:99px;padding:2.5px 9px;letter-spacing:.3px;}
+.exp-day-total{font-size:15px;font-weight:800;color:var(--green-dark);font-variant-numeric:tabular-nums;letter-spacing:.3px;}
+.exp-full-row{display:flex;align-items:center;gap:9px;padding:7.5px 0;border-top:1px solid var(--line);}
+.exp-full-row:first-of-type{border-top:none;}
+.exp-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 0 2.5px var(--glass-strong);}
+.exp-full-row .exp-row-cat{font-size:10px;padding:2px 8px;}
+.exp-full-note{flex:1;min-width:0;color:var(--ink-soft);white-space:normal;word-break:break-word;line-height:1.45;font-size:12.5px;}
+.exp-full-row .exp-row-amt{font-size:13px;}
+.exp-full-empty{font-size:12px;color:var(--ink-faint);padding:16px 4px;text-align:center;font-weight:600;}
 .course-item{border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:11px;background:var(--glass);--course-c1:var(--green-deep);--course-c2:var(--green);
   backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
   border:1px solid var(--glass-line);box-shadow:var(--shadow-sm),var(--shadow-inset);position:relative;overflow:hidden;
@@ -4725,19 +4736,28 @@ function renderExpenseCard(){
       <span class="exp-row-amt">-${Math.round((+e.amount||0)*100)/100}</span>
       <span class="exp-row-del" onclick="deleteExpense('${e.id}')" title="删除此笔">×</span>
     </div>`).join('') : '';
-  // 展开明细：按天分组（降序），每天显示合计 + 完整备注
+  // 展开明细：按天分组（降序），每天一个账本卡片：大字日期 + 当天合计 + 完整备注
   const byDate = {};
   recent.forEach(e=>{ const d = e.date||'未知'; (byDate[d]=byDate[d]||[]).push(e); });
   const dayGroups = Object.entries(byDate).sort((a,b)=>b[0].localeCompare(a[0]));
-  const fullHtml = dayGroups.length ? dayGroups.map(([date,list])=>{
+  const avg = dayGroups.length ? Math.round(total/dayGroups.length*100)/100 : 0;
+  const fullHtml = dayGroups.length ? dayGroups.map(([date,list],gi)=>{
     const dayTotal = list.reduce((s,e)=>s+(+e.amount||0),0);
-    return `<div class="exp-day">
+    const dp = fmtDayParts(date);
+    return `<div class="exp-day" style="animation-delay:${gi*0.05}s">
       <div class="exp-day-head">
-        <span class="exp-day-date">${fmtDay(date)}</span>
-        <span class="exp-day-total">${fmtHKD(dayTotal)}</span>
+        <div class="exp-day-l">
+          <span class="exp-day-d">${dp.big}</span>
+          <span class="exp-day-m">${dp.small}</span>
+        </div>
+        <div class="exp-day-r">
+          <span class="exp-day-count">${list.length} 笔</span>
+          <span class="exp-day-total">${fmtHKD(dayTotal)}</span>
+        </div>
       </div>
       ${list.map(e=>`
       <div class="exp-full-row">
+        <span class="exp-dot" style="background:${catColor(e.cat)}"></span>
         <span class="exp-row-cat">${escHtml(e.cat||'其他')}</span>
         <span class="exp-full-note">${escHtml(e.note||'（无备注）')}</span>
         <span class="exp-row-amt">-${Math.round((+e.amount||0)*100)/100}</span>
@@ -4745,6 +4765,7 @@ function renderExpenseCard(){
       </div>`).join('')}
     </div>`;
   }).join('') : `<div class="exp-full-empty">本月还没有记账 🌿</div>`;
+  const summaryHtml = dayGroups.length ? `<div class="exp-full-summary">${mk} · <b>${items.length} 笔</b><span class="sep"></span>日均 <b>${fmtHKD(avg)}</b><span class="sep"></span>共 <b>${dayGroups.length} 天</b></div>` : '';
   return `<div class="expense-card glass">
     <div class="exp-head">
       <div class="exp-title">本月支出 <small>${mk}</small></div>
@@ -4760,19 +4781,26 @@ function renderExpenseCard(){
     ${recentHtml ? `<div class="exp-recent" style="max-height:210px;overflow:auto;-webkit-overflow-scrolling:touch;">${recentHtml}</div>` : ''}
     <div class="exp-full-toggle" onclick="toggleExpenseFull()"><span id="expFullLabel">${expenseFullOpen ? '收起本月明细 ▴' : '展开本月明细 ▾'}</span></div>
     <div class="exp-full-wrap" id="expFullWrap" style="display:${expenseFullOpen ? 'block' : 'none'}">
-      <div class="exp-full-title">${mk} · 按天汇总（完整备注）</div>
+      ${summaryHtml}
       ${fullHtml}
     </div>
   </div>`;
 }
-/* 日期 "2026-08-16" → "8月16日 周六" */
-function fmtDay(date){
+/* 日期 "2026-08-16" → 拆成大字日 + 小字月·星期 */
+function fmtDayParts(date){
   try{
     const x = new Date(String(date)+'T00:00:00');
-    if(isNaN(x.getTime())) return String(date||'').slice(5);
+    if(isNaN(x.getTime())) return {big:String(date||'').slice(8,10), small:String(date||'').slice(0,7)};
     const wd = ['周日','周一','周二','周三','周四','周五','周六'][x.getDay()];
-    return (x.getMonth()+1)+'月'+x.getDate()+'日 '+wd;
-  }catch(e){ return String(date||'').slice(5); }
+    return {big:String(x.getDate()), small:(x.getMonth()+1)+'月 · '+wd};
+  }catch(e){ return {big:String(date||'').slice(8,10), small:String(date||'')}; }
+}
+/* 分类 → 稳定彩色圆点色（哈希取调色板，同分类始终同色） */
+function catColor(cat){
+  const PALETTE = ['#E07B54','#4E8FD8','#9B6BD0','#D4537E','#4FA46B','#C9A227','#6E7B8B','#2FA8A0'];
+  let h = 0; const s = String(cat||'其他');
+  for(let i=0;i<s.length;i++) h = (h*31 + s.charCodeAt(i)) % 997;
+  return PALETTE[h % PALETTE.length];
 }
 function toggleExpenseFull(){
   expenseFullOpen = !expenseFullOpen;
