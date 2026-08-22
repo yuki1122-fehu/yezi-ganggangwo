@@ -1541,8 +1541,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .pg-bird{position:absolute;left:0;top:0;z-index:5;pointer-events:none;opacity:0;transition:transform 2.8s cubic-bezier(.3,.7,.4,1),opacity .6s ease;}
 .pg-bird.on{opacity:1;}
 .pg-bird svg{animation:dragonflyHover 2.2s ease-in-out infinite alternate;}
-.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2{transform-box:fill-box;transform-origin:15% 50%;animation:dragonflyFlap .16s linear infinite alternate;}
-@keyframes dragonflyFlap{from{transform:rotate(-24deg);}to{transform:rotate(22deg);}}
+.pg-bird .wing-l,.pg-bird .wing-l2{transform-box:fill-box;transform-origin:85% 50%;animation:dragonflyFlapL .16s linear infinite alternate;}
+.pg-bird .wing-r,.pg-bird .wing-r2{transform-box:fill-box;transform-origin:15% 50%;animation:dragonflyFlapR .16s linear infinite alternate;}
+@keyframes dragonflyFlapL{from{transform:rotate(-24deg);}to{transform:rotate(22deg);}}
+@keyframes dragonflyFlapR{from{transform:rotate(24deg);}to{transform:rotate(-22deg);}}
 @keyframes dragonflyHover{from{transform:translateY(0);}to{transform:translateY(-3px);}}
 /* 深夜猫头鹰：23:00-5:00 站在栖木上（t-owl 由 gardenTimePhase 控制），眨眼+转头+呼吸 */
 .pg-owl-wrap{position:absolute;right:2%;bottom:8px;z-index:5;pointer-events:none;opacity:0;transition:opacity .9s ease;}
