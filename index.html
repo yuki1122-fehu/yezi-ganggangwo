@@ -1152,8 +1152,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 }
 #pomoMask.break-mode .aurora-green{opacity:0;}
 #pomoMask.break-mode .aurora-warm{opacity:1;}
-/* 专注计时中：小园退居背景、氛围层静止；暖雾不再全屏罩内容，改为进度条圆环外圈的暖光晕聚焦 */
-#pomoMask:has(.pomo-ring.running) .pomo-garden{opacity:.5;transition:opacity .9s var(--ease);}
+/* 专注计时中：小园始终清晰（不再降透明度），氛围层静止；暖雾不再全屏罩内容，改为进度条圆环外圈的暖光晕聚焦 */
 #pomoMask:has(.pomo-ring.running) .pomo-aurora{animation:none;}
 #pomoMask:not(.break-mode):has(.pomo-ring.running) .aurora-green{opacity:.55;}
 #pomoMask:not(.break-mode):has(.pomo-ring.running) .aurora-warm{opacity:0;}
@@ -5852,7 +5851,9 @@ function renderConvFromState(){
   for(let i=1;i<aiConv.length;i++){
     const m = aiConv[i];
     if(m.role==='user'){
-      const txt = convUserText(m.content);
+      // 优先用发送时记录的"用户视角文本"（指令+[图片]/[文件] 标记）；
+      // 老消息没有 userText 时回退 convUserText（历史图片 base64 仍不展示）
+      const txt = m.userText ? stripInjectedAnchor(m.userText) : convUserText(m.content);
       if(txt) addAIMsg('user', txt, m.id);
     } else if(m.role==='assistant'){
       if(typeof m.content==='string' && m.content.trim()) addAIMsg('ai', m.content, m.id);
@@ -6882,7 +6883,7 @@ async function sendAI(){
   // ───────── 路线 A：没有图片，直达大脑 ─────────
   if(!hasImage){
     showTyping();
-    aiConv.push({ role:'user', content: files.length ? buildTextContent(text, files) : text, id: uid });
+    aiConv.push({ role:'user', content: files.length ? buildTextContent(text, files) : text, userText: display.trim(), id: uid });
     await aiRun();
     return;
   }
@@ -6921,7 +6922,7 @@ async function sendAI(){
       if(f.kind !== 'image'){ pieces.push('[附件 ' + f.name + ']\n' + f.data); cacheDocText(f.data); }
     }
     showTyping();
-    aiConv.push({ role:'user', content: pieces.join('\n\n'), id: uid });
+    aiConv.push({ role:'user', content: pieces.join('\n\n'), userText: display.trim(), id: uid });
     await aiRun();
     return;
   }
@@ -6932,7 +6933,7 @@ async function sendAI(){
       ? '👁 独立视觉模型失败，改由主模型直接看图。'
       : '👁 没配独立视觉模型，主模型本身能看图，直接发送。');
     showTyping();
-    aiConv.push({ role:'user', content: buildMultimodalContent(text, files), id: uid });
+    aiConv.push({ role:'user', content: buildMultimodalContent(text, files), userText: display.trim(), id: uid });
     await aiRun();
     return;
   }
@@ -6955,7 +6956,7 @@ async function sendAI(){
     }
     pieces.push('（系统备注：用户同时发了 ' + images.length + ' 张图片，但当前没有可用的视觉模型，你完全看不到图片内容。请只根据上面的文字回应，如实说明你没看到图，绝对不要假装看过、更不要编造图上的金额或日期。）');
     showTyping();
-    aiConv.push({ role:'user', content: pieces.join('\n\n'), id: uid });
+    aiConv.push({ role:'user', content: pieces.join('\n\n'), userText: display.trim(), id: uid });
     await aiRun();
   } else {
     saveConv();
@@ -7058,9 +7059,15 @@ async function aiCall(messages, cfg, attempt, opts){
   // 传 tools 会被接口直接 400 拒绝。检测到这类模型时省略 tools。
   // opts.noTools 为 true 时也强制不传 tools（用于一次性纯文本生成）。
   const noToolsModel = /reasoner|o1|o3|thinking/i.test(modelName);
+  // 发送给模型前剥掉仅用于本地气泡展示的 userText 字段（避免多余字段进 API 请求）
+  const cleanMsgs = trimMessagesForSend(messages).map(m=>{
+    const c = Object.assign({}, m);
+    if(c.userText !== undefined) delete c.userText;
+    return c;
+  });
   const payload = {
     model: modelName,
-    messages: trimMessagesForSend(messages),
+    messages: cleanMsgs,
     temperature: 0.3,
     stream: false
   };
