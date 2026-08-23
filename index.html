@@ -1089,7 +1089,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* ---------- 减少动效偏好 ---------- */
 @media (prefers-reduced-motion:reduce){
   /* 温和降级：停掉 ambient/无限循环/庆祝类动效（前庭刺激主因），保留短促的入场/退场/状态过渡（帮助理解状态变化） */
-  .pomo-aurora,.pomo-bokeh,body::after,.ambient,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-anim,.weather-anim *,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after,#ringFg,.pct b,.pomo-ring::before,.pomo-ring.running::after,.pomo-tip,.title-leaf{
+  .pomo-aurora,.pomo-bokeh,body::after,.ambient,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-anim,.weather-anim *,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after,#ringFg,.pct b,.pomo-ring,.pomo-ring::before,.pomo-ring.running::after,.pomo-tip,.title-leaf{
     animation:none !important;transition:none !important;
   }
   /* 番茄环 & 天气卡背景过渡降级为瞬时，避免逐秒 tick 的过渡卡顿 */
@@ -1152,10 +1152,19 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 }
 #pomoMask.break-mode .aurora-green{opacity:0;}
 #pomoMask.break-mode .aurora-warm{opacity:1;}
-/* 专注计时中：小园与氛围退居背景，聚焦番茄环 */
+/* 专注计时中：小园退居背景、氛围层静止；暖雾不再全屏罩内容，改为进度条圆环外圈的暖光晕聚焦 */
 #pomoMask:has(.pomo-ring.running) .pomo-garden{opacity:.5;transition:opacity .9s var(--ease);}
-#pomoMask:has(.pomo-ring.running) .pomo-aurora{animation:none;opacity:.75;}
+#pomoMask:has(.pomo-ring.running) .pomo-aurora{animation:none;}
+#pomoMask:not(.break-mode):has(.pomo-ring.running) .aurora-green{opacity:.55;}
+#pomoMask:not(.break-mode):has(.pomo-ring.running) .aurora-warm{opacity:0;}
 #pomoMask:has(.pomo-ring.running) .pomo-bokeh{opacity:.22;}
+#pomoMask:has(.pomo-ring.running) .pomo-ring{
+  box-shadow:
+    inset 0 1px 1px rgba(255,255,255,.85),
+    inset 0 -8px 20px rgba(92,115,89,.05),
+    0 22px 48px rgba(92,115,89,.16),
+    0 0 42px rgba(224,170,112,.30);
+}
 @keyframes auroraDrift{
   0%{transform:translate3d(-2%,-1%,0) scale(1);}
   50%{transform:translate3d(2%,2%,0) scale(1.08);}
@@ -1218,6 +1227,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     inset 0 -8px 20px rgba(92,115,89,.05),
     0 22px 48px rgba(92,115,89,.16);
   backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);
+  transition:box-shadow .9s var(--ease);
 }
 /* 玻璃反光弧（左上 rim 高光，缓慢旋转成扫光） */
 .pomo-ring::before{
