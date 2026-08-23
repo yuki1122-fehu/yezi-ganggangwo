@@ -1089,7 +1089,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* ---------- 减少动效偏好 ---------- */
 @media (prefers-reduced-motion:reduce){
   /* 温和降级：停掉 ambient/无限循环/庆祝类动效（前庭刺激主因），保留短促的入场/退场/状态过渡（帮助理解状态变化） */
-  .pomo-aurora,.pomo-bokeh,body::after,.ambient,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-anim,.weather-anim *,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after,.pomo-tip,.title-leaf{
+  .pomo-aurora,.pomo-bokeh,body::after,.ambient,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-anim,.weather-anim *,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after,#ringFg,.pct b,.pomo-ring::before,.pomo-ring.running::after,.pomo-tip,.title-leaf{
     animation:none !important;transition:none !important;
   }
   /* 番茄环 & 天气卡背景过渡降级为瞬时，避免逐秒 tick 的过渡卡顿 */
@@ -1109,6 +1109,17 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   animation:tipBreath 2.8s ease-in-out infinite;white-space:nowrap;line-height:1.4;
 }
 @keyframes tipBreath{0%,100%{opacity:.55;}50%{opacity:1;}}
+
+/* 首页进度环：渐变进度 + 末端柔光 + 平滑过渡 + 数字弹跳 / 完成 pop */
+#ringFg{
+  transition:stroke-dashoffset .9s var(--ease),stroke .4s;
+  filter:drop-shadow(0 0 3px rgba(130,160,126,.85)) drop-shadow(0 0 9px rgba(130,160,126,.32));
+}
+.ring .pct b{display:inline-block;}
+.ring .pct b.numPop{animation:numPop .45s var(--ease);}
+@keyframes numPop{0%{transform:scale(1);}40%{transform:scale(1.22);}100%{transform:scale(1);}}
+.ring.ringPop{animation:ringPop .7s var(--ease);}
+@keyframes ringPop{0%{transform:scale(1);}35%{transform:scale(1.06);}100%{transform:scale(1);}}
 
 #pomoMask{
   position:fixed;inset:0;z-index:100;display:none;flex-direction:column;
@@ -1208,11 +1219,25 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     0 22px 48px rgba(92,115,89,.16);
   backdrop-filter:blur(26px) saturate(180%);-webkit-backdrop-filter:blur(26px) saturate(180%);
 }
-/* 玻璃反光弧（左上 rim 高光） */
+/* 玻璃反光弧（左上 rim 高光，缓慢旋转成扫光） */
 .pomo-ring::before{
   content:"";position:absolute;inset:8%;border-radius:50%;pointer-events:none;z-index:0;
   background:conic-gradient(from 195deg, rgba(255,255,255,0) 0deg, rgba(255,255,255,.5) 45deg, rgba(255,255,255,.12) 70deg, rgba(255,255,255,0) 95deg);
   filter:blur(3px);
+  animation:ringSweep 14s linear infinite;
+}
+@keyframes ringSweep{from{transform:rotate(0);}to{transform:rotate(360deg);}}
+/* 专注运行时：外圈呼吸扩散环（休息时暖色） */
+.pomo-ring::after{
+  content:"";position:absolute;inset:-7px;border-radius:50%;pointer-events:none;z-index:0;
+  border:2px solid rgba(165,192,162,.45);opacity:0;
+}
+.pomo-ring.running::after{animation:ringPulse 2.8s var(--ease) infinite;}
+#pomoMask.break-mode .pomo-ring.running::after{border-color:rgba(233,195,145,.5);}
+@keyframes ringPulse{
+  0%{transform:scale(1);opacity:0;}
+  30%{opacity:.65;}
+  100%{transform:scale(1.09);opacity:0;}
 }
 .pomo-ring svg{display:block;transform:rotate(-90deg);width:100%;height:100%;position:relative;z-index:1;}
 .pomo-ring #pomoFg,#pomoGlow{transition:stroke-dashoffset 1s linear,stroke .5s;}
@@ -1662,8 +1687,14 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
         <div class="ring-wrap">
           <div class="ring" onclick="openPomodoro()" title="点我进入番茄钟">
             <svg width="120" height="120">
+              <defs>
+                <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#a5c0a2"/>
+                  <stop offset="1" stop-color="#5c7359"/>
+                </linearGradient>
+              </defs>
               <circle cx="60" cy="60" r="51" fill="none" stroke="var(--ring-track)" stroke-width="8"/>
-              <circle id="ringFg" cx="60" cy="60" r="51" fill="none" stroke="var(--green-deep)" stroke-width="8"
+              <circle id="ringFg" cx="60" cy="60" r="51" fill="none" stroke="url(#ringGrad)" stroke-width="8"
                 stroke-linecap="round" stroke-dasharray="320.4" stroke-dashoffset="320.4"/>
             </svg>
             <div class="pct"><b id="pctNum">0%</b><span id="pctLabel">完成</span><span class="pomo-tip">点我 · 专注</span></div>
@@ -2310,6 +2341,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       </div>
       <div class="pg-bug" id="pgBug" aria-hidden="true">
         <svg viewBox="0 0 24 14" width="20" height="12">
+<g transform="translate(4,0)">
 <path d="M2.2,11.6 C1.4,12.4 1,13.2 1.2,13.6 C1.8,13.8 2.6,13.4 3.2,12.7 M5,12.9 C4.6,13.6 4.6,14.2 5,14.4 C5.6,14.3 6,13.7 6.2,13 M11.8,13 C11.8,13.7 12,14.2 12.5,14.3 C12.9,14.1 13,13.5 12.8,12.9" stroke="#2c2018" stroke-width=".8" fill="none" stroke-linecap="round"/>
 <path d="M8,13.4 C3.4,13.4 .6,10.8 .6,8 C.6,4.6 3.8,2.2 8,2.2 C12.2,2.2 15.4,4.6 15.4,8 C15.4,10.8 12.6,13.4 8,13.4 Z" fill="#d0503a"/>
 <ellipse cx="5.4" cy="5.6" rx="2.7" ry="1.7" fill="#fff" opacity=".28" transform="rotate(-22 5.4 5.6)"/>
@@ -2318,10 +2350,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 <circle cx="4.9" cy="5.7" r=".3" fill="#fff" opacity=".7"/><circle cx="10.5" cy="5.5" r=".28" fill="#fff" opacity=".7"/>
 <path d="M8,2.3 C5.8,2.3 4.2,1.5 4.2,.9 C4.4,.4 6,.1 8,.1 C10,.1 11.6,.4 11.8,.9 C11.8,1.5 10.2,2.3 8,2.3 Z" fill="#2c2018"/>
 <circle cx="5.9" cy="1.1" r=".26" fill="#fff" opacity=".55"/><circle cx="10" cy="1.1" r=".26" fill="#fff" opacity=".55"/>
-<circle cx="16.6" cy="8.9" r="2.0" fill="#2c2018"/>
-<circle cx="16" cy="8.3" r=".4" fill="#fff" opacity=".85"/>
-<circle cx="17.4" cy="8.3" r=".4" fill="#fff" opacity=".85"/>
-<path d="M17.6,7.2 C18.2,6.6 18.9,6.3 19.6,6.4 M18.2,9.4 C19,9.6 19.8,9.4 20.4,8.9" stroke="#2c2018" stroke-width=".5" fill="none" stroke-linecap="round"/>
+<path d="M4.7,1.6 C3.5,1.0 2.7,1.3 2.4,2.0" stroke="#2c2018" stroke-width=".65" fill="none" stroke-linecap="round"/>
+<path d="M11.3,1.6 C12.5,1.0 13.3,1.3 13.6,2.0" stroke="#2c2018" stroke-width=".65" fill="none" stroke-linecap="round"/>
+</g>
 </svg>
       </div>
       <div class="pg-butterfly" id="pgButterfly" aria-hidden="true">
@@ -4523,13 +4554,23 @@ function updateRing(){
   const total = items.length || 1;
   const done = items.filter(t=>t.done).length;
   const pct = Math.round(done/total*100);
-  document.getElementById('pctNum').textContent = pct+'%';
+  const pctEl = document.getElementById('pctNum');
+  const prev = parseInt(pctEl.textContent)||0;
+  pctEl.textContent = pct+'%';
   const lab = document.getElementById('pctLabel');
   if(lab) lab.textContent = ringScopeLabel();
   document.getElementById('doneNum').textContent = done;
   document.getElementById('leftNum').textContent = '还剩 '+(items.length-done)+' 项（共 '+items.length+'）';
   const C = 320.4;
   document.getElementById('ringFg').style.strokeDashoffset = C*(1-done/total);
+  // 数字弹跳；达成 100% 时整环 pop 一下（只在真正变到 100 时触发一次）
+  if(pct!==prev){
+    pctEl.classList.remove('numPop'); void pctEl.offsetWidth; pctEl.classList.add('numPop');
+    const r0 = document.querySelector('.ring');
+    if(r0 && pct===100 && prev!==100){
+      r0.classList.remove('ringPop'); void r0.offsetWidth; r0.classList.add('ringPop');
+    }
+  }
   setCheer();
 }
 
