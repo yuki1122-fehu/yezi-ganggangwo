@@ -6245,7 +6245,13 @@ function openAI(){
     addAIMsg('sys','我是你的工作台助理 🌿 直接跟我说就行，比如"9月12号10点有个迎新活动""学费交了""我还有啥没做"。');
   }
   openMask(document.getElementById('aiMask'));
-  setTimeout(()=>document.getElementById('aiInput').focus(), 200);
+  // 进入即滚到最新对话，不用手动下滑（mask 从 display:none 变为可见后容器才能滚动，稍等一帧再滚）
+  setTimeout(()=>{
+    const w2 = document.getElementById('aiMsgs');
+    if(w2) w2.scrollTop = w2.scrollHeight;
+    const inp = document.getElementById('aiInput');
+    if(inp) inp.focus();
+  }, 250);
 }
 function closeAI(){ closeMask(document.getElementById('aiMask')); }
 
