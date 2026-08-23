@@ -5864,7 +5864,19 @@ function renderConvFromState(){
   }
 }
 function convUserText(content){
-  if(typeof content==='string') return stripInjectedAnchor(content);
+  if(typeof content==='string'){
+    let t = stripInjectedAnchor(content);
+    // 老消息兼容：修复前 B1/B3 路径把 visionBlock 识图结果/系统备注直接内嵌进 content 字符串，
+    // 新消息有 userText 不走这里。按固定标记剥离内部块，只留用户指令 + [图片]，避免重进后识图全文露出来
+    const m1 = t.indexOf('【图片识别结果');
+    const m2 = t.indexOf('（系统备注：用户同时发了');
+    if(m1 >= 0 || m2 >= 0){
+      const cut = (m1 >= 0 ? m1 : m2);
+      t = t.slice(0, cut).trim();
+      return (t ? t + ' ' : '') + '[图片]';
+    }
+    return t;
+  }
   if(Array.isArray(content)){
     let txt='', img=false, file=false;
     for(const p of content){
@@ -6245,13 +6257,15 @@ function openAI(){
     addAIMsg('sys','我是你的工作台助理 🌿 直接跟我说就行，比如"9月12号10点有个迎新活动""学费交了""我还有啥没做"。');
   }
   openMask(document.getElementById('aiMask'));
-  // 进入即滚到最新对话，不用手动下滑（mask 从 display:none 变为可见后容器才能滚动，稍等一帧再滚）
-  setTimeout(()=>{
-    const w2 = document.getElementById('aiMsgs');
-    if(w2) w2.scrollTop = w2.scrollHeight;
-    const inp = document.getElementById('aiInput');
-    if(inp) inp.focus();
-  }, 250);
+  // 进入即滚到最新对话，不用手动下滑。
+  // display:none 期间 scrollTop 无效，必须等面板可见后再滚：双帧 rAF + setTimeout 三重兜底（更稳）
+  const w2 = document.getElementById('aiMsgs');
+  const toBottom = ()=>requestAnimationFrame(()=>{ if(w2) w2.scrollTop = w2.scrollHeight; });
+  requestAnimationFrame(toBottom);
+  requestAnimationFrame(toBottom);
+  setTimeout(toBottom, 300);
+  const inp = document.getElementById('aiInput');
+  if(inp) inp.focus();
 }
 function closeAI(){ closeMask(document.getElementById('aiMask')); }
 
