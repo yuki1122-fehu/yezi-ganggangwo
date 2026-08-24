@@ -10384,10 +10384,11 @@ init();
       pendingSpeak[tid]=resolve;
       const done=ok=>{ if(pendingSpeak[tid]) delete pendingSpeak[tid]; resolve(ok); };
       const vo=(voiceIdx&&voiceIdx!==0)?((typeof aiVoiceCfg==='function')?aiVoiceCfg(voiceIdx):null):null;
-      if(vo&&vo.engine==='mini'){ ttsMiniMax(text,vo).then(()=>done(true)).catch(()=>sysSpeak(text,done,vo)); return; }
+      const onMiniFail=e=>{ if(window.toast) toast('MiniMax 合成失败：'+(e&&e.message||e)+'，改用系统语音'); sysSpeak(text,done,vo); };
+      if(vo&&vo.engine==='mini'){ ttsMiniMax(text,vo).then(()=>done(true)).catch(onMiniFail); return; }
       if(vo&&vo.engine==='sys'){ sysSpeak(text,done,vo); return; }
       // 跟随全局音色：MiniMax 就绪用 MiniMax（全局 voiceId），否则系统语音
-      if(ttsEngineReady()){ ttsMiniMax(text,null).then(()=>done(true)).catch(()=>sysSpeak(text,done,vo)); return; }
+      if(ttsEngineReady()){ ttsMiniMax(text,null).then(()=>done(true)).catch(onMiniFail); return; }
       sysSpeak(text,done,vo);
     });
   }
@@ -10403,7 +10404,11 @@ init();
       const s=(window.pomoData&&window.pomoData.settings)?window.pomoData.settings:{};
       u.pitch=(vo&&vo.pitch!=null)?vo.pitch:((s.pitch!=null)?s.pitch:1.12);
       u.rate=(vo&&vo.rate!=null)?vo.rate:((s.rate!=null)?s.rate:0.98);
-      u.onend=()=>finish(true); u.onerror=()=>finish(false);
+      let settled=false;
+      // iOS 系统语音跑久了会哑火（onend/onerror 都不触发），加超时兜底：既不卡死，也给出提示
+      const guard=setTimeout(()=>{ if(settled) return; settled=true; if(window.toast) toast('⚠️ 系统语音没出声（iOS 常见，刷新或重进陪伴可恢复）'); finish(false); }, 3500);
+      u.onend=()=>{ if(settled) return; settled=true; clearTimeout(guard); finish(true); };
+      u.onerror=()=>{ if(settled) return; settled=true; clearTimeout(guard); finish(false); };
       speechSynthesis.speak(u);
     }catch(e){ finish(false); }
   }
