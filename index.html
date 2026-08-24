@@ -10279,13 +10279,26 @@ init();
         }
       };
       recog.onerror=function(e){
-        if(e&&(e.error==='not-allowed'||e.error==='service-not-allowed')){ if(window.toast) toast('麦克风权限被拒，已切到文字输入'); disableMic(); }
+        const er=e&&e.error;
+        if(er==='not-allowed'||er==='service-not-allowed'){ if(window.toast) toast('麦克风权限被拒，已切到文字输入'); disableMic(); return; }
+        // 瞬态错误（aborted/network/audio-capture/no-speech…）：不静默死掉——500ms 后同对象重启（重启失败才标记点🎤）
+        if(!speaking && micOn && running){
+          setTimeout(()=>{
+            if(!running||!micOn||speaking) return;
+            if(recog){ try{ recog.start(); return; }catch(e2){ recog=null; } }
+            if(!recog){ if(startRecog()) return; markNeedTap(); }
+          }, 500);
+        }
       };
       recog.onend=function(){
         forcedRefresh=false; // 心跳主动 stop 后 onend 正常到达：告诉心跳"不用强杀重建"
         const now=Date.now();
         if(!running||!micOn){ recog=null; updateStatus(); return; }
-        if(speaking){ recog=null; return; } // AI 在说：不抢着重启，等 speakTurn.finally 统一恢复（避开与音频播放的冲突）
+        if(speaking){
+          // AI 在说：不抢着重启（免得识别器又听到 AI 声音）——但**保留同一对象**，等 speakTurn.finally 里同对象 recog.start()。
+          // 绝不能在这里 recog=null 然后 finally 新建实例：安卓旧实例异步 teardown 会与新建 start() 冲突，新实例静默失败=耳朵死（"第一轮后听不到"）
+          return;
+        }
         // 维持连续聆听：用同一对象重启（Android/桌面 Chrome 支持）；节流防 onend 风暴
         if(now-lastRecogEnd<250){ recog=null; return; }
         lastRecogEnd=now;
@@ -10445,11 +10458,22 @@ init();
       lastAISaidNorm = normTxt(spokeText);
       lastAISaidAt = Date.now();
       post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); // 出口①~⑦ 全部终结于此
-      // AI 说完后确保麦克风识别恢复（识别器全程未被主动停，通常仍在跑；若因音频焦点冲突被 onend 才需此处重启）
+      // AI 说完后确保麦克风识别恢复：
+      // ①识别器若还在跑（onend 没触发）→ 什么都不用做；
+      // ②onend 在 AI 说话期间触发过（speaking 分支保留同一对象）→ 同对象 recog.start() 重启（安卓最可靠，绝不新建实例抢跑）；
+      // ③同对象失败/对象为空 → startRecog 新建兜底；仍失败 1s 后重试一次，再不行才提示点🎤
       setTimeout(()=>{
         if(!micOn || !recogAvailable || speaking) return;
-        if(recog){ try{ if(recog.state && recog.state!=='running') recog.start(); }catch(e){ recog=null; } }
-        if(!recog){ if(startRecog()) return; markNeedTap(); }
+        if(recog){
+          const st=recog.state;
+          if(!st || st==='inactive' || st==='idle'){
+            try{ recog.start(); return; }catch(e){ recog=null; }
+          } else return; // running：还活着，直接继续听
+        }
+        if(!recog){
+          if(startRecog()) return;
+          setTimeout(()=>{ if(!micOn||!recogAvailable||speaking) return; if(!recog&&!startRecog()) markNeedTap(); }, 1000);
+        }
       }, 400);
     }
   }
@@ -10528,7 +10552,14 @@ init();
   // ── 专注轻量提示词装配（会话开始冻结 3 常驻 + 每轮替换 volatile 视觉）──
   async function buildFocusPrefix(){
     const blocks=[];
-    blocks.push('[identity]\n'+((DEFAULT_MEM_IDENTITY||'').trim()));
+    // [identity] 用用户自定义的「关系身份」（memIdentity()，未设置时回退默认）——之前硬编码 DEFAULT_MEM_IDENTITY，用户配的身份没被引用
+    blocks.push('[identity]\n'+((typeof memIdentity==='function'?memIdentity():DEFAULT_MEM_IDENTITY)||'').trim());
+    // [风格] 用用户在主 AI 设置里配的「人设」（persona），让陪伴也按用户设定的性格说话
+    try{
+      const _cfg=getAiCfg();
+      const _persona=(_cfg&&_cfg.persona&&_cfg.persona.trim())?_cfg.persona.trim():'';
+      if(_persona) blocks.push('[风格]\n'+_persona);
+    }catch(e){}
     const recent=await focusRecentSummary();
     if(recent) blocks.push('[recent]\n'+recent);
     const task=(session&&session.taskNow&&session.taskNow.trim())?session.taskNow.trim():'这场的专注任务未设定，随意陪伴即可。';
@@ -10538,7 +10569,7 @@ init();
     return blocks.join('\n\n');
   }
   function defaultResident(){
-    return '[identity]\n'+((DEFAULT_MEM_IDENTITY||'')||'')+'\n\n[task_now]\n'+((session&&session.taskNow)?session.taskNow:'随意陪伴');
+    return '[identity]\n'+((typeof memIdentity==='function'?memIdentity():DEFAULT_MEM_IDENTITY)||'')+'\n\n[task_now]\n'+((session&&session.taskNow)?session.taskNow:'随意陪伴');
   }
   async function focusRecentSummary(){
     try{
