@@ -10056,7 +10056,7 @@ init();
 
   function loadCfg(){
     let c={}; try{ c=JSON.parse(localStorage.getItem(CFG_KEY))||{}; }catch(e){}
-    return Object.assign({proactive:true,salience:0.55,saveFlow:true,mouth:'sys',actions:false,observeMin:4,observeMax:10,captureFps:8},c);
+    return Object.assign({proactive:true,salience:0.8,saveFlow:true,mouth:'sys',actions:false,observeMin:4,observeMax:10,captureFps:8},c);
   }
   function saveCfg(){ try{ localStorage.setItem(CFG_KEY,JSON.stringify(cfg)); }catch(e){} }
 
@@ -10065,6 +10065,8 @@ init();
   let running=false, session=null;
   let stream=null, videoEl=null, canvasEl=null, ctx2d=null;
   let recog=null, recogAvailable=false, micOn=true, recogNeedTap=false, lastRecogEnd=0;
+  const VISION_COOLDOWN=30000; // 主动开口（视觉）冷却：任何一次发言后，至少安静这么久才允许视觉再次主动开口
+  let quietUntil=0; // 冷却截止时间戳（毫秒）
   let localTimer=null, captureTimer=null, observeTimer=null, lockTimer=null;
   let lastFrame=null, lastFrameGray=null, lastMotion=0, motionChanged=false, present=false;
   let vision=null, lastObserveAt=0;
@@ -10311,14 +10313,15 @@ init();
         case 'USER_SPEECH':
           if(state===S.LISTENING){
             const tid=tryAcquireFloor(S.LISTENING,epoch);
-            if(tid!=null) spawn(speakTurn(ev.text,'USER',epoch,tid));
+            if(tid!=null){ quietUntil=Date.now()+VISION_COOLDOWN; spawn(speakTurn(ev.text,'USER',epoch,tid)); }
           }
           break;
         case 'OBSERVATION':
           vision=ev.obs; // 替换，不累积
-          if(cfg.proactive && ev.obs && !ev.obs.uncertain && ev.obs.salience>=cfg.salience){
+          // 视觉主动开口三条件：①不在冷却期 ②画面确有变化 ③salience 达阈值（且非 uncertain）
+          if(cfg.proactive && ev.obs && !ev.obs.uncertain && ev.obs.changed_from_last && ev.obs.salience>=cfg.salience && Date.now()>=quietUntil){
             const tid=tryAcquireFloor(S.IDLE,epoch); // 视觉只在 IDLE 抢发言权
-            if(tid!=null) spawn(speakTurn(null,'VISION',epoch,tid));
+            if(tid!=null){ quietUntil=Date.now()+VISION_COOLDOWN; spawn(speakTurn(null,'VISION',epoch,tid)); }
           }
           break;
         case 'TURN_SPEAKING':
@@ -10345,7 +10348,7 @@ init();
     try{
       if(!session||!session.resident) return;
       const volatile='[vision]\n'+visionToBlock(vision);
-      const userPart=userText?('用户说：'+userText):'（你根据刚才看到的画面，主动说一句轻轻的陪伴，不要长）';
+      const userPart=userText?('用户说：'+userText):'（你看到用户画面有变化，用一句话、不超过15个字，像朋友在身边轻声提醒或鼓励，不要展开、不要提问、不要长篇大论）';
       const messages=[
         {role:'system',content:session.resident},
         {role:'user',content:volatile+'\n\n'+userPart}
@@ -10358,7 +10361,9 @@ init();
       if(!content||!content.trim()){ post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); return; } // 出口②：沉默，不消耗发言权
       // 角色音色：解析【角色名】前缀 → 剥掉标记 + 选定音色下标（与主 AI 面板同套逻辑）
       const rv=(typeof aiResolveVoice==='function')?aiResolveVoice(content):{clean:content,voice:0};
-      const sents=splitSentences(rv.clean);
+      const isVision=!userText; // 主动开口（基于画面）只说一句，绝不啰嗦；用户主动说话才正常多聊
+      const rawSents=splitSentences(rv.clean);
+      const sents=isVision?rawSents.slice(0,1):rawSents;
       // 不主动停识别器：靠 onresult 的 if(speaking) return 双保险挡回声，避免 stop/start 循环导致耳朵起不来（Android 上异步重启不可靠）
       for(const s of sents){
         if(myEpoch!==epoch) return; // 打断：当场弃
@@ -10436,7 +10441,7 @@ init();
     const task=(session&&session.taskNow&&session.taskNow.trim())?session.taskNow.trim():'这场的专注任务未设定，随意陪伴即可。';
     blocks.push('[task_now]\n'+task);
     const rp=(typeof buildRoleProtocol==='function')?buildRoleProtocol():null; if(rp) blocks.push(rp);
-    blocks.push('[陪伴规则]\n你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短（1~3句），像真朋友在身边。');
+    blocks.push('[陪伴规则]\n你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。');
     return blocks.join('\n\n');
   }
   function defaultResident(){
