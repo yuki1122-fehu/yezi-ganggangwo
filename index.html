@@ -10083,6 +10083,13 @@ init();
   let lastFrame=null, lastFrameGray=null, lastMotion=0, motionChanged=false, present=false;
   let vision=null, lastObserveAt=0;
   let speaking=false, pendingSpeak={};
+  // 防回声（Android 麦克风会把 AI 自己喇叭的声音识别成"用户说话"）：
+  //  ①speaking 现在覆盖到音频真正播完（见 compSpeak 的 waitAudioEnd），播放期间识别结果直接丢弃；
+  //  ②ECHO_GRACE_MS=AI 说完后的"回声宽限窗"，期间到达的识别结果一律丢弃——Web Speech 结果有网络延迟，
+  //    AI 声音被识别出的 final 可能迟到几百 ms~2s，speaking 已变 false 挡不住；
+  //  ③lastAISaidNorm/lastAISaidAt=上一轮 AI 说的内容（归一化）+ 说完时刻，用于迟到回声的内容去重（3s 内高度重合即丢弃）。
+  const ECHO_GRACE_MS = 1000, LATE_ECHO_MS = 3000;
+  let echoGraceUntil = 0, lastAISaidNorm = '', lastAISaidAt = 0;
 
   // ---- 优先队列（带优先级插入）----
   function post(type,data){
@@ -10245,7 +10252,7 @@ init();
       recog.lang='zh-CN'; recog.continuous=true; recog.interimResults=true;
       let lastFinal='';
       recog.onresult=function(e){
-        if(speaking) return; // 双重保险：AI 说话期间即便识别器在跑也丢弃结果，杜绝把 AI 声音当用户输入（回声）
+        if(speaking) return; // 防回声①：AI 说话期间（含音频播放全程）即便识别器在跑也丢弃结果
         let interim='', finalText='';
         for(let i=e.resultIndex;i<e.results.length;i++){
           const r=e.results[i];
@@ -10253,6 +10260,10 @@ init();
         }
         if(interim) setSub(interim); // 中间结果：仅字幕，绝不进 prompt / 落库
         if(finalText){
+          // 防回声②：AI 刚说完的宽限窗内到达的结果，几乎都是 AI 自己声音的迟到识别（Android 结果有网络延迟），丢弃
+          if(Date.now() < echoGraceUntil){ setSub(''); return; }
+          // 防回声③：说完后 LATE_ECHO_MS 内到达、且与 AI 刚说的内容高度重合 = 迟到回声（慢网络下宽限窗没罩住），丢弃
+          if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(finalText,lastAISaidNorm)){ setSub(''); return; }
           if(finalText===lastFinal) return; lastFinal=finalText;
           setSub('');
           const key=finalText;
@@ -10323,6 +10334,7 @@ init();
         case 'USER_SPEECH_START':
           epoch=ev.epoch; activeTurn=null; stopPlayback(); state=S.LISTENING; break;
         case 'USER_SPEECH':
+          lastAISaidNorm=''; lastAISaidAt=0; // 用户真的开口了（已通过回声守卫）：清空回声比对基准，防止把用户重复 AI 的话误杀
           if(state===S.LISTENING){
             const tid=tryAcquireFloor(S.LISTENING,epoch);
             if(tid!=null){ quietUntil=Date.now()+VISION_COOLDOWN; spawn(speakTurn(ev.text,'USER',epoch,tid)); }
@@ -10356,7 +10368,7 @@ init();
 
   // 一次发言 = 一个发言流；句子串行；无论哪个出口离开，finally 必发 TURN_DONE
   async function speakTurn(userText,trigger,myEpoch,tid){
-    let spoke=false;
+    let spoke=false, spokeText='';
     try{
       if(!session||!session.resident) return;
       const volatile='[vision]\n'+visionToBlock(vision);
@@ -10382,7 +10394,8 @@ init();
         spoke=true; speaking=true; updateStatus();
         post({type:'TURN_SPEAKING',turnId:tid,epoch:myEpoch});
         showBubble(cleanForShow(s));
-        await compSpeak(cleanForSpeak(s),myEpoch,tid,rv.voice);
+        const ss=cleanForSpeak(s); spokeText+=' '+ss;
+        await compSpeak(ss,myEpoch,tid,rv.voice); // compSpeak 现在等音频真正播完才 resolve（见 compSpeak 防回声说明）
       }
       speaking=false; updateStatus();
     }catch(e){
@@ -10391,6 +10404,11 @@ init();
       showBubble('（刚才那句没说完整）');
     }finally{
       speaking=false; updateStatus();
+      // 防回声：AI 说完瞬间开启宽限窗 + 记录本轮说的话与说完时刻（供识别结果内容去重）。
+      // Android 的 Web Speech 结果有网络延迟：AI 声音被识别出的 final 可能迟到几百 ms~2s，此刻 speaking 已 false 挡不住。
+      echoGraceUntil = Date.now() + ECHO_GRACE_MS;
+      lastAISaidNorm = normTxt(spokeText);
+      lastAISaidAt = Date.now();
       post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); // 出口①~⑦ 全部终结于此
       // AI 说完后确保麦克风识别恢复（识别器全程未被主动停，通常仍在跑；若因音频焦点冲突被 onend 才需此处重启）
       setTimeout(()=>{
@@ -10416,10 +10434,22 @@ init();
       const done=ok=>{ if(pendingSpeak[tid]) delete pendingSpeak[tid]; resolve(ok); };
       const vo=(voiceIdx&&voiceIdx!==0)?((typeof aiVoiceCfg==='function')?aiVoiceCfg(voiceIdx):null):null;
       const onMiniFail=e=>{ if(window.toast) toast('MiniMax 合成失败：'+(e&&e.message||e)+'，改用系统语音'); sysSpeak(text,done,vo); };
-      if(vo&&vo.engine==='mini'){ ttsMiniMax(text,vo).then(()=>done(true)).catch(onMiniFail); return; }
+      // 防回声关键：playMiniAudio 的 Promise 在 a.play()（开始播放）时就 resolve，若直接 done(true)，
+      // speaking 会在音频还在响时就变 false → 识别器把 AI 声音尾巴当用户说话（回声+抢话循环的根源）。
+      // 所以 MiniMax 分支要等音频真正播完（onended）再 done(true)，让 speaking 全程覆盖播放期。
+      const miniSpeak=(txt,v)=>{
+        ttsMiniMax(txt,v).then(()=>{
+          const a=window.__miniAudioEl;
+          if(a && !a.paused && !a.ended && typeof a.addEventListener==='function'){
+            const fin=()=>{ a.removeEventListener('ended',fin); a.removeEventListener('error',fin); done(true); };
+            a.addEventListener('ended',fin); a.addEventListener('error',fin);
+          } else done(true);
+        }).catch(onMiniFail);
+      };
+      if(vo&&vo.engine==='mini'){ miniSpeak(text,vo); return; }
       if(vo&&vo.engine==='sys'){ sysSpeak(text,done,vo); return; }
       // 跟随全局音色：MiniMax 就绪用 MiniMax（全局 voiceId），否则系统语音
-      if(ttsEngineReady()){ ttsMiniMax(text,null).then(()=>done(true)).catch(onMiniFail); return; }
+      if(ttsEngineReady()){ miniSpeak(text,null); return; }
       sysSpeak(text,done,vo);
     });
   }
@@ -10480,6 +10510,24 @@ init();
     if(!t) return [];
     const parts=t.split(/(?<=[。！？!?；;\n])/).map(s=>s.trim()).filter(Boolean);
     return parts.length?parts:[t.trim()].filter(Boolean);
+  }
+  // 防回声内容去重工具：归一化（去空白标点）+ 重叠度判断（识别结果与 AI 刚说的内容高度重合 = 迟到回声）。
+  // 收窄条件：短句必须 ≥ 长句 60%（用户顺着 AI 的话简短确认如"休息一下"，不算回声）；重叠 ≥85% 才丢（内容去重只是兜底，主力靠宽限窗）
+  function normTxt(t){ return String(t||'').toLowerCase().replace(/[\s，。！？!?、,.：:；;·'"“”‘’…~～\-—()（）]/g,''); }
+  function isEchoLike(a,b){
+    const A=normTxt(a), B=normTxt(b);
+    if(A.length<3||B.length<3) return false;
+    const short=A.length<=B.length?A:B, long=A.length<=B.length?B:A;
+    if(short.length < long.length*0.6) return false;
+    if(long.indexOf(short)>=0) return true; // 完全包含：AI 整句被识别回来
+    let best=0;
+    const step=Math.min(short.length,20);
+    for(let i=0;i<=short.length-step;i++){
+      let k=0;
+      while(i+k<short.length && long.indexOf(short.slice(i,i+k+1))>=0) k++;
+      if(k>best) best=k;
+    }
+    return best>=Math.min(4,short.length) && (best/short.length)>=0.85; // 最长公共子串占短句≥85%
   }
   function cleanForSpeak(t){ return (aiTtsClean&&aiTtsClean(t))||t; }
   function cleanForShow(t){ return (aiTtsClean&&aiTtsClean(t))||t; }
