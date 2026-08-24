@@ -9702,7 +9702,14 @@ function aiRoleTest(idx){
   const sample = '我是' + (name || (idx === 1 ? '零落' : '沈容')) + '。今天也要一起好好加油。';
   ttsWarmup();
   const vo = aiVoiceCfg(idx);
-  if(vo && vo.engine === 'mini' && ttsEngineReady()){ ttsMiniMax(sample, vo).catch(()=>ttsSpeakSys(sample, vo)); return; }
+  if(vo && vo.engine === 'mini' && ttsEngineReady()){
+    ttsMiniMax(sample, vo).catch(err=>{
+      // 试听必须把真实原因说出来（如余额不足 1008），否则会无声退回系统女声、让人以为克隆坏了
+      try{ if(typeof toast === 'function') toast('🎤 MiniMax 合成失败：' + ((err && err.message) || err) + '（已退回系统语音）'); }catch(e){}
+      ttsSpeakSys(sample, vo);
+    });
+    return;
+  }
   if(vo && vo.engine === 'sys'){ ttsSpeakSys(sample, vo); return; }
   ttsSpeak(sample);
 }
