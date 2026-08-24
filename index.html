@@ -9960,6 +9960,12 @@ init();
   box-shadow:0 8px 30px rgba(0,0,0,.35);min-height:24px;}
 .comp-sub{font-size:13px;color:#8fb89a;min-height:18px;text-align:center;opacity:.85;
   max-width:90%;font-style:italic;}
+.comp-trans{font-size:11px;line-height:1.6;color:#a8c9ac;max-width:94%;width:100%;max-height:110px;
+  overflow-y:auto;padding:6px 12px;border-radius:12px;background:rgba(0,0,0,.28);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-sizing:border-box;}
+.comp-trans-line{opacity:.85;}
+.comp-trans-line.t-you{color:#8fc99a;}
+.comp-trans-line + .comp-trans-line{margin-top:2px;}
 .comp-obs{font-size:10px;color:#7fae8a;background:rgba(0,0,0,.35);padding:6px 8px;border-radius:8px;
   max-width:94%;max-height:120px;overflow:auto;white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;}
 .comp-start{position:relative;z-index:2;padding:18px 18px 26px;display:flex;flex-direction:column;
@@ -10009,6 +10015,7 @@ init();
     <div id="compYou" class="comp-you"></div>
     <div id="compBubble" class="comp-bubble">点下面按钮，开启摄像头与麦克风，我就陪你开始啦～</div>
     <div id="compSub" class="comp-sub"></div>
+    <div id="compTrans" class="comp-trans"></div>
     <div id="compObs" class="comp-obs" style="display:none;"></div>
   </div>
 
@@ -10080,6 +10087,10 @@ init();
   const VISION_COOLDOWN=30000; // 主动开口（视觉）冷却：任何一次发言后，至少安静这么久才允许视觉再次主动开口
   let quietUntil=0; // 冷却截止时间戳（毫秒）
   let localTimer=null, captureTimer=null, observeTimer=null, lockTimer=null, heartbeatTimer=null;
+  // 识别器重启退避（安卓对"同对象立即重启"会拒绝→onend 风暴→直接放弃变灰）：
+  //  用 scheduleRestart(延迟) 统一排程重启，restartCount 5s 窗口内超 5 次才放弃（标记点🎤）
+  let restartTimer=null, restartCount=0, restartWindowStart=0;
+  let listenGuardTimer=null; // USER_SPEECH_START 后 2.5s 内没有消费掉 → 状态从 LISTENING 回到 IDLE（防卡死）
   let lastFrame=null, lastFrameGray=null, lastMotion=0, motionChanged=false, present=false;
   let vision=null, lastObserveAt=0;
   let speaking=false, pendingSpeak={};
@@ -10110,6 +10121,7 @@ init();
     const b=document.getElementById('compBubble'); if(b) b.textContent='点下面按钮，开启摄像头与麦克风，我就陪你开始啦～';
     const y=document.getElementById('compYou'); if(y) y.textContent='';
     const sub=document.getElementById('compSub'); if(sub) sub.textContent='';
+    const tr=document.getElementById('compTrans'); if(tr) tr.innerHTML=''; // 新会话清空对话记录
   }
   function openCompanionFromPomo(){
     let title='';
@@ -10165,6 +10177,8 @@ init();
   function compStop(){
     running=false;
     post({type:'SESSION_CLOSE'});
+    clearTimeout(listenGuardTimer);
+    if(restartTimer){ clearTimeout(restartTimer); restartTimer=null; }
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
     if(stream){ stream.getTracks().forEach(t=>{try{t.stop();}catch(e){}}); stream=null; }
     if(videoEl){ try{ videoEl.srcObject=null; }catch(e){} videoEl=null; }
@@ -10281,29 +10295,15 @@ init();
       recog.onerror=function(e){
         const er=e&&e.error;
         if(er==='not-allowed'||er==='service-not-allowed'){ if(window.toast) toast('麦克风权限被拒，已切到文字输入'); disableMic(); return; }
-        // 瞬态错误（aborted/network/audio-capture/no-speech…）：不静默死掉——500ms 后同对象重启（重启失败才标记点🎤）
-        if(!speaking && micOn && running){
-          setTimeout(()=>{
-            if(!running||!micOn||speaking) return;
-            if(recog){ try{ recog.start(); return; }catch(e2){ recog=null; } }
-            if(!recog){ if(startRecog()) return; markNeedTap(); }
-          }, 500);
-        }
+        // 瞬态错误（aborted/network/audio-capture/no-speech…）：不静默死掉——退避排程重启（重启失败才标记点🎤）
+        if(micOn && running) scheduleRestart(800);
       };
       recog.onend=function(){
         forcedRefresh=false; // 心跳主动 stop 后 onend 正常到达：告诉心跳"不用强杀重建"
-        const now=Date.now();
         if(!running||!micOn){ recog=null; updateStatus(); return; }
-        if(speaking){
-          // AI 在说：不抢着重启（免得识别器又听到 AI 声音）——但**保留同一对象**，等 speakTurn.finally 里同对象 recog.start()。
-          // 绝不能在这里 recog=null 然后 finally 新建实例：安卓旧实例异步 teardown 会与新建 start() 冲突，新实例静默失败=耳朵死（"第一轮后听不到"）
-          return;
-        }
-        // 维持连续聆听：用同一对象重启（Android/桌面 Chrome 支持）；节流防 onend 风暴
-        if(now-lastRecogEnd<250){ recog=null; return; }
-        lastRecogEnd=now;
-        try{ recog.start(); return; }catch(e){}
-        recog=null; markNeedTap(); // 重启失败（Android 连续识别偶发）→ 提示用户点🎤重连
+        // 会话结束（安卓引擎会自行结束会话/或拒绝重启时立刻再 onend）：一律退避排程重启，保留同一对象（按钮保持绿色）。
+        // 识别结果由 if(speaking)return / isEchoLike 挡回声，speaking 期间重启也无害。
+        scheduleRestart(500);
       };
       recog.start();
       return true;
@@ -10332,6 +10332,36 @@ init();
   function markNeedTap(){
     if(!recogNeedTap){ recogNeedTap=true; if(window.toast) toast('语音识别断了，点一下 🎤 重新听你说话'); }
     updateStatus();
+  }
+  // ── 识别器重启退避（统一入口）──
+  // 安卓 Chrome 对"会话结束后的立即同对象重启"会拒绝（start 后立刻再 onend）→ 重复几次就成风暴。
+  // 方案：每次重启前退避 delay ms；前 2 次试同对象，之后换全新实例（避开旧实例 teardown 竞态）；5s 内超 5 次 → 放弃提示点🎤。
+  function scheduleRestart(delay){
+    if(!running||!micOn||!recogAvailable) return;
+    if(restartTimer) return; // 已排程，去重
+    restartTimer=setTimeout(doRestart, (delay===undefined?500:delay));
+  }
+  function doRestart(){
+    restartTimer=null;
+    if(!running||!micOn||!recogAvailable) return;
+    const now=Date.now();
+    if(now-restartWindowStart>5000){ restartWindowStart=now; restartCount=0; }
+    restartCount++;
+    if(restartCount>5){ recog=null; markNeedTap(); updateStatus(); return; } // 5 次都起不来 → 交给用户手势（安卓手势启动最可靠）
+    if(!recog){
+      if(startRecog()){ updateStatus(); return; }
+      scheduleRestart(1500); return;
+    }
+    if(restartCount<=2){
+      // 前 2 次：同对象重启（最稳路径）
+      try{ recog.start(); updateStatus(); return; }catch(e){}
+    } else {
+      // 之后：全新实例（先摘掉 onend 避免旧实例再排程，再等 1.5s 让 teardown 完）
+      try{ recog.onend=null; recog.stop(); }catch(e){}
+      recog=null; lastRecogHit=0;
+      if(startRecog()){ updateStatus(); return; }
+    }
+    scheduleRestart(1500); // 再退避重试
   }
   // 安卓识别引擎会"静默死亡"：state 还显示 running、onend 不触发、结果再也不来（这就是"开始能听到、后面不灵"）。
   // 每 10s 体检：识别器在跑但 ≥8s 无任何结果（没人说话）且距上次主动刷新 ≥30s → 主动 stop，靠 onend 同对象重启，
@@ -10372,9 +10402,14 @@ init();
       if(ev.epoch!==undefined && ev.epoch<epoch) continue; // 代际过期：仅丢弃迟到/旧事件（更旧的才丢，新代际要放行以推进 epoch）
       switch(ev.type){
         case 'USER_SPEECH_START':
-          epoch=ev.epoch; activeTurn=null; stopPlayback(); state=S.LISTENING; break;
+          epoch=ev.epoch; activeTurn=null; stopPlayback(); state=S.LISTENING;
+          // 卡死守卫：若配对的 USER_SPEECH 没被消费（如回声/状态错位），2.5s 后自动回 IDLE，视觉才能重新主动开口
+          clearTimeout(listenGuardTimer);
+          listenGuardTimer=setTimeout(()=>{ if(state===S.LISTENING && activeTurn===null){ state=S.IDLE; } }, 2500);
+          break;
         case 'USER_SPEECH':
           lastAISaidNorm=''; lastAISaidAt=0; // 用户真的开口了（已通过回声守卫）：清空回声比对基准，防止把用户重复 AI 的话误杀
+          clearTimeout(listenGuardTimer); // 消费掉 → 守卫取消
           if(state===S.LISTENING){
             const tid=tryAcquireFloor(S.LISTENING,epoch);
             if(tid!=null){ quietUntil=Date.now()+VISION_COOLDOWN; spawn(speakTurn(ev.text,'USER',epoch,tid)); }
@@ -10391,6 +10426,7 @@ init();
         case 'TURN_SPEAKING':
           if(ev.turnId===activeTurn) state=S.SPEAKING; break;
         case 'TURN_DONE':
+          clearTimeout(listenGuardTimer);
           if(ev.turnId===activeTurn){ activeTurn=null; state=S.IDLE; } break;
         case 'SESSION_CLOSE':
           running=false; break;
@@ -10433,6 +10469,7 @@ init();
       if(session.history.length>12) session.history=session.history.slice(-12);
       // 角色音色：解析【角色名】前缀 → 剥掉标记 + 选定音色下标（与主 AI 面板同套逻辑）
       const rv=(typeof aiResolveVoice==='function')?aiResolveVoice(content):{clean:content,voice:0};
+      transAdd('ai', rv.clean); // 对话记录：AI 完整回复（剥掉角色名）进滚动区，不只显示最后一轮
       const isVision=!userText; // 主动开口（基于画面）只说一句，绝不啰嗦；用户主动说话才正常多聊
       const rawSents=splitSentences(rv.clean);
       const sents=isVision?rawSents.slice(0,1):rawSents;
@@ -10459,21 +10496,18 @@ init();
       lastAISaidAt = Date.now();
       post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); // 出口①~⑦ 全部终结于此
       // AI 说完后确保麦克风识别恢复：
-      // ①识别器若还在跑（onend 没触发）→ 什么都不用做；
-      // ②onend 在 AI 说话期间触发过（speaking 分支保留同一对象）→ 同对象 recog.start() 重启（安卓最可靠，绝不新建实例抢跑）；
-      // ③同对象失败/对象为空 → startRecog 新建兜底；仍失败 1s 后重试一次，再不行才提示点🎤
+      // ①识别器还在跑（onend 没触发）→ 什么都不用做；
+      // ②onend 已触发（会话结束）→ 退避排程重启（doRestart 会先同对象、后换新实例，带风暴上限）；
+      // ③对象为空 → startRecog 新建兜底，仍失败交给 scheduleRestart 退避重试
       setTimeout(()=>{
-        if(!micOn || !recogAvailable || speaking) return;
+        if(!micOn || !recogAvailable) return;
         if(recog){
           const st=recog.state;
-          if(!st || st==='inactive' || st==='idle'){
-            try{ recog.start(); return; }catch(e){ recog=null; }
-          } else return; // running：还活着，直接继续听
+          if(!st || st==='inactive' || st==='idle') scheduleRestart(0);
+          // running：还活着，直接继续听
+          return;
         }
-        if(!recog){
-          if(startRecog()) return;
-          setTimeout(()=>{ if(!micOn||!recogAvailable||speaking) return; if(!recog&&!startRecog()) markNeedTap(); }, 1000);
-        }
+        if(!recog && !startRecog()) scheduleRestart(1000);
       }, 400);
     }
   }
@@ -10615,7 +10649,17 @@ init();
   function cleanForShow(t){ return (aiTtsClean&&aiTtsClean(t))||t; }
   function setSub(t){ const el=document.getElementById('compSub'); if(el) el.textContent=t||''; }
   function showBubble(t){ const el=document.getElementById('compBubble'); if(el) el.textContent=t||''; }
-  function showYou(t){ const el=document.getElementById('compYou'); if(el) el.textContent='你：'+t; }
+  function showYou(t){ const el=document.getElementById('compYou'); if(el) el.textContent='你：'+t; transAdd('you', t); }
+  // 对话记录（小字滚动区）：让页面不只显示最后一轮，AI/用户最近几轮都可见（配合会话记忆，沉浸感）
+  function transAdd(kind, t){
+    const el=document.getElementById('compTrans'); if(!el) return;
+    const line=document.createElement('div');
+    line.className='comp-trans-line'+(kind==='ai'?'':' t-you');
+    line.textContent=(kind==='ai'?'':'你：')+String(t||'').trim().slice(0,80);
+    el.appendChild(line);
+    while(el.children.length>8) el.removeChild(el.firstChild);
+    el.scrollTop=el.scrollHeight;
+  }
   function renderObs(obs){ const el=document.getElementById('compObs'); if(el) el.textContent=JSON.stringify(obs||{},null,1); }
 
   // ── 状态指示（以真实轨道/识别/播报状态为准）──
