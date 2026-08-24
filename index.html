@@ -10012,7 +10012,7 @@ init();
       <input id="compTask" class="comp-taskinput" placeholder="例如：写论文第三章（可留空）" maxlength="60">
     </div>
     <div class="comp-btns">
-      <button id="compMicBtn" class="comp-btn" onclick="compToggleMic()">🎤 麦克风</button>
+      <button id="compMicBtn" class="comp-btn" onclick="compToggleMic()">🎤 点我说</button>
       <button id="compProBtn" class="comp-btn on" onclick="compToggleProactive()">🗣 主动开口</button>
       <button id="compSaveBtn" class="comp-btn on" onclick="compToggleSaveFlow()">🌱 省流</button>
       <button id="compLvlBtn" class="comp-btn" onclick="compCycleLevel()">😊 适度</button>
@@ -10064,7 +10064,7 @@ init();
   let state=S.IDLE, epoch=0, activeTurn=null, turnSeq=0, queue=[];
   let running=false, session=null;
   let stream=null, videoEl=null, canvasEl=null, ctx2d=null;
-  let recog=null, recogAvailable=false, micOn=true;
+  let recog=null, recogAvailable=false, micOn=true, recogNeedTap=false, lastRecogEnd=0;
   let localTimer=null, captureTimer=null, observeTimer=null, lockTimer=null;
   let lastFrame=null, lastFrameGray=null, lastMotion=0, motionChanged=false, present=false;
   let vision=null, lastObserveAt=0;
@@ -10252,20 +10252,25 @@ init();
       recog.onerror=function(e){
         if(e&&(e.error==='not-allowed'||e.error==='service-not-allowed')){ if(window.toast) toast('麦克风权限被拒，已切到文字输入'); disableMic(); }
       };
-      recog.onend=function(){ if(running&&micOn&&recog){ try{ recog.start(); }catch(e){} } };
+      recog.onend=function(){
+        const now=Date.now();
+        if(!running||!micOn){ recog=null; updateStatus(); return; }
+        if(speaking){ recog=null; return; } // AI 在说：不抢着重启，等 speakTurn.finally 统一恢复（避开与音频播放的冲突）
+        // 维持连续聆听：用同一对象重启（Android/桌面 Chrome 支持）；节流防 onend 风暴
+        if(now-lastRecogEnd<250){ recog=null; return; }
+        lastRecogEnd=now;
+        try{ recog.start(); return; }catch(e){}
+        recog=null; markNeedTap(); // 重启失败（Android 连续识别偶发）→ 提示用户点🎤重连
+      };
       recog.start();
       return true;
     }catch(e){ return false; }
   }
   function setupEars(){
     recogAvailable=!!(window.SpeechRecognition||window.webkitSpeechRecognition);
-    if(!recogAvailable){
-      const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
-      updateStatus(); return;
-    }
-    if(micOn && !startRecog()){
-      const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
-    }
+    const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex'; // 文字条始终可用：语音识别不稳时的可靠兜底
+    if(!recogAvailable){ updateStatus(); return; }
+    if(micOn && !startRecog()){ /* 启动失败：保持文字条，等用户点🎤唤醒 */ }
     updateStatus();
   }
   function disableMic(){
@@ -10279,6 +10284,11 @@ init();
   // 说话期间临时停麦：只停识别器（不动 micOn / 不关音频轨道），说完再恢复；用于消灭回声
   function stopRecogKeepFlag(){
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+  }
+  // 识别器彻底断线（onend 重启连续失败）：标记需用户点🎤唤醒，并明确提示（不再静默"安静"）
+  function markNeedTap(){
+    if(!recogNeedTap){ recogNeedTap=true; if(window.toast) toast('语音识别断了，点一下 🎤 重新听你说话'); }
+    updateStatus();
   }
   function compSendText(){
     const el=document.getElementById('compText'); if(!el) return;
@@ -10349,7 +10359,7 @@ init();
       // 角色音色：解析【角色名】前缀 → 剥掉标记 + 选定音色下标（与主 AI 面板同套逻辑）
       const rv=(typeof aiResolveVoice==='function')?aiResolveVoice(content):{clean:content,voice:0};
       const sents=splitSentences(rv.clean);
-      if(recog) stopRecogKeepFlag(); // 念之前先停麦：避免把 AI 自己的声音识别成用户（回声）
+      // 不主动停识别器：靠 onresult 的 if(speaking) return 双保险挡回声，避免 stop/start 循环导致耳朵起不来（Android 上异步重启不可靠）
       for(const s of sents){
         if(myEpoch!==epoch) return; // 打断：当场弃
         spoke=true; speaking=true; updateStatus();
@@ -10365,8 +10375,12 @@ init();
     }finally{
       speaking=false; updateStatus();
       post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); // 出口①~⑦ 全部终结于此
-      // AI 说完后延迟恢复麦克风：避开喇叭尾音被识别成用户（防回声）；speaking 期间绝不重新开麦
-      setTimeout(()=>{ if(micOn && !speaking && !recog && recogAvailable) startRecog(); }, 500);
+      // AI 说完后确保麦克风识别恢复（识别器全程未被主动停，通常仍在跑；若因音频焦点冲突被 onend 才需此处重启）
+      setTimeout(()=>{
+        if(!micOn || !recogAvailable || speaking) return;
+        if(recog){ try{ if(recog.state && recog.state!=='running') recog.start(); }catch(e){ recog=null; } }
+        if(!recog){ if(startRecog()) return; markNeedTap(); }
+      }, 400);
     }
   }
 
@@ -10462,11 +10476,10 @@ init();
     const see=document.getElementById('compSee'),hear=document.getElementById('compHear'),spk=document.getElementById('compSpeak');
     if(see){ const on=!!(stream&&stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')); see.classList.toggle('on',on); see.textContent=on?'👁 看着你':'👁 未开'; }
     if(hear){
-      const bar=document.getElementById('compInputBar');
-      const textMode=bar && bar.style.display!=='none';
-      if(!micOn && !textMode){ hear.classList.remove('on'); hear.textContent='🎤 关'; }
-      else if(micOn && speaking){ hear.classList.remove('on'); hear.textContent='🎤 稍候'; } // AI 说话时麦暂歇（防回声）
-      else { hear.classList.add('on'); hear.textContent='🎤 听着'; }
+      if(!micOn){ hear.classList.remove('on'); hear.textContent='🎤 关'; }
+      else if(speaking){ hear.classList.remove('on'); hear.textContent='🎤 稍候'; } // AI 说话时麦暂歇（防回声）
+      else if(recog){ hear.classList.add('on'); hear.textContent='🎤 听…'; } // 正在聆听
+      else { hear.classList.remove('on'); hear.textContent='🎤 点我说'; } // 待命/断线，点🎤唤醒
     }
     if(spk){ spk.classList.toggle('on',speaking); spk.textContent=speaking?'💬 说着':'💬 静'; }
   }
@@ -10475,21 +10488,31 @@ init();
     if(pro) pro.classList.toggle('on',cfg.proactive);
     if(sv) sv.classList.toggle('on',cfg.saveFlow);
     if(lv) lv.textContent=LEVELS[levelIdx].label;
-    const mic=document.getElementById('compMicBtn'); if(mic) mic.classList.toggle('on',micOn);
+    const mic=document.getElementById('compMicBtn'); if(mic) mic.classList.toggle('on',!!recog);
   }
 
   // ── 控制开关 ──
+  // 麦克风按钮 = 点击说话（tap-to-talk）：点一下在手势内启动识别（Android/iOS 均可靠），再点暂停
   function compToggleMic(){
     if(!running) return;
-    micOn=!micOn;
-    if(stream){ stream.getAudioTracks().forEach(t=>{ try{ t.enabled=micOn; }catch(e){} }); }
-    if(micOn){
-      if(recogAvailable && !startRecog()){
-        const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
-      }
+    if(!recogAvailable){
+      const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
+      if(window.toast) toast('此设备不支持语音识别，用下方打字也能聊');
+      return;
+    }
+    if(recog){
+      // 正在聆听 → 点一下暂停（待命，不关麦，文字条仍可用）
+      stopRecogKeepFlag(); recogNeedTap=false;
+      if(window.toast) toast('已暂停聆听，想说再点 🎤');
     } else {
-      if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
-      const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='none';
+      // 没在聆听 → 用户点击（手势）→ 启动，可靠
+      micOn=true;
+      if(stream){ stream.getAudioTracks().forEach(t=>{ try{ t.enabled=true; }catch(e){} }); }
+      recogNeedTap=false;
+      if(!startRecog()){
+        const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
+        if(window.toast) toast('识别启动失败，用下方打字也能聊');
+      }
     }
     syncCtrlButtons(); updateStatus();
   }
