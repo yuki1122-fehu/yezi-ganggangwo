@@ -10076,19 +10076,18 @@ init();
   let state=S.IDLE, epoch=0, activeTurn=null, turnSeq=0, queue=[];
   let running=false, session=null;
   let stream=null, videoEl=null, canvasEl=null, ctx2d=null;
-  let recog=null, recogAvailable=false, micOn=true, recogNeedTap=false, lastRecogEnd=0;
+  let recog=null, recogAvailable=false, micOn=true, recogNeedTap=false, lastRecogEnd=0, lastRecogHit=0, lastRecogRefresh=0, forcedRefresh=false;
   const VISION_COOLDOWN=30000; // 主动开口（视觉）冷却：任何一次发言后，至少安静这么久才允许视觉再次主动开口
   let quietUntil=0; // 冷却截止时间戳（毫秒）
-  let localTimer=null, captureTimer=null, observeTimer=null, lockTimer=null;
+  let localTimer=null, captureTimer=null, observeTimer=null, lockTimer=null, heartbeatTimer=null;
   let lastFrame=null, lastFrameGray=null, lastMotion=0, motionChanged=false, present=false;
   let vision=null, lastObserveAt=0;
   let speaking=false, pendingSpeak={};
   // 防回声（Android 麦克风会把 AI 自己喇叭的声音识别成"用户说话"）：
-  //  ①speaking 现在覆盖到音频真正播完（见 compSpeak 的 waitAudioEnd），播放期间识别结果直接丢弃；
-  //  ②ECHO_GRACE_MS=AI 说完后的"回声宽限窗"，期间到达的识别结果一律丢弃——Web Speech 结果有网络延迟，
-  //    AI 声音被识别出的 final 可能迟到几百 ms~2s，speaking 已变 false 挡不住；
-  //  ③lastAISaidNorm/lastAISaidAt=上一轮 AI 说的内容（归一化）+ 说完时刻，用于迟到回声的内容去重（3s 内高度重合即丢弃）。
-  const ECHO_GRACE_MS = 1000, LATE_ECHO_MS = 3000;
+  //  ①speaking 覆盖到音频真正播完（见 compSpeak 的 waitAudioEnd），播放期间识别结果直接丢弃；
+  //  ②ECHO_GRACE_MS=AI 说完后的极短消尾窗（400ms，只压播放结束瞬间的残响）——不能长，否则会吃掉用户紧接 AI 说的话；
+  //  ③lastAISaidNorm/lastAISaidAt=上一轮 AI 说的内容（归一化）+ 说完时刻，真正的回声主力：3s 内到达且高度重合即丢弃。
+  const ECHO_GRACE_MS = 400, LATE_ECHO_MS = 3000;
   let echoGraceUntil = 0, lastAISaidNorm = '', lastAISaidAt = 0;
 
   // ---- 优先队列（带优先级插入）----
@@ -10126,7 +10125,7 @@ init();
     if(!acquireLock()){ if(errEl) errEl.textContent='另一个标签页已在运行实时陪伴，请先关闭它。'; if(window.toast) toast('已有实时陪伴会话在运行'); return; }
     running=true; state=S.IDLE; epoch=0; activeTurn=null; turnSeq=0; queue=[];
     cfg=loadCfg();
-    session={startedAt:Date.now(), taskNow:(document.getElementById('compTask').value||'').trim()};
+    session={startedAt:Date.now(), taskNow:(document.getElementById('compTask').value||'').trim(), history:[]}; // history=本次会话对话历史（AI 能看到自己之前说了什么，有沉浸感）
     try{ session.resident=await buildFocusPrefix(); }catch(e){ session.resident=defaultResident(); }
 
     let gotCam=false;
@@ -10153,6 +10152,7 @@ init();
     lastObserveAt=0; vision=null; lastFrame=null;
     observeTimer=setInterval(maybeObserve,1000);
     lockTimer=setInterval(heartbeatLock,5000);
+    heartbeatTimer=setInterval(compHeartbeat,10000); // 耳朵体检：防安卓识别引擎静默死亡
     const sw=document.getElementById('compStartWrap'); if(sw) sw.style.display='none';
     const ctr=document.getElementById('compControls'); if(ctr) ctr.style.display='flex';
     syncCtrlButtons();
@@ -10168,8 +10168,8 @@ init();
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
     if(stream){ stream.getTracks().forEach(t=>{try{t.stop();}catch(e){}}); stream=null; }
     if(videoEl){ try{ videoEl.srcObject=null; }catch(e){} videoEl=null; }
-    [localTimer,captureTimer,observeTimer,lockTimer].forEach(t=>{ if(t) clearInterval(t); });
-    localTimer=captureTimer=observeTimer=lockTimer=null;
+    [localTimer,captureTimer,observeTimer,lockTimer,heartbeatTimer].forEach(t=>{ if(t) clearInterval(t); });
+    localTimer=captureTimer=observeTimer=lockTimer=heartbeatTimer=null;
     compStopMouth();
     speaking=false; releaseLock();
     try{ window.removeEventListener('pagehide',compStop); }catch(e){}
@@ -10250,8 +10250,10 @@ init();
       if(!RR) return false;
       recog=new RR();
       recog.lang='zh-CN'; recog.continuous=true; recog.interimResults=true;
-      let lastFinal='';
+      let lastFinal='', lastFinalAt=0;
+      lastRecogHit=Date.now(); // 心跳：证明识别器刚启动/还活着
       recog.onresult=function(e){
+        lastRecogHit=Date.now(); // 有任何结果（含 interim）= 识别器活着，心跳用
         if(speaking) return; // 防回声①：AI 说话期间（含音频播放全程）即便识别器在跑也丢弃结果
         let interim='', finalText='';
         for(let i=e.resultIndex;i<e.results.length;i++){
@@ -10260,11 +10262,13 @@ init();
         }
         if(interim) setSub(interim); // 中间结果：仅字幕，绝不进 prompt / 落库
         if(finalText){
-          // 防回声②：AI 刚说完的宽限窗内到达的结果，几乎都是 AI 自己声音的迟到识别（Android 结果有网络延迟），丢弃
+          // 防回声②：AI 说完瞬间的 400ms 消尾窗（只压播放结束的残响；长了会吃掉用户紧接 AI 的话）
           if(Date.now() < echoGraceUntil){ setSub(''); return; }
-          // 防回声③：说完后 LATE_ECHO_MS 内到达、且与 AI 刚说的内容高度重合 = 迟到回声（慢网络下宽限窗没罩住），丢弃
+          // 防回声③：说完后 LATE_ECHO_MS 内到达、且与 AI 刚说的内容高度重合 = 迟到回声（Android 识别结果有网络延迟），丢弃
           if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(finalText,lastAISaidNorm)){ setSub(''); return; }
-          if(finalText===lastFinal) return; lastFinal=finalText;
+          // 同一句只在 2.5s 内去重（防 Chrome 对同一段语音重复触发 final）；超过时间窗用户可以重复说同样的话
+          if(finalText===lastFinal && Date.now()-lastFinalAt<2500) return;
+          lastFinal=finalText; lastFinalAt=Date.now();
           setSub('');
           const key=finalText;
           compStopMouth(); // 用户开口当场停（不等队列）
@@ -10278,6 +10282,7 @@ init();
         if(e&&(e.error==='not-allowed'||e.error==='service-not-allowed')){ if(window.toast) toast('麦克风权限被拒，已切到文字输入'); disableMic(); }
       };
       recog.onend=function(){
+        forcedRefresh=false; // 心跳主动 stop 后 onend 正常到达：告诉心跳"不用强杀重建"
         const now=Date.now();
         if(!running||!micOn){ recog=null; updateStatus(); return; }
         if(speaking){ recog=null; return; } // AI 在说：不抢着重启，等 speakTurn.finally 统一恢复（避开与音频播放的冲突）
@@ -10314,6 +10319,28 @@ init();
   function markNeedTap(){
     if(!recogNeedTap){ recogNeedTap=true; if(window.toast) toast('语音识别断了，点一下 🎤 重新听你说话'); }
     updateStatus();
+  }
+  // 安卓识别引擎会"静默死亡"：state 还显示 running、onend 不触发、结果再也不来（这就是"开始能听到、后面不灵"）。
+  // 每 10s 体检：识别器在跑但 ≥8s 无任何结果（没人说话）且距上次主动刷新 ≥30s → 主动 stop，靠 onend 同对象重启，
+  // 给会话续命；若 stop 后 1.5s onend 都没来（引擎挂死）→ 强杀重建。
+  function compHeartbeat(){
+    if(!running||!micOn||speaking) return;
+    if(!recog) return; // 断线/待命：等用户点🎤（不自动重启，避免触发权限/手势限制）
+    const now=Date.now();
+    if(now-lastRecogHit < 8000) return; // 有动静（可能有人在说话），不打扰
+    if(now-lastRecogRefresh < 30000) return; // 距上次刷新 <30s，会话还年轻
+    lastRecogRefresh=now;
+    forcedRefresh=true;
+    try{ recog.stop(); }catch(e){ forcedRefresh=false; recog=null; lastRecogHit=0; if(startRecog()) updateStatus(); else markNeedTap(); return; }
+    setTimeout(()=>{
+      if(!running||!micOn||speaking) return;
+      if(forcedRefresh){ forcedRefresh=false; return; } // onend 已正常处理（重启成功或已标记）
+      // stop 后 onend 没来 = 引擎挂死：强杀重建
+      if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+      lastRecogHit=0;
+      if(!startRecog()) markNeedTap();
+      updateStatus();
+    }, 1500);
   }
   function compSendText(){
     const el=document.getElementById('compText'); if(!el) return;
@@ -10373,8 +10400,11 @@ init();
       if(!session||!session.resident) return;
       const volatile='[vision]\n'+visionToBlock(vision);
       const userPart=userText?('用户说：'+userText):'（你看到用户画面有变化，用一句话、不超过15个字，像朋友在身边轻声提醒或鼓励，不要展开、不要提问、不要长篇大论）';
+      // 对话记忆：带上本次会话最近几轮（AI 能看到自己之前说过什么，不重复开场、有延续感；最多 12 条=6 轮）
+      const hist=(session.history&&session.history.length)?session.history.slice(-12):[];
       const messages=[
         {role:'system',content:session.resident},
+        ...hist,
         {role:'user',content:volatile+'\n\n'+userPart}
       ];
       const r=await aiCall(messages,getAiCfg(),1,{noTools:true});
@@ -10383,6 +10413,11 @@ init();
       const msg=r.data.choices[0].message;
       const content=(typeof msg.content==='string')?msg.content:(Array.isArray(msg.content)?msg.content.map(p=>p.text||'').join(''):'');
       if(!content||!content.trim()){ post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); return; } // 出口②：沉默，不消耗发言权
+      // 记入会话历史（生成出来即记录，即使念到一半被打断，AI 也记得这轮说过什么）
+      if(!session.history) session.history=[];
+      session.history.push({role:'user',content:userText?('用户说：'+userText):'（画面有变化，AI 主动开口）'});
+      session.history.push({role:'assistant',content:content});
+      if(session.history.length>12) session.history=session.history.slice(-12);
       // 角色音色：解析【角色名】前缀 → 剥掉标记 + 选定音色下标（与主 AI 面板同套逻辑）
       const rv=(typeof aiResolveVoice==='function')?aiResolveVoice(content):{clean:content,voice:0};
       const isVision=!userText; // 主动开口（基于画面）只说一句，绝不啰嗦；用户主动说话才正常多聊
@@ -10430,8 +10465,24 @@ init();
   async function compSpeak(text,myEpoch,tid,voiceIdx){
     if(myEpoch!==epoch) return false;
     return new Promise(resolve=>{
-      pendingSpeak[tid]=resolve;
-      const done=ok=>{ if(pendingSpeak[tid]) delete pendingSpeak[tid]; resolve(ok); };
+      // 防卡死兜底（关键）：无论合成/播放走哪条路，12s 内必须结束。
+      // 否则 MiniMax fetch/播放挂死 → compSpeak 永不 resolve → speakTurn 卡住 → speaking 卡 true → 识别全被挡（耳朵"后面不灵"）。
+      // pendingSpeak 存 done 而非 resolve：打断时 compStopMouth 调 done(false) → settled=true → 超时 guard 不会误报。
+      let settled=false;
+      const done=ok=>{
+        if(settled) return; settled=true;
+        clearTimeout(guard);
+        if(pendingSpeak[tid]) delete pendingSpeak[tid];
+        resolve(ok);
+      };
+      const guard=setTimeout(()=>{
+        if(settled) return; settled=true;
+        if(pendingSpeak[tid]) delete pendingSpeak[tid];
+        if(window.__miniAudioEl){ try{ window.__miniAudioEl.pause(); }catch(e){} }
+        if(window.toast) toast('语音超时，已恢复聆听');
+        resolve(false);
+      }, 12000);
+      pendingSpeak[tid]=done;
       const vo=(voiceIdx&&voiceIdx!==0)?((typeof aiVoiceCfg==='function')?aiVoiceCfg(voiceIdx):null):null;
       const onMiniFail=e=>{ if(window.toast) toast('MiniMax 合成失败：'+(e&&e.message||e)+'，改用系统语音'); sysSpeak(text,done,vo); };
       // 防回声关键：playMiniAudio 的 Promise 在 a.play()（开始播放）时就 resolve，若直接 done(true)，
@@ -10483,7 +10534,7 @@ init();
     const task=(session&&session.taskNow&&session.taskNow.trim())?session.taskNow.trim():'这场的专注任务未设定，随意陪伴即可。';
     blocks.push('[task_now]\n'+task);
     const rp=(typeof buildRoleProtocol==='function')?buildRoleProtocol():null; if(rp) blocks.push(rp);
-    blocks.push('[陪伴规则]\n你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。');
+    blocks.push('[陪伴规则]\n你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n你有本次会话的记忆：下方对话记录里能看到你们之前聊过什么（包括你自己说过的话），主动开口前先回想自己刚才说过什么——已经提醒过的事不要重复说，换个时机或换个说法；用户主动接话时基于上下文自然延续，而不是每次都像第一次见面。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。');
     return blocks.join('\n\n');
   }
   function defaultResident(){
@@ -10557,7 +10608,8 @@ init();
   }
 
   // ── 控制开关 ──
-  // 麦克风按钮 = 点击说话（tap-to-talk）：点一下在手势内启动识别（Android/iOS 均可靠），再点暂停
+  // 麦克风按钮 = 重连/唤醒（tap-to-talk）：无论识别器在跑还是断线，点一下都保证"停旧的→手势内重启新的"。
+  // 原来"在跑→暂停"的语义导致：识别器静默死亡后用户点一下只是暂停、看起来"点了没用"，必须连点两下才恢复。
   function compToggleMic(){
     if(!running) return;
     if(!recogAvailable){
@@ -10565,19 +10617,15 @@ init();
       if(window.toast) toast('此设备不支持语音识别，用下方打字也能聊');
       return;
     }
-    if(recog){
-      // 正在聆听 → 点一下暂停（待命，不关麦，文字条仍可用）
-      stopRecogKeepFlag(); recogNeedTap=false;
-      if(window.toast) toast('已暂停聆听，想说再点 🎤');
+    micOn=true;
+    if(stream){ stream.getAudioTracks().forEach(t=>{ try{ t.enabled=true; }catch(e){} }); }
+    recogNeedTap=false;
+    if(recog) stopRecogKeepFlag(); // 停掉旧实例（可能已静默死亡），立刻在用户手势内重启，最可靠
+    if(startRecog()){
+      if(window.toast) toast('已重新连接，正在听你说话');
     } else {
-      // 没在聆听 → 用户点击（手势）→ 启动，可靠
-      micOn=true;
-      if(stream){ stream.getAudioTracks().forEach(t=>{ try{ t.enabled=true; }catch(e){} }); }
-      recogNeedTap=false;
-      if(!startRecog()){
-        const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
-        if(window.toast) toast('识别启动失败，用下方打字也能聊');
-      }
+      const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
+      if(window.toast) toast('识别启动失败，用下方打字也能聊');
     }
     syncCtrlButtons(); updateStatus();
   }
