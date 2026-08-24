@@ -10091,6 +10091,8 @@ init();
   //  用 scheduleRestart(延迟) 统一排程重启，restartCount 5s 窗口内超 5 次才放弃（标记点🎤）
   let restartTimer=null, restartCount=0, restartWindowStart=0;
   let listenGuardTimer=null; // USER_SPEECH_START 后 2.5s 内没有消费掉 → 状态从 LISTENING 回到 IDLE（防卡死）
+  // 环境噪声提示：连续 2 次识别类错误（no-speech/audio-capture/network）才提示一次"凑近/耳机/打字"建议，90s 内最多一次
+  let recogErrSeq=0, recogErrAt=0, noiseHintAt=0;
   let lastFrame=null, lastFrameGray=null, lastMotion=0, motionChanged=false, present=false;
   let vision=null, lastObserveAt=0;
   let speaking=false, pendingSpeak={};
@@ -10268,6 +10270,7 @@ init();
       lastRecogHit=Date.now(); // 心跳：证明识别器刚启动/还活着
       recog.onresult=function(e){
         lastRecogHit=Date.now(); // 有任何结果（含 interim）= 识别器活着，心跳用
+        recogErrSeq=0; // 有识别结果 = 麦克风正常，清空错误计数（避免噪声提示误报）
         if(speaking) return; // 防回声①：AI 说话期间（含音频播放全程）即便识别器在跑也丢弃结果
         let interim='', finalText='';
         for(let i=e.resultIndex;i<e.results.length;i++){
@@ -10295,6 +10298,14 @@ init();
       recog.onerror=function(e){
         const er=e&&e.error;
         if(er==='not-allowed'||er==='service-not-allowed'){ if(window.toast) toast('麦克风权限被拒，已切到文字输入'); disableMic(); return; }
+        // 环境噪声提示：连续 2 次识别类错误 → 温和提示一次（冷气机/环境吵时给实操建议，90s 内最多一次）
+        const now=Date.now();
+        if(now-recogErrAt>15000) recogErrSeq=0;
+        recogErrAt=now; recogErrSeq++;
+        if(recogErrSeq>=2 && now-noiseHintAt>90000){
+          noiseHintAt=now; recogErrSeq=0;
+          if(window.toast) toast('没听清呢～环境吵的话：手机凑近嘴边、插带麦耳机，或直接用下方文字条');
+        }
         // 瞬态错误（aborted/network/audio-capture/no-speech…）：不静默死掉——退避排程重启（重启失败才标记点🎤）
         if(micOn && running) scheduleRestart(800);
       };
