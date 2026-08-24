@@ -10231,6 +10231,7 @@ init();
       recog.lang='zh-CN'; recog.continuous=true; recog.interimResults=true;
       let lastFinal='';
       recog.onresult=function(e){
+        if(speaking) return; // 双重保险：AI 说话期间即便识别器在跑也丢弃结果，杜绝把 AI 声音当用户输入（回声）
         let interim='', finalText='';
         for(let i=e.resultIndex;i<e.results.length;i++){
           const r=e.results[i];
@@ -10274,6 +10275,10 @@ init();
     const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
     const b=document.getElementById('compMicBtn'); if(b) b.classList.remove('on');
     updateStatus();
+  }
+  // 说话期间临时停麦：只停识别器（不动 micOn / 不关音频轨道），说完再恢复；用于消灭回声
+  function stopRecogKeepFlag(){
+    if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
   }
   function compSendText(){
     const el=document.getElementById('compText'); if(!el) return;
@@ -10344,6 +10349,7 @@ init();
       // 角色音色：解析【角色名】前缀 → 剥掉标记 + 选定音色下标（与主 AI 面板同套逻辑）
       const rv=(typeof aiResolveVoice==='function')?aiResolveVoice(content):{clean:content,voice:0};
       const sents=splitSentences(rv.clean);
+      if(recog) stopRecogKeepFlag(); // 念之前先停麦：避免把 AI 自己的声音识别成用户（回声）
       for(const s of sents){
         if(myEpoch!==epoch) return; // 打断：当场弃
         spoke=true; speaking=true; updateStatus();
@@ -10359,6 +10365,8 @@ init();
     }finally{
       speaking=false; updateStatus();
       post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); // 出口①~⑦ 全部终结于此
+      // AI 说完后延迟恢复麦克风：避开喇叭尾音被识别成用户（防回声）；speaking 期间绝不重新开麦
+      setTimeout(()=>{ if(micOn && !speaking && !recog && recogAvailable) startRecog(); }, 500);
     }
   }
 
@@ -10448,7 +10456,13 @@ init();
   function updateStatus(){
     const see=document.getElementById('compSee'),hear=document.getElementById('compHear'),spk=document.getElementById('compSpeak');
     if(see){ const on=!!(stream&&stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')); see.classList.toggle('on',on); see.textContent=on?'👁 看着你':'👁 未开'; }
-    if(hear){ const on=!!((recog&&micOn)||(document.getElementById('compInputBar')&&document.getElementById('compInputBar').style.display!=='none')); hear.classList.toggle('on',on); hear.textContent=on?'🎤 听着':'🎤 关'; }
+    if(hear){
+      const bar=document.getElementById('compInputBar');
+      const textMode=bar && bar.style.display!=='none';
+      if(!micOn && !textMode){ hear.classList.remove('on'); hear.textContent='🎤 关'; }
+      else if(micOn && speaking){ hear.classList.remove('on'); hear.textContent='🎤 稍候'; } // AI 说话时麦暂歇（防回声）
+      else { hear.classList.add('on'); hear.textContent='🎤 听着'; }
+    }
     if(spk){ spk.classList.toggle('on',speaking); spk.textContent=speaking?'💬 说着':'💬 静'; }
   }
   function syncCtrlButtons(){
