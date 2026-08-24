@@ -5893,12 +5893,14 @@ function buildSystem(){
   const cfg = getAiCfg();
   const tpl = (cfg.systemTpl && cfg.systemTpl.trim()) ? cfg.systemTpl : DEFAULT_SYSTEM_TPL;
   const persona = (cfg.persona && cfg.persona.trim()) ? cfg.persona : DEFAULT_PERSONA;
+  // 关键优化：时间/天气/警告/日程等动态内容**不再拼进 system**——它们每轮变化，插在 prompt 最前前缀会打穿 DeepSeek/OpenRouter 的 prefix cache（长 system 全价计费）。
+  // 改为全部移到最后一条 user 消息开头（见 injectTimeAnchor / buildLiveContext），system 保持绝对稳定以最大化缓存命中、降低涨价后的 API 成本。
   let sys = tpl
     .replace(/\{\{PERSONA\}\}/g, persona)
-    .replace(/\{\{TIME_ANCHOR\}\}/g, nowAnchor())
-    .replace(/\{\{WEATHER\}\}/g, getWeatherSummary())
-    .replace(/\{\{WARNINGS\}\}/g, getWarningSummary(false))
-    .replace(/\{\{SCHEDULE\}\}/g, aiScheduleSection());
+    .replace(/\{\{TIME_ANCHOR\}\}/g, '')
+    .replace(/\{\{WEATHER\}\}/g, '')
+    .replace(/\{\{WARNINGS\}\}/g, '')
+    .replace(/\{\{SCHEDULE\}\}/g, '');
   const memBlocks = buildMemorySyncBlocks(); // 记忆常驻块：关系身份 + 关系摘要 + 动作回执
   if(memBlocks) sys += '\n\n' + memBlocks;
   const roleProto = buildRoleProtocol(); // 多角色音色协议：强制回复以【角色名】开头（音色切换用）
@@ -5941,7 +5943,7 @@ function loadConv(){
     aiConv = arr;
     // 给旧存档里缺 id 的消息补上唯一 id（旧版对话也能逐条删除）
     aiConv.forEach(m=>{ if(!m.id) m.id = 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7); });
-    aiConv[0] = {role:'system', content: buildSystem(), id: aiConv[0].id||('m'+Date.now()+'_sys')}; // 刷新 system：时间锚点/近期日程重新算
+    aiConv[0] = {role:'system', content: buildSystem(), id: aiConv[0].id||('m'+Date.now()+'_sys')}; // 重建 system（动态时间/天气/日程改在发送时注入 user 消息，见 injectTimeAnchor）
     renderConvFromState();
     return true;
   }catch(e){ return false; }
@@ -6043,17 +6045,27 @@ function trimMessagesForSend(messages){
 }
 // 给 messages 里最新一条用户消息注入当前时间锚点（权重最高的对话末尾位置），
 // 压过历史消息（如昨晚"晚安"）的时段惯性；只作用于发送副本，不改本地记录。
+// 把"实时上下文"（时间/天气/警告/日程）注入到最后一条 user 消息开头。
+// 关键：这些内容原本拼在 system（prompt 最前前缀），每轮变化会打穿 DeepSeek/OpenRouter 的 prefix cache；
+// 移到 user 开头后，system + 历史消息全部稳定、命中缓存，只有这段"本就该变"的内容不命中，最大化省钱。
+function buildLiveContext(){
+  const ta = nowAnchor();
+  const w = getWeatherSummary();
+  const wn = getWarningSummary(false);
+  const sc = aiScheduleSection();
+  return '<当前时间>\n'+ta+'\n</当前时间>\n<天气>\n'+w+'\n</天气>\n<天气警告>\n'+wn+'\n</天气警告>\n'+sc;
+}
 function injectTimeAnchor(result){
   const idx = result.length - 1;
   const last = result[idx];
   if(!last || last.role!=='user') return result;
-  const anchor = nowAnchor(); // 含时段：上午/中午/下午/晚上
+  const ctx = buildLiveContext();
   // 浅拷贝消息对象后再改 content，避免污染 aiConv 里的原始消息（否则会随 saveConv 存进历史）
   const copy = Object.assign({}, last);
   if(typeof copy.content === 'string'){
-    copy.content = anchor + '\n' + copy.content;
+    copy.content = ctx + '\n' + copy.content;
   } else if(Array.isArray(copy.content)){
-    copy.content = [{type:'text', text: anchor}, ...copy.content];
+    copy.content = [{type:'text', text: ctx}, ...copy.content];
   }
   result[idx] = copy;
   return result;
@@ -7423,7 +7435,7 @@ async function sendAI(){
   ttsWarmup(); // iOS 手势解锁：让本轮 AI 回复可以自动语音朗读
 
   if(!aiConv) aiReset();
-  else aiConv[0] = { role:'system', content: buildSystem() }; // 每轮刷新 system，带上最新日程
+  else aiConv[0] = { role:'system', content: buildSystem() }; // 每轮重建 system（内容已绝对稳定，动态时间/天气/日程在发送时注入最后一条 user 消息，见 injectTimeAnchor/buildLiveContext）
 
   // ───────── 路线 A：没有图片，直达大脑 ─────────
   if(!hasImage){
