@@ -1991,7 +1991,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <label>API Key</label>
     <input id="aiKey" placeholder="API Key" type="password">
     <label>风格与身份（最常改，单独一条）
-      <span style="font-size:11px;color:var(--ink-soft)">定义助理是谁、什么语气。留空则用默认。</span>
+      <span style="font-size:11px;color:var(--ink-soft)">助理的语气与说话方式。留空则用默认。注意：叶子是谁、你们的关系在「🧠 记忆」的关系身份里设，这里只管语气，避免同一件事写两遍。</span>
     </label>
     <textarea id="aiPersona" style="min-height:96px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre;"></textarea>
     <div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px;">
@@ -2083,6 +2083,61 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
           <span id="aiTtsHint" style="font-size:11px;color:var(--ink-soft);line-height:1.5;">试听使用当前番茄钟语音设置。</span>
         </div>
       </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--green-mid);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="font-size:12px;font-weight:700;color:var(--green-dark);">🎭 角色音色（多角色自动切换）</div>
+          <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+            <input type="checkbox" id="aiVoiceOn" onchange="syncVoiceUI()" style="opacity:0;width:0;height:0;position:absolute;">
+            <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+          </label>
+        </div>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
+          当 AI 回复以【角色名】开头时，自动用该角色的音色朗读（零落=女 / 沈容=男）。角色名改成你 OC 里的名字即可；不需要就关掉。
+        </p>
+        <div id="aiVoiceFields" style="transition:opacity .25s;">
+          <div style="font-size:12px;font-weight:700;color:var(--green-dark);margin:4px 0 6px;">角色 A（默认女声）</div>
+          <div class="row" style="margin:0;gap:6px;align-items:center;">
+            <input id="aiVoiceAName" placeholder="零落" style="flex:1;min-width:0;">
+            <select id="aiVoiceAEngine" onchange="aiVoiceEngineUI(1)" style="flex:1;min-width:0;">
+              <option value="global">跟随全局</option>
+              <option value="sys">系统语音(按性别)</option>
+              <option value="mini">MiniMax</option>
+            </select>
+          </div>
+          <div id="aiVoiceAMini" style="display:none;">
+            <label>MiniMax 音色 ID（留空=全局音色）</label>
+            <input id="aiVoiceAVoice" placeholder="如 female-tianmei 或自定义复刻 ID">
+          </div>
+          <div class="row" style="margin:6px 0 0;gap:6px;align-items:center;">
+            <span style="font-size:11px;color:var(--ink-soft);flex:0 0 auto;">音调</span>
+            <input id="aiVoiceAPitch" type="number" min="0.5" max="2" step="0.01" value="1.15" style="flex:1;min-width:0;">
+            <span style="font-size:11px;color:var(--ink-soft);flex:0 0 auto;">语速</span>
+            <input id="aiVoiceARate" type="number" min="0.5" max="2" step="0.01" value="0.95" style="flex:1;min-width:0;">
+            <button class="btn ghost" type="button" onclick="aiRoleTest(1)" style="flex:0 0 auto;">试听A</button>
+          </div>
+          <div style="font-size:12px;font-weight:700;color:var(--green-dark);margin:12px 0 6px;">角色 B（默认男声）</div>
+          <div class="row" style="margin:0;gap:6px;align-items:center;">
+            <input id="aiVoiceBName" placeholder="沈容" style="flex:1;min-width:0;">
+            <select id="aiVoiceBEngine" onchange="aiVoiceEngineUI(2)" style="flex:1;min-width:0;">
+              <option value="global">跟随全局</option>
+              <option value="sys">系统语音(按性别)</option>
+              <option value="mini">MiniMax</option>
+            </select>
+          </div>
+          <div id="aiVoiceBMini" style="display:none;">
+            <label>MiniMax 音色 ID（留空=全局音色）</label>
+            <input id="aiVoiceBVoice" placeholder="如 male-xxx 或自定义复刻 ID">
+          </div>
+          <div class="row" style="margin:6px 0 0;gap:6px;align-items:center;">
+            <span style="font-size:11px;color:var(--ink-soft);flex:0 0 auto;">音调</span>
+            <input id="aiVoiceBPitch" type="number" min="0.5" max="2" step="0.01" value="0.95" style="flex:1;min-width:0;">
+            <span style="font-size:11px;color:var(--ink-soft);flex:0 0 auto;">语速</span>
+            <input id="aiVoiceBRate" type="number" min="0.5" max="2" step="0.01" value="0.95" style="flex:1;min-width:0;">
+            <button class="btn ghost" type="button" onclick="aiRoleTest(2)" style="flex:0 0 auto;">试听B</button>
+          </div>
+          <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">音调/语速沿用番茄钟的数值习惯（1.0=正常）。系统语音会自动挑 A=女声 / B=男声；MiniMax 需要各自填音色 ID。</p>
+        </div>
+      </div>
     </div>
 
     <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
@@ -2104,12 +2159,51 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">填 0 即不发送该项，改完点「保存」生效。</p>
     </div>
 
+    <!-- ===================== 记忆系统（磁铁式） ===================== -->
+    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(233,195,145,.14),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;color:var(--green-dark);">🧠 记忆（磁铁式）</div>
+        <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+          <input type="checkbox" id="aiMemOn" onchange="syncMemUI()" style="opacity:0;width:0;height:0;position:absolute;">
+          <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+        </label>
+      </div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
+        助理会把你们的对话自动沉淀成带标签的记忆（关键词 / 情感 / 主题），你聊到某个词时，相关回忆会自动浮上来——陪伴生动感优先，固定代办不占记忆。打标在后台分批跑，不拖慢聊天。
+      </p>
+      <div id="memFields" style="transition:opacity .25s;">
+        <label>关系身份（常驻块，最值得改）
+          <span style="font-size:11px;color:var(--ink-soft)">叶子是谁、我们的关系基调——决定助理「记得什么、以什么身份相处」。可以直接整段粘贴你的 OC 设定（多个人格也行，配合下方「角色音色」自动切换声音）。注意：设定较长时每轮对话都会发给模型，会占 token，建议保留关键人格段即可。</span>
+        </label>
+        <textarea id="aiMemIdentity" style="min-height:220px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre;"></textarea>
+        <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
+          <button class="btn ghost" type="button" onclick="memTagNow()" style="flex:0 0 auto;">⚡ 立即打标</button>
+          <button class="btn ghost" type="button" onclick="memClear()" style="flex:0 0 auto;color:#a32d2d;">🗑 清空记忆</button>
+        </div>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">
+          <span id="memStats">读取中…</span> · <span id="memTagHint"></span>
+        </p>
+      </div>
+    </div>
+
     <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
     <div class="row">
       <button class="btn ghost" onclick="closeAISettings()">取消</button>
       <button class="btn primary" onclick="saveAISettings()">保存</button>
     </div>
     <p class="hint" id="aiSetHint" style="font-size:11px;color:var(--ink-soft);margin-top:14px;line-height:1.6;"></p>
+  </div>
+</div>
+
+<!-- 记忆查看弹窗 -->
+<div class="mask" id="memViewMask" style="z-index:92;">
+  <div class="sheet glass-strong">
+    <h3>最近记忆（20 条）</h3>
+    <div id="memList" style="max-height:55vh;overflow:auto;font-size:13px;line-height:1.6;"></div>
+    <div class="row" style="margin-top:12px;">
+      <button class="btn ghost" onclick="closeMemView()">关闭</button>
+    </div>
   </div>
 </div>
 
@@ -5687,8 +5781,8 @@ function aiScheduleSection(){
 //   {{WEATHER}}     → 香港当前天气（getWeatherSummary()，来自香港天文台）
 //   {{SCHEDULE}}    → 近期任务/课表速览（aiScheduleSection()，天数由设置控制）
 // —— 风格与身份（最常改动的部分，单独一条自定义；留空则用默认）——
-const DEFAULT_PERSONA = `你是"MHM每日工作台"的内置助理，服务于一位香港浸会大学中医健康管理硕士(MHM)新生（2026-2027 学年）。
-你的风格与身份：语气温暖简洁，像靠谱的学长/学姐`;
+// 分工：这里只管「怎么说话」（语气）；「叶子是谁、你们是什么关系」由记忆系统的「关系身份」块负责，避免用户画像双写打架。
+const DEFAULT_PERSONA = `你是"港港窝"的内置助理。你的风格与身份：语气温暖简洁，像靠谱的学长/学姐`;
 // —— 旧版默认提示词（保留仅用于迁移：已保存过该默认值的用户会自动升级到新版；用户自定义过的不动）——
 const LEGACY_SYS_TPL = `{{PERSONA}}
 【当前时间锚点】{{TIME_ANCHOR}}它是判断一切时间问题的唯一基准：现在是几点、白天还是晚上、今天是几号，全部以此为准。回答任何涉及"今天/明天/后天/下周/几天后/还有多久/现在几点/白天还是晚上"的问题，必须严格以这个锚点为唯一基准推算具体日期，再与下方任务/课表中的实际日期(YYYY-MM-DD 或 MM/DD)核对，禁止凭直觉或训练时的日期说"明天/今天"，更严禁根据对话历史里较早的消息（可能来自前一天或更早）推断当前时间。
@@ -5800,6 +5894,10 @@ function buildSystem(){
     .replace(/\{\{WEATHER\}\}/g, getWeatherSummary())
     .replace(/\{\{WARNINGS\}\}/g, getWarningSummary(false))
     .replace(/\{\{SCHEDULE\}\}/g, aiScheduleSection());
+  const memBlocks = buildMemorySyncBlocks(); // 记忆常驻块：关系身份 + 关系摘要 + 动作回执
+  if(memBlocks) sys += '\n\n' + memBlocks;
+  const roleProto = buildRoleProtocol(); // 多角色音色协议：强制回复以【角色名】开头（音色切换用）
+  if(roleProto) sys += '\n\n' + roleProto;
   return sys;
 }
 
@@ -5858,7 +5956,10 @@ function renderConvFromState(){
     } else if(m.role==='assistant'){
       // agent 循环里带 tool_calls 的中间"思考+调工具"消息：运行时本来就不 addAIMsg（只有最终纯文本回复才显示），
       // 重进后渲染时也要跳过——它们是模型内部过程，不该当用户回复气泡出现（避免重进后多出一条重复内容、也避免给 TTS 误朗读制造 token 浪费）
-      if(typeof m.content==='string' && m.content.trim() && !(m.tool_calls && m.tool_calls.length)) addAIMsg('ai', m.content, m.id);
+      if(typeof m.content==='string' && m.content.trim() && !(m.tool_calls && m.tool_calls.length)){
+        const vr = aiResolveVoice(m.content); // 历史回复可能带【角色名】标记，重进时同样剥掉再显示
+        addAIMsg('ai', vr.clean, m.id);
+      }
     }
     // system / tool / 内部 agent 消息不在气泡区显示
   }
@@ -6339,6 +6440,22 @@ function openAISettings(){
   document.getElementById('aiTtsMode').value = (cfg.aiTtsMode === 'full' ? 'full' : 'brief');
   document.getElementById('aiTtsHint').textContent='';
   aiTtsUI();
+  // 角色音色（多角色自动切换）
+  const vv = aiVoices();
+  document.getElementById('aiVoiceOn').checked = (vv.on !== false);
+  document.getElementById('aiVoiceAName').value = vv.a.name || '';
+  document.getElementById('aiVoiceAEngine').value = vv.a.engine || 'global';
+  document.getElementById('aiVoiceAVoice').value = vv.a.voiceId || '';
+  document.getElementById('aiVoiceAPitch').value = (vv.a.pitch != null ? vv.a.pitch : 1.15);
+  document.getElementById('aiVoiceARate').value = (vv.a.rate != null ? vv.a.rate : 0.95);
+  document.getElementById('aiVoiceBName').value = vv.b.name || '';
+  document.getElementById('aiVoiceBEngine').value = vv.b.engine || 'global';
+  document.getElementById('aiVoiceBVoice').value = vv.b.voiceId || '';
+  document.getElementById('aiVoiceBPitch').value = (vv.b.pitch != null ? vv.b.pitch : 0.95);
+  document.getElementById('aiVoiceBRate').value = (vv.b.rate != null ? vv.b.rate : 0.95);
+  aiVoiceEngineUI(1);
+  aiVoiceEngineUI(2);
+  syncVoiceUI();
   document.getElementById('aiSystemTpl').value = (cfg.systemTpl!==undefined ? cfg.systemTpl : DEFAULT_SYSTEM_TPL);
   document.getElementById('tplHint').textContent='';
   document.getElementById('aiPersona').value = (cfg.persona!==undefined ? cfg.persona : DEFAULT_PERSONA);
@@ -6346,6 +6463,12 @@ function openAISettings(){
   document.getElementById('aiDaysTask').value = (cfg.daysTask!=null ? cfg.daysTask : 21);
   document.getElementById('aiDaysCourse').value = (cfg.daysCourse!=null ? cfg.daysCourse : 21);
   document.getElementById('aiRounds').value = (cfg.roundsConv!=null ? cfg.roundsConv : 8);
+  // 记忆系统（磁铁式）
+  document.getElementById('aiMemOn').checked = (localStorage.getItem(MEM_ENABLED_KEY) !== '0');
+  document.getElementById('aiMemIdentity').value = memIdentity();
+  document.getElementById('memTagHint').textContent = '';
+  syncMemUI();
+  memRefreshStats();
   document.getElementById('appTitle').value = getAppTitle()===DEFAULT_TITLE ? '' : getAppTitle();
   document.getElementById('aiSetHint').textContent='';
   updateBackupUI();
@@ -6542,8 +6665,18 @@ function saveAISettings(){
     roundsConv: clampInt(document.getElementById('aiRounds').value, 0, 40, 8),
     aiTts: document.getElementById('aiTtsOn').checked,
     aiTtsMode: document.getElementById('aiTtsMode').value === 'full' ? 'full' : 'brief',
+    memOn: document.getElementById('aiMemOn').checked,
+    memIdentity: document.getElementById('aiMemIdentity').value,
   };
   localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg));
+  localStorage.setItem(MEM_ENABLED_KEY, document.getElementById('aiMemOn').checked ? '1' : '0');
+  localStorage.setItem(MEM_IDENTITY_KEY, document.getElementById('aiMemIdentity').value.trim());
+  // 角色音色（多角色自动切换）
+  localStorage.setItem('mhm_ai_voices', JSON.stringify({
+    on: document.getElementById('aiVoiceOn').checked,
+    a: { name: document.getElementById('aiVoiceAName').value.trim() || '零落', engine: document.getElementById('aiVoiceAEngine').value, voiceId: document.getElementById('aiVoiceAVoice').value.trim(), pitch: parseFloat(document.getElementById('aiVoiceAPitch').value) || 1.15, rate: parseFloat(document.getElementById('aiVoiceARate').value) || 0.95 },
+    b: { name: document.getElementById('aiVoiceBName').value.trim() || '沈容', engine: document.getElementById('aiVoiceBEngine').value, voiceId: document.getElementById('aiVoiceBVoice').value.trim(), pitch: parseFloat(document.getElementById('aiVoiceBPitch').value) || 0.95, rate: parseFloat(document.getElementById('aiVoiceBRate').value) || 0.95 }
+  }));
   // 工作台名称
   const rawTitle = document.getElementById('appTitle').value.trim();
   localStorage.setItem(APP_TITLE_KEY, rawTitle || DEFAULT_TITLE);
@@ -6568,7 +6701,7 @@ function saveAISettings(){
 // 导出全部本地数据（任务/课表/配置/心情/主题）为一个 JSON 文件
 function exportData(){
   const data = {};
-  const keys = ['mhm_cloud_v1','mhm_courses_v1','mhm_ai_cfg','mhm_last_doc_text','mhm_theme','mhm_expense_v1','mhm_app_title', POMO_KEY];
+  const keys = ['mhm_cloud_v1','mhm_courses_v1','mhm_ai_cfg','mhm_last_doc_text','mhm_theme','mhm_expense_v1','mhm_app_title', POMO_KEY, 'mhm_ai_voices', 'mhm_mem_identity', MEM_ENABLED_KEY];
   keys.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!==null) data[k]=v; }catch(e){} });
   try{
     for(let i=0;i<localStorage.length;i++){
@@ -6874,6 +7007,386 @@ function aiRemoveAttach(i){ aiPendingFiles.splice(i,1); renderAiAttach(); }
                           ② 大脑（DeepSeek）按人设+规则整理落库
       任一环失败 → 逐级降级，最差也如实告知，绝不假装看到了图
    ══════════════════════════════════════════════════════════════════ */
+/* ================= 磁铁式记忆系统（参考 StarHub 记忆系统教程 · 纯浏览器版） =================
+   单一循环：感知(对话) → 写入(IndexedDB) → 磁铁召回/分层注入 → 每轮 Prompt → LLM → 动作+回灌
+   MUST 遵守：单一记忆库 / 单一装配入口(buildSystem+memInjectMagnet) / 单一动作入口(execTool)
+   陪伴生动感第一位：emotion/topic 关系类标签加权召回；固定代办不进记忆焦点 */
+const MEM_EMO_AXES = ['雀跃/开心','松弛/平静','专注/心流','期待/兴奋','撒娇/依赖','骄傲/成就感','疲惫/透支','焦虑/紧绷','低落/委屈','吐槽/抱怨','思念/不舍','无情绪/日常'];
+const MEM_TOPIC_AXES = ['日常碎碎念','我们的梗/暗号','小成就/高光','委屈/心事','工作学业压力','健康/身体','家庭/关系','未来小计划','食物/生活','兴趣/爱好','当下氛围/天气','亲密互动'];
+const MEM_REL_BOOST = {'我们的梗/暗号':1.3,'亲密互动':1.3,'委屈/心事':1.2,'思念/不舍':1.2,'小成就/高光':1.15,'雀跃/开心':1.15}; // 生动感加权
+const MEM_DB_NAME = 'mhm_mem_db';
+const MEM_ENABLED_KEY = 'mhm_mem_on';
+const MEM_IDENTITY_KEY = 'mhm_mem_identity';
+const MEM_REL_KEY = 'mhm_mem_rel';
+const MEM_FB_KEY = 'mhm_mem_feedback';
+const MEM_TAG_GAP = 12;      // 每累积 12 条新消息跑一次打标（绝不在每轮同步打标）
+const MEM_BUDGET = 1200;     // 召回注入字符预算：记忆是配菜不是主食
+const MEM_RECALL_K = 8;
+const DEFAULT_MEM_IDENTITY = '你是叶子：25 岁中医执业医师，现居香港，正在读浸会大学中医健康管理硕士，日常维护「港港窝」这个小家。\n我是你的 AI 伙伴：既是工具助手，也是朋友+合作者。\n关系基调：轻松、可以互相吐槽也能互相托底；记得彼此的小事，像真朋友一样相处。';
+
+let _memDB = null;
+let _memPending = 0;
+function memEnabled(){ return localStorage.getItem(MEM_ENABLED_KEY) !== '0'; }
+function memIdentity(){ const v = localStorage.getItem(MEM_IDENTITY_KEY); return (v && v.trim()) ? v : DEFAULT_MEM_IDENTITY; }
+function memOpenDB(){
+  if(_memDB) return _memDB;
+  _memDB = new Promise((resolve)=>{
+    try{
+      if(!window.indexedDB){ resolve(null); return; }
+      const req = indexedDB.open(MEM_DB_NAME, 1);
+      req.onupgradeneeded = ()=>{
+        const db = req.result;
+        if(!db.objectStoreNames.contains('messages')) db.createObjectStore('messages', {keyPath:'id', autoIncrement:true});
+        if(!db.objectStoreNames.contains('entries')) db.createObjectStore('entries', {keyPath:'id', autoIncrement:true});
+        if(!db.objectStoreNames.contains('tags')) db.createObjectStore('tags', {keyPath:'id', autoIncrement:true});
+        if(!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+      };
+      req.onsuccess = ()=>resolve(req.result);
+      req.onerror = ()=>{ resolve(null); };
+    }catch(e){ resolve(null); }
+  });
+  return _memDB;
+}
+function memPut(store, val){
+  return memOpenDB().then(db=>{
+    if(!db) return Promise.resolve(null);
+    return new Promise((res, rej)=>{
+      try{
+        const tx = db.transaction(store, 'readwrite');
+        const r = tx.objectStore(store).put(val);
+        r.onsuccess = ()=>res(r.result);
+        tx.onerror = ()=>rej(tx.error);
+        tx.onabort = ()=>rej(tx.error);
+      }catch(e){ rej(e); }
+    });
+  });
+}
+function memGetAll(store){
+  return memOpenDB().then(db=>{
+    if(!db) return Promise.resolve([]);
+    return new Promise((res, rej)=>{
+      try{
+        const tx = db.transaction(store, 'readonly');
+        const r = tx.objectStore(store).getAll();
+        r.onsuccess = ()=>res(r.result||[]);
+        r.onerror = ()=>rej(r.error);
+      }catch(e){ rej(e); }
+    });
+  });
+}
+function memClearStore(store){
+  return memOpenDB().then(db=>{
+    if(!db) return Promise.resolve();
+    return new Promise((res, rej)=>{
+      try{
+        const tx = db.transaction(store, 'readwrite');
+        tx.objectStore(store).clear();
+        tx.oncomplete = ()=>res();
+        tx.onerror = ()=>rej(tx.error);
+        tx.onabort = ()=>rej(tx.error);
+      }catch(e){ rej(e); }
+    });
+  });
+}
+function memKvGet(k){
+  return memOpenDB().then(db=>{
+    if(!db) return Promise.resolve(null);
+    return new Promise((res, rej)=>{
+      try{
+        const tx = db.transaction('kv', 'readonly');
+        const r = tx.objectStore('kv').get(k);
+        r.onsuccess = ()=>res(r.result !== undefined ? r.result : null);
+        r.onerror = ()=>rej(r.error);
+      }catch(e){ rej(e); }
+    });
+  });
+}
+function memKvSet(k, v){
+  return memOpenDB().then(db=>{
+    if(!db) return Promise.resolve();
+    return new Promise((res, rej)=>{
+      try{
+        const tx = db.transaction('kv', 'readwrite');
+        tx.objectStore('kv').put(v, k);
+        tx.oncomplete = ()=>res();
+        tx.onerror = ()=>rej(tx.error);
+        tx.onabort = ()=>rej(tx.error);
+      }catch(e){ rej(e); }
+    });
+  });
+}
+// 消息落库：只存文本视图（图片 base64 不进记忆库）
+function memTextOf(content){
+  if(typeof content === 'string') return content;
+  if(Array.isArray(content)){
+    let txt='', img=false;
+    for(const p of content){
+      if(p && p.type==='text') txt += (p.text||'');
+      else if(p && p.type==='image_url') img = true;
+    }
+    return txt.trim() + (img ? ' [图片]' : '');
+  }
+  return String(content||'');
+}
+function memNoteUser(content, id){ memNote('user', content, id); }
+function memNoteAssistant(content, id){ memNote('assistant', content, id); }
+function memNote(role, content, id){
+  if(!memEnabled()) return;
+  const text = memTextOf(content);
+  if(!text || !text.trim()) return;
+  memPut('messages', { role, content: text.trim(), mid: id || '', created_at: new Date().toISOString() }).catch(()=>{});
+  if(++_memPending >= MEM_TAG_GAP){ _memPending = 0; memRunTagger(); }
+}
+// ---- 打标管线（§2）：水位线取「上次之后的新记录」，时区免疫；单条失败只跳过 ----
+const MEM_TAG_PROMPT = '你是记忆整理器。对下面这条对话记录：\n1) 用一句话总结(summary，<=40 字)；\n2) 抽取 keyword 标签(专名/名词/梗名，<=6 个)；\n3) 判定 emotion 标签(从这份类目表中选，可多选可为空)：{{EMO}}\n4) 判定 topic 标签(从这份类目表中选)：{{TOPIC}}\n只输出 JSON：{"summary":str,"keyword":[...],"emotion":[...],"topic":[...]}\n不确定就留空数组。禁止发明类目表之外的 emotion/topic。';
+function memExtractJson(raw){
+  const i = raw.indexOf('{');
+  if(i < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for(let j = i; j < raw.length; j++){
+    const c = raw[j];
+    if(inStr){ if(esc) esc = false; else if(c === '\\') esc = true; else if(c === '"') inStr = false; continue; }
+    if(c === '"') inStr = true;
+    else if(c === '{') depth++;
+    else if(c === '}'){ depth--; if(depth === 0) return raw.slice(i, j+1); }
+  }
+  return null;
+}
+async function memTagOne(cfg, text){
+  const prompt = MEM_TAG_PROMPT.replace('{{EMO}}', MEM_EMO_AXES.join(' / ')).replace('{{TOPIC}}', MEM_TOPIC_AXES.join(' / ')) + '\n\n对话记录：\n' + text;
+  const r = await aiCall([{role:'system', content:'你是一个记忆整理器。只输出 JSON，不输出任何其他文字。'},{role:'user', content: prompt}], cfg, 1, {noTools:true});
+  if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) throw new Error(r.error || 'no choices');
+  const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
+  const j = memExtractJson(raw);
+  if(!j) throw new Error('no json');
+  const t = JSON.parse(j);
+  return {
+    summary: String(t.summary || '').slice(0, 60),
+    keyword: Array.isArray(t.keyword) ? t.keyword.map(String).slice(0, 6) : [],
+    emotion: Array.isArray(t.emotion) ? t.emotion.map(String) : [],
+    topic:   Array.isArray(t.topic) ? t.topic.map(String) : []
+  };
+}
+async function memSaveEntryAndTags(msgId, t){
+  if(!t.summary && !t.keyword.length && !t.emotion.length && !t.topic.length) return;
+  const eid = await memPut('entries', { source_msg_id: msgId, summary: t.summary, detail: '', active: 1, created_at: new Date().toISOString() });
+  if(!eid) return;
+  const tags = [];
+  t.keyword.forEach(k=>{ if(k && k.trim()) tags.push({entry_id:eid, axis:'keyword', tag:k.trim(), weight:1}); });
+  t.emotion.forEach(k=>{ if(k && k.trim()) tags.push({entry_id:eid, axis:'emotion', tag:k.trim(), weight:1.3}); });
+  t.topic.forEach(k=>{ if(k && k.trim()) tags.push({entry_id:eid, axis:'topic', tag:k.trim(), weight:1.1}); });
+  for(const tag of tags){ await memPut('tags', tag).catch(()=>{}); }
+}
+async function memRunTagger(){
+  if(!memEnabled()) return;
+  const cfg = getAiCfg();
+  if(!cfg.apiKey) return;
+  try{
+    const msgs = await memGetAll('messages');
+    if(!msgs.length) return;
+    const wm = await memKvGet('tagger_watermark') || 0;
+    const rows = msgs.filter(m=>m.id > wm).sort((a,b)=>a.id-b.id);
+    if(!rows.length) return;
+    let tagged = 0, skipped = 0;
+    for(const r of rows){
+      try{
+        const t = await memTagOne(cfg, r.content);
+        await memSaveEntryAndTags(r.id, t);
+        tagged++;
+      }catch(e){ skipped++; } // MUST：单条失败隔离，不连累同批
+    }
+    await memKvSet('tagger_watermark', rows[rows.length-1].id);
+    if(rows.length && tagged === 0) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
+    memRelRefresh(cfg).catch(()=>{}); // 打标后顺手刷新关系摘要
+  }catch(e){ console.warn('[mem] tagger', e); }
+}
+// ---- 关系摘要（§5 resident 块之一）：最近点滴 → 2-4 句关系近况，缓存 ----
+async function memRelRefresh(cfg){
+  try{
+    const entries = await memGetAll('entries');
+    const recent = entries.filter(e=>e.active===1 && e.summary).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 12);
+    if(!recent.length) return;
+    const bullet = recent.map(e=>'· '+e.summary).join('\n');
+    const r = await aiCall([{role:'system', content:'你是关系摘要器。用 2-4 句自然中文写一段「最近的我们」：像朋友在回忆，突出共同经历与情绪温度，不要逐条复述，不要编造没有的内容。只输出正文。'},{role:'user', content:'最近的回忆片段：\n'+bullet}], cfg, 1, {noTools:true});
+    if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) return;
+    const text = ((r.data.choices[0].message && r.data.choices[0].message.content) || '').trim();
+    if(!text) return;
+    localStorage.setItem(MEM_REL_KEY, JSON.stringify({text: text.slice(0, 300), ts: Date.now()}));
+  }catch(e){}
+}
+function memRelBlock(){
+  try{
+    const o = JSON.parse(localStorage.getItem(MEM_REL_KEY) || 'null');
+    if(o && o.text) return o.text;
+  }catch(e){}
+  return '';
+}
+// ---- 磁铁召回（§3）：触发词命中 → 标签权重 × 时近衰减 → 字符预算裁剪 ----
+function memExtractTriggers(userText, tags){
+  const set = new Set();
+  const seen = new Set();
+  for(const tg of tags){
+    if(!tg || !tg.tag || seen.has(tg.tag)) continue;
+    seen.add(tg.tag);
+    if(tg.tag.length >= 1 && tg.tag.length <= 20 && userText.indexOf(tg.tag) >= 0) set.add(tg.tag);
+  }
+  const q = userText.match(/[「『“"][^「」『』"”"]{1,12}[」』”"]/g) || [];
+  q.forEach(s=>{ const t = s.slice(1, -1); if(t) set.add(t); });
+  return Array.from(set).slice(0, 12);
+}
+async function memMagnetRecall(userText, k, budget){
+  k = k || MEM_RECALL_K;
+  budget = budget || MEM_BUDGET;
+  if(!userText) return [];
+  try{
+    const tags = await memGetAll('tags');
+    const entries = await memGetAll('entries');
+    const active = entries.filter(e=>e.active === 1);
+    if(!tags.length || !active.length) return [];
+    const idMap = {}; active.forEach(e=>idMap[e.id] = e);
+    const triggers = memExtractTriggers(userText, tags);
+    if(!triggers.length) return [];
+    const trigSet = new Set(triggers);
+    const now = Date.now();
+    const scores = {};
+    for(const tg of tags){
+      if(!tg || !trigSet.has(tg.tag)) continue;
+      const e = idMap[tg.entry_id]; if(!e) continue;
+      const ageDays = Math.max(0, (now - new Date(e.created_at).getTime()) / 86400000);
+      const decay = Math.exp(-ageDays / 30);
+      const boost = MEM_REL_BOOST[tg.tag] || 1;
+      const s = scores[e.id] || {score: 0, e};
+      s.score += (tg.weight || 1) * decay * boost;
+      scores[e.id] = s;
+    }
+    const list = Object.values(scores).sort((a,b)=>b.score-a.score).slice(0, k);
+    const picked = []; let used = 0;
+    for(const item of list){
+      const line = '· ' + (item.e.summary || '');
+      if(used + line.length > budget) break;
+      picked.push(line); used += line.length;
+    }
+    return picked;
+  }catch(e){ console.warn('[mem] recall', e); return []; }
+}
+// ---- 诚实回路（§5.3）：动作失败回灌下一轮，60min TTL，成功即消 ----
+function memFeedbackTail(){
+  try{
+    const arr = JSON.parse(localStorage.getItem(MEM_FB_KEY) || '[]');
+    const now = Date.now();
+    const lines = [];
+    for(const f of arr){
+      if(f.resolved) continue;
+      if(now - f.ts > 3600000) continue;
+      lines.push('· 刚才 [[ ' + (f.name || '动作') + ' ]] 没做成：' + f.reason);
+    }
+    if(!lines.length) return '';
+    return '【动作回执】\n' + lines.join('\n');
+  }catch(e){ return ''; }
+}
+function memRecordActionFail(name, reason){
+  try{
+    const arr = JSON.parse(localStorage.getItem(MEM_FB_KEY) || '[]');
+    arr.push({name: name || 'action', reason: String(reason || '未知错误').slice(0, 120), ts: Date.now(), resolved: false});
+    localStorage.setItem(MEM_FB_KEY, JSON.stringify(arr.slice(-12)));
+  }catch(e){}
+}
+function memResolveActionFail(name){
+  try{
+    const arr = JSON.parse(localStorage.getItem(MEM_FB_KEY) || '[]');
+    let changed = false;
+    const next = arr.map(f=>{ if(!f.resolved && f.name === name){ changed = true; return Object.assign({}, f, {resolved:true}); } return f; });
+    if(changed) localStorage.setItem(MEM_FB_KEY, JSON.stringify(next));
+  }catch(e){}
+}
+// ---- 分层注入（§4）：常驻块进 buildSystem（同步）；磁铁块按轮注入（异步） ----
+function buildMemorySyncBlocks(){
+  if(!memEnabled()) return '';
+  const parts = [];
+  const identity = memIdentity();
+  if(identity && identity.trim()) parts.push('[identity]\n' + identity.trim());
+  const rel = memRelBlock();
+  if(rel) parts.push('[relationship]\n' + rel);
+  const fb = memFeedbackTail();
+  if(fb) parts.push(fb);
+  return parts.join('\n\n');
+}
+function memLastUserText(){
+  if(!aiConv) return '';
+  for(let i = aiConv.length - 1; i >= 0; i--){
+    const m = aiConv[i];
+    if(m && m.role === 'user'){ const t = memTextOf(m.content); if(t && t.trim()) return t; }
+  }
+  return '';
+}
+async function memInjectMagnet(userText){
+  if(!memEnabled() || !aiConv || !aiConv.length) return;
+  try{
+    const rec = await memMagnetRecall(userText);
+    if(!rec.length) return; // 空块整块消失，不留占位
+    const block = '[magnet_memory]\n' + rec.join('\n');
+    aiConv[0] = { role:'system', content: aiConv[0].content + '\n\n' + block, id: aiConv[0].id };
+  }catch(e){}
+}
+// ---- 设置页 UI ----
+function syncMemUI(){
+  const on = document.getElementById('aiMemOn') ? document.getElementById('aiMemOn').checked : true;
+  const fields = document.getElementById('memFields');
+  if(fields){ fields.style.opacity = on ? '1' : '.35'; fields.style.pointerEvents = on ? 'auto' : 'none'; }
+}
+async function memRefreshStats(){
+  const el = document.getElementById('memStats');
+  if(!el) return;
+  try{
+    const entries = await memGetAll('entries');
+    const tags = await memGetAll('tags');
+    const msgs = await memGetAll('messages');
+    el.textContent = '对话 ' + msgs.length + ' 条 · 记忆 ' + entries.length + ' 条 · 标签 ' + tags.length + ' 个';
+  }catch(e){ el.textContent = ''; }
+}
+async function memView(){
+  const box = document.getElementById('memList');
+  if(!box) return;
+  openMask(document.getElementById('memViewMask'));
+  box.innerHTML = '<div class="hint" style="font-size:12px;">读取中…</div>';
+  try{
+    const entries = await memGetAll('entries');
+    const tags = await memGetAll('tags');
+    const sorted = entries.filter(e=>e.active === 1).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 20);
+    if(!sorted.length){ box.innerHTML = '<div class="hint" style="font-size:12px;">还没有记忆。多和助理聊聊，它会自动把重要点滴沉淀成记忆。</div>'; return; }
+    let html = '';
+    for(const e of sorted){
+      const tgs = tags.filter(t=>t.entry_id === e.id).map(t=>t.tag).join(' / ');
+      html += '<div style="padding:9px 0;border-bottom:1px solid var(--ink-faint);">' +
+        '<div style="font-size:13px;line-height:1.55;">' + escHtml(e.summary || '（无摘要）') + '</div>' +
+        (tgs ? '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;"># ' + escHtml(tgs) + '</div>' : '') +
+        '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">' + (e.created_at || '').slice(0, 16).replace('T', ' ') + '</div>' +
+        '</div>';
+    }
+    box.innerHTML = html;
+  }catch(e){ box.innerHTML = '<div class="hint">读取失败</div>'; }
+}
+function closeMemView(){ closeMask(document.getElementById('memViewMask')); }
+async function memTagNow(){
+  const hint = document.getElementById('memTagHint');
+  if(hint) hint.textContent = '正在后台打标…';
+  await memRunTagger();
+  await memRefreshStats();
+  if(hint) hint.textContent = '✅ 打标完成（失败的单条会跳过，不影响其他）。';
+}
+async function memClear(){
+  showDialog('确定清空全部记忆？', '这会删除所有记忆条目、标签与对话记录（只影响记忆库，不影响任务 / 课表 / 记账）。', [
+    {label:'取消', cls:'ghost'},
+    {label:'全部清空', cls:'danger', fn: ()=>{
+      Promise.all([memClearStore('entries'), memClearStore('tags'), memClearStore('messages')])
+        .then(()=>memKvSet('tagger_watermark', 0))
+        .catch(()=>{})
+        .then(()=>{ try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){} memRefreshStats(); });
+    }}
+  ]);
+}
+if(window.addEventListener){ window.addEventListener('pagehide', ()=>{ if(_memPending > 0) memRunTagger(); }); }
+
 async function sendAI(){
   if(aiBusy){
     // agent 模式上一条可能还在"思考+调工具"，这里不静默丢弃，提示用户稍等
@@ -6906,6 +7419,7 @@ async function sendAI(){
   if(!hasImage){
     showTyping();
     aiConv.push({ role:'user', content: files.length ? buildTextContent(text, files) : text, userText: display.trim(), id: uid });
+    memNoteUser(files.length ? buildTextContent(text, files) : text, uid);
     await aiRun();
     return;
   }
@@ -6945,6 +7459,7 @@ async function sendAI(){
     }
     showTyping();
     aiConv.push({ role:'user', content: pieces.join('\n\n'), userText: display.trim(), id: uid });
+    memNoteUser(pieces.join('\n\n'), uid);
     await aiRun();
     return;
   }
@@ -6956,6 +7471,7 @@ async function sendAI(){
       : '👁 没配独立视觉模型，主模型本身能看图，直接发送。');
     showTyping();
     aiConv.push({ role:'user', content: buildMultimodalContent(text, files), userText: display.trim(), id: uid });
+    memNoteUser(buildMultimodalContent(text, files), uid);
     await aiRun();
     return;
   }
@@ -6979,6 +7495,7 @@ async function sendAI(){
     pieces.push('（系统备注：用户同时发了 ' + images.length + ' 张图片，但当前没有可用的视觉模型，你完全看不到图片内容。请只根据上面的文字回应，如实说明你没看到图，绝对不要假装看过、更不要编造图上的金额或日期。）');
     showTyping();
     aiConv.push({ role:'user', content: pieces.join('\n\n'), userText: display.trim(), id: uid });
+    memNoteUser(pieces.join('\n\n'), uid);
     await aiRun();
   } else {
     saveConv();
@@ -6994,6 +7511,8 @@ async function aiRun(){
   }
   setAIBusy(true);
   try{
+    const memUserText = memLastUserText();
+    if(memUserText) await memInjectMagnet(memUserText); // 磁铁召回注入：说到什么就召回什么（空块整块消失）
     let loop = 0;
     let stepEl = null;
     while(loop++ < 6){
@@ -7033,8 +7552,10 @@ async function aiRun(){
         // 部分多模态接口返回的 content 是数组，防御性判断后再展示
         const content = (typeof msg.content === 'string') ? msg.content : (Array.isArray(msg.content) ? msg.content.map(p=>p&&p.text?p.text:'').join(' ').trim() : '');
         if(content){
-          addAIMsg('ai', content, msg.id);
-          aiTtsSpeak(content, false, msg.id);
+          const vr = aiResolveVoice(content); // 角色音色：剥掉【角色名】标记，带 voice 下标（0=全局）
+          addAIMsg('ai', vr.clean, msg.id);
+          memNoteAssistant(vr.clean, msg.id); // 最终回复落库进记忆库（中间 tool_calls 消息不落）
+          aiTtsSpeak(vr.clean, false, msg.id, vr.voice);
         }
         break;
       }
@@ -7156,26 +7677,31 @@ async function aiCall(messages, cfg, attempt, opts){
 function execTool(name, argsStr){
   let args = {};
   try{ args = JSON.parse(argsStr||'{}'); }catch(e){ args = {}; }
+  let res;
   try{
-    if(name==='add_task') return aiAddTask(args);
-    if(name==='update_task') return aiUpdateTask(args);
-    if(name==='complete_task') return aiCompleteTask(args);
-    if(name==='remove_task') return aiRemoveTask(args);
-    if(name==='list_tasks') return aiListTasks(args);
-    if(name==='get_progress') return aiGetProgress(args);
-    if(name==='get_courses') return aiGetCourses(args);
-    if(name==='add_course') return aiAddCourse(args);
-    if(name==='update_course') return aiUpdateCourse(args);
-    if(name==='remove_course') return aiRemoveCourse(args);
-    if(name==='compare_courses') return aiCompareCourses(args);
-    if(name==='batch_update_courses') return aiBatchUpdateCourses(args);
-    if(name==='add_expense') return aiAddExpense(args);
-    if(name==='get_expenses') return aiGetExpenses(args);
-    if(name==='set_budget') return aiSetBudget(args);
-    if(name==='log_mood') return aiLogMood(args);
-    if(name==='get_mood') return aiGetMood(args);
-    return {ok:false, error:'未知工具 '+name};
-  }catch(e){ return {ok:false, error:String(e)}; }
+    if(name==='add_task') res = aiAddTask(args);
+    else if(name==='update_task') res = aiUpdateTask(args);
+    else if(name==='complete_task') res = aiCompleteTask(args);
+    else if(name==='remove_task') res = aiRemoveTask(args);
+    else if(name==='list_tasks') res = aiListTasks(args);
+    else if(name==='get_progress') res = aiGetProgress(args);
+    else if(name==='get_courses') res = aiGetCourses(args);
+    else if(name==='add_course') res = aiAddCourse(args);
+    else if(name==='update_course') res = aiUpdateCourse(args);
+    else if(name==='remove_course') res = aiRemoveCourse(args);
+    else if(name==='compare_courses') res = aiCompareCourses(args);
+    else if(name==='batch_update_courses') res = aiBatchUpdateCourses(args);
+    else if(name==='add_expense') res = aiAddExpense(args);
+    else if(name==='get_expenses') res = aiGetExpenses(args);
+    else if(name==='set_budget') res = aiSetBudget(args);
+    else if(name==='log_mood') res = aiLogMood(args);
+    else if(name==='get_mood') res = aiGetMood(args);
+    else res = {ok:false, error:'未知工具 '+name};
+  }catch(e){ res = {ok:false, error:String(e)}; }
+  // 诚实回路：失败记回执（下一轮注入让 AI 自己开口，不替它写台词），成功消账；方向认不出不猜
+  if(res && res.ok === false){ memRecordActionFail(name, res.error || ''); }
+  else if(res && res.ok !== false){ memResolveActionFail(name); }
+  return res;
 }
 
 // 本地兜底建任务/记账已移除：所有增改一律交由 AI 工具判断，AI 不可用时由用户手动填写。
@@ -8877,8 +9403,9 @@ if(typeof speechSynthesis !== 'undefined'){
   ttsLoadVoices();
   try{ speechSynthesis.onvoiceschanged = ttsLoadVoices; }catch(e){}
 }
-function ttsPickVoice(){
+function ttsPickVoice(gender){
   const zh = ttsVoiceList.filter(v=>/zh|cmn|yue/i.test(v.lang||''));
+  if(gender === 'male') return zh.find(v=>/male|man|yun|bo|wei|jun|男/i.test(v.name||'')) || zh[0] || null;
   return zh.find(v=>/female|woman|ting|xiao|mei|女/i.test(v.name||'')) || zh[0] || null;
 }
 // 语音引擎路由：MiniMax（自然音色）> 系统语音（兜底，未配置/失败自动降级）
@@ -8892,34 +9419,35 @@ function ttsSpeak(text){
   if(ttsEngineReady()){ ttsMiniMax(text).catch(()=>ttsSpeakSys(text)); return; }
   ttsSpeakSys(text);
 }
-function ttsSpeakSys(text){
+function ttsSpeakSys(text, vo){
   if(!text) return;
   try{
     if(typeof speechSynthesis==='undefined') return;
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'zh-CN';
-    const v = ttsPickVoice(); if(v) u.voice = v;
-    // 音调/语速走用户可调设置（预设只是快捷填充滑块）
+    const v = ttsPickVoice(vo && vo.gender); if(v) u.voice = v;
+    // 音调/语速：角色音色优先，否则走用户可调全局设置
     const s = pomoData && pomoData.settings ? pomoData.settings : {};
-    u.pitch = (s.pitch!=null ? s.pitch : 1.12);
-    u.rate = (s.rate!=null ? s.rate : 0.98);
+    u.pitch = (vo && vo.pitch != null) ? vo.pitch : (s.pitch!=null ? s.pitch : 1.12);
+    u.rate = (vo && vo.rate != null) ? vo.rate : (s.rate!=null ? s.rate : 0.98);
     speechSynthesis.speak(u);
   }catch(e){ console.error('tts:', e); }
 }
 // MiniMax T2A v2：POST → JSON{data.audio=base64} → 解码 mp3 播放；失败抛错让上层降级系统语音
 // 注意：v1 旧接口(/v1/text_to_speech)只支持 speech-02-turbo，2.8/hd 等模型必须走 v2(/v1/t2a_v2)
-async function ttsMiniMax(text){
+async function ttsMiniMax(text, vo){
   const s = pomoData && pomoData.settings ? pomoData.settings : {};
   const url = 'https://api.minimax.chat/v1/t2a_v2?GroupId=' + encodeURIComponent(s.miniGroup);
+  const pitchBase = (vo && vo.pitch != null) ? vo.pitch : (s.pitch != null ? s.pitch : 1.12);
   const body = {
     model: (s.miniModel || 'speech-2.8-turbo'),
     text: String(text).slice(0,500), // 单次 ≤500 字符
     voice_setting: {
-      voice_id: (s.miniVoiceId || s.miniVoice || 'female-tianmei'), // 自定义音色优先
-      speed: Math.min(2, Math.max(0.5, (s.rate!=null ? s.rate : 0.98))),
+      voice_id: (vo && vo.voiceId) ? vo.voiceId : (s.miniVoiceId || s.miniVoice || 'female-tianmei'), // 角色音色优先，否则全局
+      speed: Math.min(2, Math.max(0.5, (vo && vo.rate != null) ? vo.rate : (s.rate!=null ? s.rate : 0.98))),
       vol: 1.0,
-      pitch: Math.max(-12, Math.min(12, Math.round(((s.pitch!=null ? s.pitch : 1.12)-1)*12)))
+      pitch: Math.max(-12, Math.min(12, Math.round((pitchBase - 1) * 12)))
     },
     audio_setting: { sample_rate: 32000, bitrate: 128000, format: 'mp3', channel: 1 }
   };
@@ -9111,6 +9639,66 @@ function ttsWarmup(){ // iOS 手势解锁：第一次用户点击时调用，之
   }catch(e){}
 }
 /* ---------- AI 助手回复语音（沿用番茄钟语音引擎：系统语音 / MiniMax + 音色/音调/语速） ---------- */
+/* ================= 角色音色（多角色自动切换） =================
+   机制：AI 回复第一行以【角色名】开头 → 客户端解析 → 显示/记忆时剥掉标记，
+   朗读时用该角色的音色（A=默认女声 / B=默认男声）。角色名可在设置里改成 OC 的名字。 */
+const AI_VOICES_KEY = 'mhm_ai_voices';
+function aiVoices(){
+  try{
+    const o = JSON.parse(localStorage.getItem(AI_VOICES_KEY) || 'null');
+    if(o && o.a && o.b) return o;
+  }catch(e){}
+  return { on:true, a:{name:'零落', engine:'global', voiceId:'', pitch:1.15, rate:0.95}, b:{name:'沈容', engine:'global', voiceId:'', pitch:0.95, rate:0.95} };
+}
+function aiVoicesOn(){
+  const v = aiVoices();
+  return !!(v && v.on !== false && v.a && v.a.name && v.b && v.b.name);
+}
+function aiVoiceCfg(idx){
+  const v = aiVoices();
+  const r = idx === 1 ? v.a : (idx === 2 ? v.b : null);
+  if(!r || !r.name) return null;
+  return { engine: r.engine || 'global', voiceId: (r.voiceId || '').trim(), pitch: (r.pitch != null ? +r.pitch : null), rate: (r.rate != null ? +r.rate : null), gender: idx === 1 ? 'female' : 'male' };
+}
+function aiResolveVoice(text){
+  const t = String(text || '');
+  if(!aiVoicesOn()) return {clean: t, voice: 0};
+  const m = t.match(/^\s*[【\[（〔]\s*([^】\]）〕]{1,12})\s*[】\]）〕]\s*[:\：]?\s*/);
+  if(!m) return {clean: t, voice: 0};
+  const v = aiVoices();
+  const name = m[1].trim();
+  let voice = 0;
+  if(v.a && v.a.name && name === v.a.name) voice = 1;
+  else if(v.b && v.b.name && name === v.b.name) voice = 2;
+  if(!voice) return {clean: t, voice: 0}; // 标记名没匹配到配置的角色 → 原样显示，不剥
+  return {clean: t.slice(m[0].length).trim(), voice};
+}
+function buildRoleProtocol(){
+  if(!aiVoicesOn()) return '';
+  const v = aiVoices();
+  return '【角色扮演与音色】\n你扮演 [identity] 里设定的角色。回复时第一行必须用【' + v.a.name + '】或【' + v.b.name + '】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时延续上一条的角色，或选最合适的。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。';
+}
+function syncVoiceUI(){
+  const on = document.getElementById('aiVoiceOn') ? document.getElementById('aiVoiceOn').checked : true;
+  const fields = document.getElementById('aiVoiceFields');
+  if(fields){ fields.style.opacity = on ? '1' : '.35'; fields.style.pointerEvents = on ? 'auto' : 'none'; }
+}
+function aiVoiceEngineUI(idx){
+  const eng = document.getElementById(idx === 1 ? 'aiVoiceAEngine' : 'aiVoiceBEngine');
+  const row = document.getElementById(idx === 1 ? 'aiVoiceAMini' : 'aiVoiceBMini');
+  if(row) row.style.display = (eng && eng.value === 'mini') ? 'block' : 'none';
+}
+function aiRoleTest(idx){
+  const v = aiVoices();
+  const name = idx === 1 ? v.a.name : v.b.name;
+  const sample = '我是' + (name || (idx === 1 ? '零落' : '沈容')) + '。今天也要一起好好加油。';
+  ttsWarmup();
+  const vo = aiVoiceCfg(idx);
+  if(vo && vo.engine === 'mini' && ttsEngineReady()){ ttsMiniMax(sample, vo).catch(()=>ttsSpeakSys(sample, vo)); return; }
+  if(vo && vo.engine === 'sys'){ ttsSpeakSys(sample, vo); return; }
+  ttsSpeak(sample);
+}
+
 let aiTtsLast = null;    // 最近一次 AI 语音：{mid, text, url, el}
 let aiTtsPending = null; // 正在朗读的 AI 消息：{mid, text}
 
@@ -9135,27 +9723,28 @@ function aiTtsCaptureAudio(blob){ // 由 ttsMiniMax 在播放前调用，只保�
   const p = aiTtsPending;
   if(!p || !p.mid || !blob) return;
   aiTtsClearLast();
-  aiTtsLast = {mid: p.mid, text: p.text, url: URL.createObjectURL(blob), el: null};
+  aiTtsLast = {mid: p.mid, text: p.text, voice: p.voice || 0, url: URL.createObjectURL(blob), el: null};
   aiTtsAddBtn(p.mid);
 }
 function aiTtsStoreSys(){ // 系统语音没有音频文件，保存文本供重播时重新合成
   const p = aiTtsPending;
   if(!p || !p.mid) return;
   aiTtsClearLast();
-  aiTtsLast = {mid: p.mid, text: p.text, url: null, el: null};
+  aiTtsLast = {mid: p.mid, text: p.text, voice: p.voice || 0, url: null, el: null};
   aiTtsAddBtn(p.mid);
 }
 function aiTtsReplay(){
   const last = aiTtsLast;
   if(!last) return;
   ttsWarmup(); // iOS 手势解锁
+  const vo = last.voice ? aiVoiceCfg(last.voice) : null; // 重播沿用原角色的音色
   if(last.url){
     try{
       const a = new Audio(last.url);
-      a.play().catch(()=>{ if(last.text) ttsSpeakSys(last.text); });
-    }catch(e){ if(last.text) ttsSpeakSys(last.text); }
+      a.play().catch(()=>{ if(last.text) ttsSpeakSys(last.text, vo); });
+    }catch(e){ if(last.text) ttsSpeakSys(last.text, vo); }
   }else if(last.text){
-    ttsSpeakSys(last.text);
+    ttsSpeakSys(last.text, vo);
   }
 }
 function aiTtsClean(text){
@@ -9171,16 +9760,27 @@ function aiTtsClean(text){
   t = t.replace(/\s+/g, ' ').trim();
   return t;
 }
-function aiTtsRoute(text){
+function aiTtsRoute(text, voiceIdx){
   if(!text) return;
-  if(ttsEngineReady()){
-    ttsMiniMax(text).catch(()=>{ ttsSpeakSys(text); aiTtsStoreSys(); });
+  const vo = voiceIdx ? aiVoiceCfg(voiceIdx) : null; // 角色音色：engine/voiceId/pitch/rate/gender
+  if(vo && vo.engine === 'mini'){
+    ttsMiniMax(text, vo).catch(()=>{ ttsSpeakSys(text, vo); aiTtsStoreSys(); });
     return;
   }
-  ttsSpeakSys(text);
+  if(vo && vo.engine === 'sys'){
+    ttsSpeakSys(text, vo);
+    aiTtsStoreSys();
+    return;
+  }
+  // 跟随全局：用全局音色（不混入角色 voiceId）
+  if(ttsEngineReady()){
+    ttsMiniMax(text, null).catch(()=>{ ttsSpeakSys(text, null); aiTtsStoreSys(); });
+    return;
+  }
+  ttsSpeakSys(text, null);
   aiTtsStoreSys();
 }
-function aiTtsSpeak(text, force, mid){
+function aiTtsSpeak(text, force, mid, voiceIdx){
   if(!text) return;
   if(!force){
     const cfg = getAiCfg();
@@ -9190,9 +9790,9 @@ function aiTtsSpeak(text, force, mid){
   if(!t) return;
   const cfg = getAiCfg();
   if(cfg.aiTtsMode === 'brief') t = t.slice(0, 200);
-  aiTtsPending = mid ? {mid: mid, text: t} : null;
+  aiTtsPending = mid ? {mid: mid, text: t, voice: voiceIdx || 0} : null;
   if(mid) aiTtsClearLast(); // 新回复开始，只保留最近一次：移除旧按钮、释放旧音频
-  aiTtsRoute(t);
+  aiTtsRoute(t, voiceIdx || 0);
 }
 function aiTtsTest(){
   const hint = document.getElementById('aiTtsHint');
