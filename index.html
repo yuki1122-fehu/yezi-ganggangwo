@@ -1968,7 +1968,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <summary style="cursor:pointer;font-size:12px;color:var(--green-dark);font-weight:700;padding:8px 0;list-style:none;">📚 API 模型推荐（点开查看，不点不影响使用）</summary>
       <div style="font-size:12px;line-height:1.7;color:var(--ink);background:var(--green-soft);border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:10px 12px;">
         <div style="font-weight:700;margin-bottom:4px;">主模型（文字对话 / 记账 / 建任务）</div>
-        <div>· DeepSeek：Base URL <code>https://api.deepseek.com/v1</code>，模型 <code>deepseek-chat</code>（有免费额度）</div>
+        <div>· DeepSeek：Base URL <code>https://api.deepseek.com/v1</code>，模型 <code>deepseek-v4-flash</code>（旧名 deepseek-chat 已于 2026-07-24 废弃）</div>
         <div>· 百炼：Base URL <code>https://dashscope.aliyuncs.com/compatible-mode/v1</code>，模型 <code>qwen-turbo</code>（新用户送免费额度）</div>
         <div>· OpenRouter：Base URL <code>https://openrouter.ai/api/v1</code>，模型 <code>google/gemma-4-26b-a4b-it:free</code>（免费）</div>
         <div style="font-weight:700;margin:8px 0 4px;">视觉模型（看图识别，可选）</div>
@@ -2007,10 +2007,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <span id="tplHint" style="font-size:11px;color:var(--ink-soft);"></span>
     </div>
     <label>模型</label>
-    <input id="aiModel" list="modelList" placeholder="如 deepseek-chat">
+    <input id="aiModel" list="modelList" placeholder="如 deepseek-v4-flash">
     <datalist id="modelList">
-      <option value="deepseek-chat">国内·免费额度·支持工具(推荐)</option>
-      <option value="deepseek-reasoner">国内·深度思考(不支持工具)</option>
+      <option value="deepseek-v4-flash">国内·V4-Flash·便宜(推荐,旧deepseek-chat)</option>
+      <option value="deepseek-v4-pro">国内·V4-Pro·旗舰(约贵3倍)</option>
       <option value="google/gemma-4-26b-a4b-it:free">★ OpenRouter 免费·支持工具</option>
       <option value="nvidia/nemotron-3-nano-30b-a3b:free">★ OpenRouter 免费·支持工具</option>
       <option value="nvidia/nemotron-3-ultra-550b-a55b:free">★ OpenRouter 免费·超大模型</option>
@@ -6017,6 +6017,9 @@ function getAiCfg(){
   if(cfg.persona === undefined) cfg.persona = DEFAULT_PERSONA;
   if(cfg.aiTts === undefined) cfg.aiTts = true;
   if(cfg.aiTtsMode === undefined) cfg.aiTtsMode = 'full';
+  // 2026-07-24 DeepSeek 正式废弃旧模型名 deepseek-chat / deepseek-reasoner（再调用会返回 400，用户实测"模型暂时抽风（400）"）。
+  // 官方迁移：两者都 → deepseek-v4-flash（价格与旧 alias 完全相同，thinking 变为请求参数）。自动迁移，老用户不用手动改。
+  if(cfg.model==='deepseek-chat'||cfg.model==='deepseek-reasoner') cfg.model='deepseek-v4-flash';
   return cfg;
 }
 // 发送前裁剪上下文：保留 system + 最近若干条，并把历史中的图片 base64 替换为占位（保留本轮图片），
@@ -6446,7 +6449,7 @@ function openAISettings(){
   const _bs = document.getElementById('aiBaseSel');
   if(_bs){ _bs.value = [].slice.call(_bs.options).some(o=>o.value===_b) ? _b : ''; }
   document.getElementById('aiKey').value = cfg.apiKey||'';
-  document.getElementById('aiModel').value = cfg.model||'deepseek-chat';
+  document.getElementById('aiModel').value = cfg.model||'deepseek-v4-flash';
   // 视觉模型（眼睛）
   document.getElementById('aiVisionOn').checked = (cfg.visionOn !== false);
   syncVisionUI();
@@ -6715,7 +6718,7 @@ function saveAISettings(){
   else tip += '👁 还没配视觉模型，发图暂时看不了。';
   if(cfg.mode==='relay') tip += '注意：免费 Cloudflare 中转站无法转发 opencode/DeepSeek（子请求被限），建议改用「直连」+ DeepSeek。';
   else if(cfg.mode==='direct') tip += '直连请确保 Base URL 支持跨域（DeepSeek / OpenRouter 均自带 CORS）。';
-  if(/reasoner|o1|o3|thinking/i.test(cfg.model)) tip += '⚠️ 当前模型不支持工具调用：助理只能纯聊天，无法自动建任务/记账/改课表，建议换 deepseek-chat。';
+  if(/reasoner|o1|o3|thinking/i.test(cfg.model)) tip += '⚠️ 当前模型不支持工具调用：助理只能纯聊天，无法自动建任务/记账/改课表，建议换 deepseek-v4-flash。';
   document.getElementById('aiSetHint').textContent=tip;
   setTimeout(closeAISettings, 1400);
   toast('助理配置已保存');
@@ -6808,7 +6811,7 @@ async function testAIConn(){
     relayUrl: document.getElementById('aiRelay').value.trim(),
     baseUrl: document.getElementById('aiBase').value.trim(),
     apiKey: document.getElementById('aiKey').value.trim(),
-    model: document.getElementById('aiModel').value.trim()||'deepseek-chat'
+    model: document.getElementById('aiModel').value.trim()||'deepseek-v4-flash'
   };
   const hint = document.getElementById('aiSetHint');
   if(!cfg.apiKey){ hint.textContent='请先填 API Key 再测试。'; return; }
@@ -7619,9 +7622,9 @@ async function aiCall(messages, cfg, attempt, opts){
       headers['X-Title'] = 'MHM Workbench';
     }
   }
-  const modelName = (cfg.model || 'deepseek-chat').trim();
-  // 部分模型不支持 function calling（如 deepseek-reasoner / o1 / o3 / thinking 系列），
-  // 传 tools 会被接口直接 400 拒绝。检测到这类模型时省略 tools。
+  const modelName = (cfg.model || 'deepseek-v4-flash').trim();
+  // 部分模型不支持 function calling（如 o1 / o3 / thinking 系列），传 tools 会被接口直接 400 拒绝。检测到这类模型时省略 tools。
+  // （deepseek-reasoner 旧名已废弃；deepseek-v4-flash / deepseek-v4-pro 均支持工具）
   // opts.noTools 为 true 时也强制不传 tools（用于一次性纯文本生成）。
   const noToolsModel = /reasoner|o1|o3|thinking/i.test(modelName);
   // 发送给模型前剥掉仅用于本地气泡展示的 userText 字段（避免多余字段进 API 请求）
@@ -7687,7 +7690,7 @@ async function aiCall(messages, cfg, attempt, opts){
     if(resp.status===402) msg = '余额不足（402）：该模型需充值，或换带 :free 的免费模型。';
     else if(resp.status===401) msg = 'API Key 无效/未授权（401）：检查 Key 是否填对、是否复制完整。';
     else if(resp.status===403) msg = '无权限（403）：该模型可能需授权或 Key 不属于此账户。';
-    else if(resp.status===404) msg = '接口路径不对（404）：多半是 Base URL 重复带了 /v1（拼出了 /v1/v1）。请把 Base URL 填成 https://api.deepseek.com/v1 或 https://api.deepseek.com 都行，本程序会自动处理；模型名用 deepseek-chat 或 deepseek-reasoner。';
+    else if(resp.status===404) msg = '接口路径不对（404）：多半是 Base URL 重复带了 /v1（拼出了 /v1/v1）。请把 Base URL 填成 https://api.deepseek.com/v1 或 https://api.deepseek.com 都行，本程序会自动处理；模型名用 deepseek-v4-flash 或 deepseek-v4-pro（旧名 deepseek-chat / deepseek-reasoner 已于 2026-07-24 废弃）。';
     else if(resp.status===429) msg = '请求太频繁（429）：稍等几秒再试。';
     else if(transient) msg = '模型暂时抽风（'+resp.status+'），已重试仍失败，稍后再试或换模型。';
     if(attempt>=2) msg = '（已重试 '+attempt+' 次）'+msg;
