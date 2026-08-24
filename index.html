@@ -1914,6 +1914,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <button onclick="clearAIConv()" title="清空对话（不影响任务/课表）">🗑</button>
       <button onclick="openPayloadView()" title="查看发送给助理的内容"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></button>
       <button onclick="openAISettings()" title="设置" style="font-size:20px;">⚙</button>
+      <button onclick="openCompanion()" title="实时视频陪伴（专注模式）">📹</button>
       <button onclick="closeAI()" title="关闭">✕</button>
     </div>
   </div>
@@ -2294,6 +2295,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     </div>
     <div class="pomo-bind">
       <select id="pomoTaskSel" onchange="pomoBindTask(this.value)"></select>
+      <button class="pomo-side" style="flex:0 0 auto;padding:0 12px;white-space:nowrap;" onclick="openCompanionFromPomo()">📹 陪伴</button>
     </div>
     <div class="pomo-controls">
       <button class="pomo-side" id="pomoSkipBtn" onclick="pomoSkip()" disabled>跳过</button>
@@ -9483,6 +9485,7 @@ function playMiniAudio(blob){
       if(pomoAudio.state==='suspended'){ try{ pomoAudio.resume(); }catch(e){} }
       const url = URL.createObjectURL(blob);
       const a = new Audio(url);
+      window.__miniAudioEl = a; // 暴露给实时陪伴模块，用于瞬时打断停止
       a.preload = 'auto';
       let done = false;
       a.onended = ()=>{ URL.revokeObjectURL(url); };
@@ -9919,6 +9922,577 @@ function savePomoSettings(){
 
 /* ====== 启动 ====== */
 init();
+</script>
+
+<!-- ===== 实时视频陪伴 · 专注模式（路径 A：浏览器原生，无后端） ===== -->
+<style id="compStyle">
+.comp-mask{position:fixed;inset:0;z-index:160;display:none;flex-direction:column;
+  background:radial-gradient(125% 125% at 50% 0%, rgba(22,32,26,.93), rgba(9,15,11,.97));
+  color:#eaf3ea;font-family:inherit;overflow:hidden;}
+.comp-video-wrap{position:absolute;inset:0;overflow:hidden;}
+.comp-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);filter:brightness(.5) saturate(1.04);}
+.comp-vignette{position:absolute;inset:0;background:linear-gradient(180deg, rgba(0,0,0,.4), rgba(0,0,0,0) 28%, rgba(0,0,0,0) 58%, rgba(0,0,0,.6));pointer-events:none;}
+.comp-top{position:relative;display:flex;justify-content:space-between;align-items:flex-start;padding:14px 16px;z-index:2;}
+.comp-pills{display:flex;gap:8px;flex-wrap:wrap;}
+.comp-pill{font-size:12px;padding:6px 11px;border-radius:999px;background:rgba(255,255,255,.1);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.16);
+  color:#bcd3bc;transition:.25s;}
+.comp-pill.on{background:rgba(122,202,132,.34);border-color:rgba(155,232,165,.6);color:#eaffea;}
+.comp-x{width:38px;height:38px;border-radius:50%;border:1px solid rgba(255,255,255,.2);
+  background:rgba(0,0,0,.3);color:#eaf3ea;font-size:18px;cursor:pointer;backdrop-filter:blur(8px);}
+.comp-center{position:relative;flex:1;display:flex;flex-direction:column;justify-content:flex-end;
+  align-items:center;padding:0 18px 8px;gap:8px;z-index:2;}
+.comp-you{font-size:13px;color:#9fc4a4;max-width:90%;text-align:center;opacity:.9;min-height:0;}
+.comp-bubble{max-width:92%;padding:14px 18px;border-radius:20px;
+  background:rgba(255,255,255,.14);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid rgba(255,255,255,.22);font-size:16px;line-height:1.6;text-align:center;
+  box-shadow:0 8px 30px rgba(0,0,0,.35);min-height:24px;}
+.comp-sub{font-size:13px;color:#8fb89a;min-height:18px;text-align:center;opacity:.85;
+  max-width:90%;font-style:italic;}
+.comp-obs{font-size:10px;color:#7fae8a;background:rgba(0,0,0,.35);padding:6px 8px;border-radius:8px;
+  max-width:94%;max-height:120px;overflow:auto;white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace;}
+.comp-start{position:relative;z-index:2;padding:18px 18px 26px;display:flex;flex-direction:column;
+  gap:12px;align-items:center;}
+.comp-bigstart{padding:14px 22px;border-radius:16px;border:1px solid rgba(155,232,165,.55);
+  background:linear-gradient(135deg, rgba(122,202,132,.4), rgba(90,170,110,.28));
+  color:#eaffea;font-size:16px;font-weight:700;cursor:pointer;backdrop-filter:blur(10px);
+  box-shadow:0 8px 26px rgba(60,140,80,.35);}
+.comp-notice{font-size:12px;color:#aecbae;line-height:1.65;text-align:center;max-width:540px;}
+.comp-err{color:#ffb4b4;font-size:12px;text-align:center;min-height:0;}
+.comp-controls{position:relative;z-index:2;padding:10px 14px calc(14px + env(safe-area-inset-bottom));
+  display:none;flex-direction:column;gap:10px;background:rgba(0,0,0,.28);backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);}
+.comp-taskrow{display:flex;gap:8px;align-items:center;}
+.comp-tasklabel{font-size:12px;color:#bcd3bc;white-space:nowrap;}
+.comp-taskinput{flex:1;padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.2);
+  background:rgba(255,255,255,.1);color:#eaf3ea;font-size:14px;outline:none;}
+.comp-taskinput::placeholder{color:#7f9c84;}
+.comp-btns{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
+.comp-btn{padding:9px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.2);
+  background:rgba(255,255,255,.1);color:#dcefe0;font-size:13px;cursor:pointer;transition:.2s;
+  backdrop-filter:blur(8px);}
+.comp-btn.on{background:rgba(122,202,132,.36);border-color:rgba(155,232,165,.6);color:#eaffea;}
+.comp-btn.end{background:rgba(220,90,90,.3);border-color:rgba(240,140,140,.5);color:#ffe2e2;}
+.comp-inputbar{display:none;gap:8px;}
+.comp-text{flex:1;padding:9px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.2);
+  background:rgba(255,255,255,.1);color:#eaf3ea;font-size:14px;outline:none;}
+.comp-send{padding:9px 16px;border-radius:12px;border:none;background:rgba(122,202,132,.5);
+  color:#eaffea;font-size:14px;cursor:pointer;}
+</style>
+
+<div class="mask comp-mask" id="compMask">
+  <div class="comp-video-wrap">
+    <video id="compVideo" class="comp-video" autoplay playsinline muted></video>
+    <div class="comp-vignette"></div>
+  </div>
+  <div class="comp-top">
+    <div class="comp-pills">
+      <span id="compSee" class="comp-pill">👁 看</span>
+      <span id="compHear" class="comp-pill">🎤 听</span>
+      <span id="compSpeak" class="comp-pill">💬 说</span>
+    </div>
+    <button class="comp-x" onclick="closeCompanion()">✕</button>
+  </div>
+
+  <div class="comp-center">
+    <div id="compYou" class="comp-you"></div>
+    <div id="compBubble" class="comp-bubble">点下面按钮，开启摄像头与麦克风，我就陪你开始啦～</div>
+    <div id="compSub" class="comp-sub"></div>
+    <div id="compObs" class="comp-obs" style="display:none;"></div>
+  </div>
+
+  <div class="comp-start" id="compStartWrap">
+    <button class="comp-bigstart" onclick="compStart()">📹 开启摄像头与麦克风，开始陪伴</button>
+    <div class="comp-notice">伴侣会一直看着你、偶尔主动开口。摄像头与麦克风仅在你的设备本地处理，原始画面与声音绝不上传或保存；只有「此刻看到什么」的结构化描述会发给视觉模型，且看不清时它会如实说看不清。可随时结束。</div>
+    <div id="compStartErr" class="comp-err"></div>
+  </div>
+
+  <div class="comp-controls" id="compControls">
+    <div class="comp-taskrow">
+      <span class="comp-tasklabel">本场专注</span>
+      <input id="compTask" class="comp-taskinput" placeholder="例如：写论文第三章（可留空）" maxlength="60">
+    </div>
+    <div class="comp-btns">
+      <button id="compMicBtn" class="comp-btn" onclick="compToggleMic()">🎤 麦克风</button>
+      <button id="compProBtn" class="comp-btn on" onclick="compToggleProactive()">🗣 主动开口</button>
+      <button id="compSaveBtn" class="comp-btn on" onclick="compToggleSaveFlow()">🌱 省流</button>
+      <button id="compLvlBtn" class="comp-btn" onclick="compCycleLevel()">😊 适度</button>
+      <button id="compObsBtn" class="comp-btn" onclick="compToggleObsDebug()">🔍 观察</button>
+      <button class="comp-btn end" onclick="closeCompanion()">结束陪伴</button>
+    </div>
+    <div id="compInputBar" class="comp-inputbar">
+      <input id="compText" class="comp-text" placeholder="（此设备不支持语音识别）打字也能陪你聊…" onkeydown="if(event.key==='Enter')compSendText();">
+      <button class="comp-send" onclick="compSendText()">说</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════════
+   实时视频陪伴 · 专注模式（路径 A：浏览器原生，无后端）
+   复用：aiCall(大脑) / visionCall+safeParseJson(云眼) / ttsMiniMax+ttsSpeakSys(嘴)
+        / execTool(动作) / DEFAULT_MEM_IDENTITY(身份) / buildRoleProtocol(音色协议)
+   唯一新增架构件：仲裁器状态机（orchestrate + tryAcquireFloor + speakTurn）
+   设计铁律（沿用 StarHub 教程）：单一循环 / 单一装配管线 / 单一动作入口；
+   用户永远优先；代际过期丢弃；视觉只在 IDLE 开口；finally 必发 TURN_DONE；句子串行。
+   ══════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if(typeof window==='undefined') return;
+  const CFG_KEY='mhm_companion_cfg', LOCK_KEY='mhm_companion_lock';
+  const MY_ID='c'+Date.now()+Math.random().toString(36).slice(2,7);
+  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+  const spawn=p=>{ Promise.resolve(p).catch(e=>console.error('[companion]',e)); };
+
+  // 与现有全局函数交互：getAiCfg / aiCall / getVisionCfg / visionCall / safeParseJson /
+  // DEFAULT_MEM_IDENTITY / buildRoleProtocol / memEnabled / memGetAll / ttsEngineReady /
+  // ttsPickVoice / toast / ttsMiniMax / aiTtsClean
+
+  const S={IDLE:'IDLE',LISTENING:'LISTENING',GENERATING:'GENERATING',SPEAKING:'SPEAKING',INTERRUPTED:'INTERRUPTED',CLOSING:'CLOSING'};
+  const PRIO={USER_SPEECH_START:0,SESSION_CLOSE:1,USER_SPEECH:2,TURN_EVENT:3,OBSERVATION:4,TELEMETRY:9};
+  const LEVELS=[{salience:0.8,label:'😌 安静'},{salience:0.55,label:'😊 适度'},{salience:0.3,label:'🤩 活泼'}];
+
+  let cfg=loadCfg();
+  let levelIdx=LEVELS.findIndex(l=>Math.abs(l.salience-cfg.salience)<0.001); if(levelIdx<0) levelIdx=1;
+
+  function loadCfg(){
+    let c={}; try{ c=JSON.parse(localStorage.getItem(CFG_KEY))||{}; }catch(e){}
+    return Object.assign({proactive:true,salience:0.55,saveFlow:true,mouth:'sys',actions:false,observeMin:4,observeMax:10,captureFps:8},c);
+  }
+  function saveCfg(){ try{ localStorage.setItem(CFG_KEY,JSON.stringify(cfg)); }catch(e){} }
+
+  // ---- 运行时状态 ----
+  let state=S.IDLE, epoch=0, activeTurn=null, turnSeq=0, queue=[];
+  let running=false, session=null;
+  let stream=null, videoEl=null, canvasEl=null, ctx2d=null;
+  let recog=null, recogAvailable=false, micOn=true;
+  let localTimer=null, captureTimer=null, observeTimer=null, lockTimer=null;
+  let lastFrame=null, lastFrameGray=null, lastMotion=0, motionChanged=false, present=false;
+  let vision=null, lastObserveAt=0;
+  let speaking=false, pendingSpeak={};
+
+  // ---- 优先队列（带优先级插入）----
+  function post(type,data){
+    let ev;
+    if(type && typeof type==='object'){ ev=type; }                 // 兼容 post({type,epoch,...}) 调用
+    else ev=Object.assign({type:type,t:Date.now()}, data||{});
+    if(ev.epoch===undefined) ev.epoch=epoch;
+    let i=queue.length;
+    while(i>0 && PRIO[queue[i-1].type]>PRIO[ev.type]) i--;         // 按 ev.type 取优先级，避免 type 为对象时取到 undefined
+    queue.splice(i,0,ev);
+  }
+
+  // ── 入口 ──
+  function openCompanion(taskTitle){
+    const m=document.getElementById('compMask'); if(m) m.style.display='flex';
+    if(taskTitle!==undefined){ const t=document.getElementById('compTask'); if(t) t.value=(taskTitle||''); }
+    const sw=document.getElementById('compStartWrap'); if(sw) sw.style.display='flex';
+    const ctr=document.getElementById('compControls'); if(ctr) ctr.style.display='none';
+    const b=document.getElementById('compBubble'); if(b) b.textContent='点下面按钮，开启摄像头与麦克风，我就陪你开始啦～';
+    const y=document.getElementById('compYou'); if(y) y.textContent='';
+    const sub=document.getElementById('compSub'); if(sub) sub.textContent='';
+  }
+  function openCompanionFromPomo(){
+    let title='';
+    const sel=document.getElementById('pomoTaskSel');
+    if(sel && sel.value){ const opt=sel.options[sel.selectedIndex]; if(opt) title=opt.text; }
+    openCompanion(title);
+  }
+  function closeCompanion(){ compStop(); const m=document.getElementById('compMask'); if(m) m.style.display='none'; }
+
+  async function compStart(){
+    const errEl=document.getElementById('compStartErr'); if(errEl) errEl.textContent='';
+    if(running) return;
+    if(!acquireLock()){ if(errEl) errEl.textContent='另一个标签页已在运行实时陪伴，请先关闭它。'; if(window.toast) toast('已有实时陪伴会话在运行'); return; }
+    running=true; state=S.IDLE; epoch=0; activeTurn=null; turnSeq=0; queue=[];
+    cfg=loadCfg();
+    session={startedAt:Date.now(), taskNow:(document.getElementById('compTask').value||'').trim()};
+    try{ session.resident=await buildFocusPrefix(); }catch(e){ session.resident=defaultResident(); }
+
+    let gotCam=false;
+    try{
+      stream=await navigator.mediaDevices.getUserMedia({
+        video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},
+        audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}
+      });
+      gotCam=true;
+    }catch(e1){
+      try{
+        stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
+        if(window.toast) toast('没拿到摄像头，已用纯语音/文字陪伴（看不见你）');
+      }catch(e2){ if(window.toast) toast('没拿到摄像头和麦克风，已用纯文字陪伴'); }
+    }
+    if(stream){
+      const v=document.getElementById('compVideo');
+      if(v){ v.srcObject=stream; videoEl=v; try{ await v.play().catch(()=>{}); }catch(e){} }
+      canvasEl=document.createElement('canvas'); canvasEl.width=320; canvasEl.height=240;
+      ctx2d=canvasEl.getContext('2d',{willReadFrequently:true});
+      startLocalEye();
+    }
+    setupEars();
+    lastObserveAt=0; vision=null; lastFrame=null;
+    observeTimer=setInterval(maybeObserve,1000);
+    lockTimer=setInterval(heartbeatLock,5000);
+    const sw=document.getElementById('compStartWrap'); if(sw) sw.style.display='none';
+    const ctr=document.getElementById('compControls'); if(ctr) ctr.style.display='flex';
+    syncCtrlButtons();
+    updateStatus();
+    window.addEventListener('pagehide',compStop);
+    spawn(orchestrate());
+    showBubble('我在呢，开始吧～你专注，我陪着你。');
+  }
+
+  function compStop(){
+    running=false;
+    post({type:'SESSION_CLOSE'});
+    if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+    if(stream){ stream.getTracks().forEach(t=>{try{t.stop();}catch(e){}}); stream=null; }
+    if(videoEl){ try{ videoEl.srcObject=null; }catch(e){} videoEl=null; }
+    [localTimer,captureTimer,observeTimer,lockTimer].forEach(t=>{ if(t) clearInterval(t); });
+    localTimer=captureTimer=observeTimer=lockTimer=null;
+    compStopMouth();
+    speaking=false; releaseLock();
+    try{ window.removeEventListener('pagehide',compStop); }catch(e){}
+    state=S.IDLE; epoch=0; activeTurn=null;
+    const ctr=document.getElementById('compControls'); if(ctr) ctr.style.display='none';
+    const sw=document.getElementById('compStartWrap'); if(sw) sw.style.display='flex';
+    updateStatus();
+  }
+
+  // ── 本地眼（连续采集 + 帧差粗判断，零 API 成本；只留最新帧在内存）──
+  function startLocalEye(){
+    const fps=cfg.captureFps||8; const period=Math.max(50,Math.round(1000/fps));
+    captureTimer=setInterval(()=>{
+      if(!running||!videoEl||!ctx2d) return;
+      try{
+        const vw=videoEl.videoWidth, vh=videoEl.videoHeight;
+        if(!vw||!vh) return;
+        ctx2d.drawImage(videoEl,0,0,canvasEl.width,canvasEl.height);
+        const img=ctx2d.getImageData(0,0,canvasEl.width,canvasEl.height).data;
+        const n=canvasEl.width*canvasEl.height;
+        const gray=new Uint8ClampedArray(n); let sum=0;
+        for(let i=0,j=0;i<img.length;i+=4,j++){ const g=(img[i]*0.299+img[i+1]*0.587+img[i+2]*0.114)|0; gray[j]=g; sum+=g; }
+        const mean=sum/n;
+        let diff=0;
+        if(lastFrameGray){ for(let k=0;k<gray.length;k+=7){ diff+=Math.abs(gray[k]-lastFrameGray[k]); } diff/=(gray.length/7); }
+        lastFrameGray=gray; lastMotion=diff;
+        motionChanged = diff>6;
+        present = mean>8 && mean<250;
+        lastFrame=canvasEl.toDataURL('image/jpeg',0.6); // 仅内存，绝不落盘
+      }catch(e){}
+    },period);
+  }
+  function grabFrame(){ return lastFrame; }
+
+  // ── 云眼（每帧≠观察；按三层节拍自适应触发观察请求）──
+  async function maybeObserve(){
+    if(!running) return;
+    const vcfg=getVisionCfg();
+    if(!vcfg.enabled) return; // 没配视觉模型→看不见，静默降级
+    const now=Date.now();
+    const effMin=(cfg.saveFlow?cfg.observeMin*2:cfg.observeMin)*1000;
+    const effMax=(cfg.saveFlow?cfg.observeMax*2:cfg.observeMax)*1000;
+    const sinceObs=now-lastObserveAt;
+    if(sinceObs<effMin) return;
+    if(!motionChanged && sinceObs<effMax) return;
+    const frame=grabFrame();
+    if(!frame) return;
+    lastObserveAt=now; motionChanged=false;
+    const obs=await visionObserve(frame);
+    if(!running) return;
+    post({type:'OBSERVATION',obs:obs});
+    const ob=document.getElementById('compObs'); if(ob && ob.style.display!=='none') renderObs(obs);
+  }
+  async function visionObserve(frame){
+    const vcfg=getVisionCfg();
+    const parts=[{type:'text',text:OBSERVE_PROMPT},{type:'image_url',image_url:{url:frame}}];
+    const r=await visionCall(parts,vcfg,1);
+    if(r.error) return {uncertain:true,error:r.error,scene:'',subject_state:'',changed_from_last:false,salience:0};
+    try{
+      const content=r.data.choices[0].message.content;
+      const j=safeParseJson(content)||{};
+      return {
+        observed_at:Date.now(), ttl_ms:4000,
+        scene:String(j.scene||''),
+        subject_state:String(j.subject_state||''),
+        changed_from_last:j.changed_from_last!==false,
+        salience:typeof j.salience==='number'?Math.max(0,Math.min(1,j.salience)):0,
+        uncertain:!!j.uncertain
+      };
+    }catch(e){ return {uncertain:true,error:'parse',scene:'',subject_state:'',changed_from_last:false,salience:0}; }
+  }
+  const OBSERVE_PROMPT='你是陪伴助手的"眼睛"。看一张用户当下的摄像头画面，用中文输出严格 JSON，不要任何前缀或解释，第一个字符必须是 {。\n字段：\n{\n "scene":"用一句话客观描述画面里正在发生什么（如：用户正低头在纸上写字）",\n "subject_state":"用户当前的状态/姿态/表情（如：专注、放松、发呆、疲惫、伸懒腰）",\n "changed_from_last":true或false（相比上一次观察，画面明显变化了吗）, \n "salience":0到1的数字（这一刻值不值得开口说一句，0=完全不必，1=很值得；只有真正有意思的变化才给高分，大多数安静工作时刻给低分）, \n "uncertain":true或false（看不清/被遮挡/光线太暗就填 true，绝不许猜）\n}\n铁律：看不清就 uncertain:true 且 scene/subject_state 留空，绝对不要编造画面内容。salience 要保守，安静工作的画面给 0.1~0.3，只有明显异常或有趣变化才给 0.6+。';
+
+  // ── 耳朵（Web Speech；无识别能力降级文字输入）──
+  function startRecog(){
+    try{
+      const RR=window.SpeechRecognition||window.webkitSpeechRecognition;
+      if(!RR) return false;
+      recog=new RR();
+      recog.lang='zh-CN'; recog.continuous=true; recog.interimResults=true;
+      let lastFinal='';
+      recog.onresult=function(e){
+        let interim='', finalText='';
+        for(let i=e.resultIndex;i<e.results.length;i++){
+          const r=e.results[i];
+          if(r.isFinal) finalText+=r[0].transcript; else interim+=r[0].transcript;
+        }
+        if(interim) setSub(interim); // 中间结果：仅字幕，绝不进 prompt / 落库
+        if(finalText){
+          if(finalText===lastFinal) return; lastFinal=finalText;
+          setSub('');
+          const key=finalText;
+          compStopMouth(); // 用户开口当场停（不等队列）
+          const ne=epoch+1;
+          post({type:'USER_SPEECH_START',epoch:ne});
+          post({type:'USER_SPEECH',text:finalText,turnKey:key,epoch:ne});
+          showYou(finalText);
+        }
+      };
+      recog.onerror=function(e){
+        if(e&&(e.error==='not-allowed'||e.error==='service-not-allowed')){ if(window.toast) toast('麦克风权限被拒，已切到文字输入'); disableMic(); }
+      };
+      recog.onend=function(){ if(running&&micOn&&recog){ try{ recog.start(); }catch(e){} } };
+      recog.start();
+      return true;
+    }catch(e){ return false; }
+  }
+  function setupEars(){
+    recogAvailable=!!(window.SpeechRecognition||window.webkitSpeechRecognition);
+    if(!recogAvailable){
+      const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
+      updateStatus(); return;
+    }
+    if(micOn && !startRecog()){
+      const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
+    }
+    updateStatus();
+  }
+  function disableMic(){
+    micOn=false;
+    if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+    if(stream){ stream.getAudioTracks().forEach(t=>{try{t.enabled=false;}catch(e){}}); }
+    const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
+    const b=document.getElementById('compMicBtn'); if(b) b.classList.remove('on');
+    updateStatus();
+  }
+  function compSendText(){
+    const el=document.getElementById('compText'); if(!el) return;
+    const t=el.value.trim(); if(!t) return; el.value='';
+    showYou(t); compStopMouth();
+    const ne=epoch+1;
+    post({type:'USER_SPEECH_START',epoch:ne});
+    post({type:'USER_SPEECH',text:t,turnKey:'txt'+Date.now(),epoch:ne});
+  }
+
+  // ── 仲裁器（唯一新增架构件）──
+  async function orchestrate(){
+    while(running){
+      if(!queue.length){ await sleep(25); continue; }
+      const ev=queue.shift();
+      if(ev.epoch!==undefined && ev.epoch<epoch) continue; // 代际过期：仅丢弃迟到/旧事件（更旧的才丢，新代际要放行以推进 epoch）
+      switch(ev.type){
+        case 'USER_SPEECH_START':
+          epoch=ev.epoch; activeTurn=null; stopPlayback(); state=S.LISTENING; break;
+        case 'USER_SPEECH':
+          if(state===S.LISTENING){
+            const tid=tryAcquireFloor(S.LISTENING,epoch);
+            if(tid!=null) spawn(speakTurn(ev.text,'USER',epoch,tid));
+          }
+          break;
+        case 'OBSERVATION':
+          vision=ev.obs; // 替换，不累积
+          if(cfg.proactive && ev.obs && !ev.obs.uncertain && ev.obs.salience>=cfg.salience){
+            const tid=tryAcquireFloor(S.IDLE,epoch); // 视觉只在 IDLE 抢发言权
+            if(tid!=null) spawn(speakTurn(null,'VISION',epoch,tid));
+          }
+          break;
+        case 'TURN_SPEAKING':
+          if(ev.turnId===activeTurn) state=S.SPEAKING; break;
+        case 'TURN_DONE':
+          if(ev.turnId===activeTurn){ activeTurn=null; state=S.IDLE; } break;
+        case 'SESSION_CLOSE':
+          running=false; break;
+      }
+    }
+  }
+  // 取得发言权：唯一允许开启发言流的入口，按来源限定 expected_state；原子
+  function tryAcquireFloor(expected,myEpoch){
+    if(state!==expected) return null;
+    if(activeTurn!==null) return null;
+    if(myEpoch!==undefined && myEpoch!==epoch) return null;
+    turnSeq++; activeTurn=turnSeq; state=S.GENERATING; return activeTurn;
+  }
+  function stopPlayback(){ compStopMouth(); }
+
+  // 一次发言 = 一个发言流；句子串行；无论哪个出口离开，finally 必发 TURN_DONE
+  async function speakTurn(userText,trigger,myEpoch,tid){
+    let spoke=false;
+    try{
+      if(!session||!session.resident) return;
+      const volatile='[vision]\n'+visionToBlock(vision);
+      const userPart=userText?('用户说：'+userText):'（你根据刚才看到的画面，主动说一句轻轻的陪伴，不要长）';
+      const messages=[
+        {role:'system',content:session.resident},
+        {role:'user',content:volatile+'\n\n'+userPart}
+      ];
+      const r=await aiCall(messages,getAiCfg(),1,{noTools:true});
+      if(r.error){ showBubble('（刚才那句没说成，网络或模型出了点问题）'); post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); return; }
+      if(myEpoch!==epoch) return; // 出口⑤：生成期间被打断
+      const msg=r.data.choices[0].message;
+      const content=(typeof msg.content==='string')?msg.content:(Array.isArray(msg.content)?msg.content.map(p=>p.text||'').join(''):'');
+      if(!content||!content.trim()){ post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); return; } // 出口②：沉默，不消耗发言权
+      const sents=splitSentences(content);
+      for(const s of sents){
+        if(myEpoch!==epoch) return; // 打断：当场弃
+        spoke=true; speaking=true; updateStatus();
+        post({type:'TURN_SPEAKING',turnId:tid,epoch:myEpoch});
+        showBubble(cleanForShow(s));
+        await compSpeak(cleanForSpeak(s),myEpoch,tid);
+      }
+      speaking=false; updateStatus();
+    }catch(e){
+      if(spoke) compStopMouth();
+      speaking=false; updateStatus();
+      showBubble('（刚才那句没说完整）');
+    }finally{
+      speaking=false; updateStatus();
+      post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); // 出口①~⑦ 全部终结于此
+    }
+  }
+
+  // ── 陪伴嘴（串行；瞬时打断；角色标记剥离）──
+  function compStopMouth(){
+    try{ if(typeof speechSynthesis!=='undefined') speechSynthesis.cancel(); }catch(e){}
+    if(window.__miniAudioEl){ try{ window.__miniAudioEl.pause(); }catch(e){} window.__miniAudioEl=null; }
+    Object.keys(pendingSpeak).forEach(k=>{ try{ pendingSpeak[k](false); }catch(e){} delete pendingSpeak[k]; });
+  }
+  async function compSpeak(text,myEpoch,tid){
+    if(myEpoch!==epoch) return false;
+    return new Promise(resolve=>{
+      pendingSpeak[tid]=resolve;
+      const done=ok=>{ if(pendingSpeak[tid]) delete pendingSpeak[tid]; resolve(ok); };
+      const useMini=(cfg.mouth==='mini')||(cfg.mouth==='auto'&&ttsEngineReady());
+      if(useMini){ ttsMiniMax(text,null).then(()=>done(true)).catch(()=>sysSpeak(text,done)); }
+      else sysSpeak(text,done);
+    });
+  }
+  function sysSpeak(text,finish){
+    try{
+      if(typeof speechSynthesis==='undefined'){ finish(false); return; }
+      speechSynthesis.cancel();
+      const u=new SpeechSynthesisUtterance(text);
+      u.lang='zh-CN';
+      const v=ttsPickVoice&&ttsPickVoice(); if(v) u.voice=v;
+      const s=(window.pomoData&&window.pomoData.settings)?window.pomoData.settings:{};
+      u.pitch=(s.pitch!=null)?s.pitch:1.12; u.rate=(s.rate!=null)?s.rate:0.98;
+      u.onend=()=>finish(true); u.onerror=()=>finish(false);
+      speechSynthesis.speak(u);
+    }catch(e){ finish(false); }
+  }
+
+  // ── 专注轻量提示词装配（会话开始冻结 3 常驻 + 每轮替换 volatile 视觉）──
+  async function buildFocusPrefix(){
+    const blocks=[];
+    blocks.push('[identity]\n'+((DEFAULT_MEM_IDENTITY||'').trim()));
+    const recent=await focusRecentSummary();
+    if(recent) blocks.push('[recent]\n'+recent);
+    const task=(session&&session.taskNow&&session.taskNow.trim())?session.taskNow.trim():'这场的专注任务未设定，随意陪伴即可。';
+    blocks.push('[task_now]\n'+task);
+    const rp=(typeof buildRoleProtocol==='function')?buildRoleProtocol():null; if(rp) blocks.push(rp);
+    blocks.push('[陪伴规则]\n你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短（1~3句），像真朋友在身边。');
+    return blocks.join('\n\n');
+  }
+  function defaultResident(){
+    return '[identity]\n'+((DEFAULT_MEM_IDENTITY||'')||'')+'\n\n[task_now]\n'+((session&&session.taskNow)?session.taskNow:'随意陪伴');
+  }
+  async function focusRecentSummary(){
+    try{
+      if(!(memEnabled&&memEnabled())) return '';
+      const entries=await memGetAll('entries');
+      const recent=entries.filter(e=>e.active===1).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0,4);
+      if(!recent.length) return '';
+      return '最近几天你们之间的小事：\n'+recent.map(e=>'· '+String(e.summary||'').slice(0,60)).join('\n');
+    }catch(e){ return ''; }
+  }
+  function visionToBlock(obs){
+    if(!obs) return '（暂时没看到画面）';
+    if((Date.now()-(obs.observed_at||0))>(obs.ttl_ms||4000)) return '（画面观察已过期，不要以现在时描述）';
+    if(obs.uncertain) return '（看不清当前画面，不要假装看到了）';
+    return '场景：'+(obs.scene||'')+'；用户状态：'+(obs.subject_state||'')+'；相比上次变化：'+(obs.changed_from_last?'有':'无')+'；开口建议分：'+(obs.salience!=null?obs.salience.toFixed(2):'?');
+  }
+
+  // ── 工具 ──
+  function splitSentences(t){
+    if(!t) return [];
+    const parts=t.split(/(?<=[。！？!?；;\n])/).map(s=>s.trim()).filter(Boolean);
+    return parts.length?parts:[t.trim()].filter(Boolean);
+  }
+  function cleanForSpeak(t){ return (aiTtsClean&&aiTtsClean(t))||t; }
+  function cleanForShow(t){ return (aiTtsClean&&aiTtsClean(t))||t; }
+  function setSub(t){ const el=document.getElementById('compSub'); if(el) el.textContent=t||''; }
+  function showBubble(t){ const el=document.getElementById('compBubble'); if(el) el.textContent=t||''; }
+  function showYou(t){ const el=document.getElementById('compYou'); if(el) el.textContent='你：'+t; }
+  function renderObs(obs){ const el=document.getElementById('compObs'); if(el) el.textContent=JSON.stringify(obs||{},null,1); }
+
+  // ── 状态指示（以真实轨道/识别/播报状态为准）──
+  function updateStatus(){
+    const see=document.getElementById('compSee'),hear=document.getElementById('compHear'),spk=document.getElementById('compSpeak');
+    if(see){ const on=!!(stream&&stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')); see.classList.toggle('on',on); see.textContent=on?'👁 看着你':'👁 未开'; }
+    if(hear){ const on=!!((recog&&micOn)||(document.getElementById('compInputBar')&&document.getElementById('compInputBar').style.display!=='none')); hear.classList.toggle('on',on); hear.textContent=on?'🎤 听着':'🎤 关'; }
+    if(spk){ spk.classList.toggle('on',speaking); spk.textContent=speaking?'💬 说着':'💬 静'; }
+  }
+  function syncCtrlButtons(){
+    const pro=document.getElementById('compProBtn'),sv=document.getElementById('compSaveBtn'),lv=document.getElementById('compLvlBtn');
+    if(pro) pro.classList.toggle('on',cfg.proactive);
+    if(sv) sv.classList.toggle('on',cfg.saveFlow);
+    if(lv) lv.textContent=LEVELS[levelIdx].label;
+    const mic=document.getElementById('compMicBtn'); if(mic) mic.classList.toggle('on',micOn);
+  }
+
+  // ── 控制开关 ──
+  function compToggleMic(){
+    if(!running) return;
+    micOn=!micOn;
+    if(stream){ stream.getAudioTracks().forEach(t=>{ try{ t.enabled=micOn; }catch(e){} }); }
+    if(micOn){
+      if(recogAvailable && !startRecog()){
+        const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
+      }
+    } else {
+      if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+      const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='none';
+    }
+    syncCtrlButtons(); updateStatus();
+  }
+  function compToggleProactive(){ cfg.proactive=!cfg.proactive; saveCfg(); syncCtrlButtons(); }
+  function compToggleSaveFlow(){ cfg.saveFlow=!cfg.saveFlow; saveCfg(); syncCtrlButtons(); }
+  function compCycleLevel(){ levelIdx=(levelIdx+1)%LEVELS.length; cfg.salience=LEVELS[levelIdx].salience; saveCfg(); syncCtrlButtons(); }
+  function compToggleObsDebug(){ const el=document.getElementById('compObs'); if(!el) return; el.style.display=(el.style.display==='none'?'block':'none'); if(el.style.display!=='none'&&vision) renderObs(vision); }
+
+  // ── 单会话锁（防多标签页抢摄像头/麦克风）──
+  function acquireLock(){
+    try{ const cur=JSON.parse(localStorage.getItem(LOCK_KEY)||'null');
+      if(cur && (Date.now()-cur.t)<15000 && cur.id!==MY_ID) return false;
+      heartbeatLock(); return true;
+    }catch(e){ return true; }
+  }
+  function heartbeatLock(){ try{ localStorage.setItem(LOCK_KEY,JSON.stringify({id:MY_ID,t:Date.now()})); }catch(e){} }
+  function releaseLock(){ try{ const c=JSON.parse(localStorage.getItem(LOCK_KEY)||'null'); if(c&&c.id===MY_ID) localStorage.removeItem(LOCK_KEY); }catch(e){} }
+
+  // 暴露全局（HTML 内联 onclick 调用）
+  window.openCompanion=openCompanion;
+  window.closeCompanion=closeCompanion;
+  window.openCompanionFromPomo=openCompanionFromPomo;
+  window.compStart=compStart;
+  window.compStop=compStop;
+  window.compToggleMic=compToggleMic;
+  window.compToggleProactive=compToggleProactive;
+  window.compToggleSaveFlow=compToggleSaveFlow;
+  window.compCycleLevel=compCycleLevel;
+  window.compToggleObsDebug=compToggleObsDebug;
+  window.compSendText=compSendText;
+})();
 </script>
 
 <!-- ===== 内联 pako 2.2.0（zip 解压，用于 Word/Excel 文本提取，完全离线） ===== -->
