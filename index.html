@@ -2187,6 +2187,13 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       </div>
     </div>
 
+    <!-- ===================== 用量与缓存命中（Cove Prompt Cache 观测） ===================== -->
+    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(145,180,200,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
+      <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">💸 用量与缓存命中</div>
+      <div id="aiUsageStats" style="font-size:12px;line-height:1.7;"></div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">缓存命中 = 系统提示词等稳定内容被服务端复用、少收一次输入费（DeepSeek / OpenRouter 支持）。金额按输入 2 元/百万 token 粗估，仅参考。数据只存本机。</p>
+    </div>
+
     <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
     <div class="row">
       <button class="btn ghost" onclick="closeAISettings()">取消</button>
@@ -6504,6 +6511,7 @@ function openAISettings(){
   document.getElementById('memTagHint').textContent = '';
   syncMemUI();
   memRefreshStats();
+  renderUsageStats(); // B1：打开设置时刷新用量/缓存统计
   document.getElementById('appTitle').value = getAppTitle()===DEFAULT_TITLE ? '' : getAppTitle();
   document.getElementById('aiSetHint').textContent='';
   updateBackupUI();
@@ -7712,7 +7720,145 @@ async function aiCall(messages, cfg, attempt, opts){
     if(attempt>=2) msg = '（已重试 '+attempt+' 次）'+msg;
     return {error: msg};
   }
+  if(data && data.usage) logAIUsage(data.usage); // B1：记录本轮 token/缓存命中（供设置页统计）
   return {data: data};
+}
+
+// ── B1 缓存命中观测（Cove 7/8 节：用日志观察真实命中，别靠感觉）──
+// 记录每次请求的 usage（DeepSeek/OpenRouter 会返回 cache 字段），累计存本机，设置页可查看。
+const AI_USAGE_KEY='mhm_ai_usage_log';
+function logAIUsage(usage){
+  try{
+    if(!usage || typeof usage!=='object') return;
+    const hit=Number(usage.prompt_cache_hit_tokens||usage.cache_read_input_tokens||0)||0;
+    const miss=Number(usage.prompt_cache_miss_tokens||0)||0;
+    const prompt=Number(usage.prompt_tokens||0)||0;
+    const comp=Number(usage.completion_tokens||0)||0;
+    if(!prompt && !comp && !hit) return;
+    let log={total:{calls:0,prompt:0,comp:0,hit:0,miss:0},recent:[]};
+    try{ const raw=localStorage.getItem(AI_USAGE_KEY); if(raw) log=JSON.parse(raw); }catch(e){}
+    if(!log.total) log.total={calls:0,prompt:0,comp:0,hit:0,miss:0};
+    if(!Array.isArray(log.recent)) log.recent=[];
+    log.total.calls++; log.total.prompt+=prompt; log.total.comp+=comp; log.total.hit+=hit; log.total.miss+=miss;
+    log.recent.unshift({t:Date.now(),prompt:prompt,comp:comp,hit:hit,miss:miss});
+    if(log.recent.length>30) log.recent.length=30;
+    try{ localStorage.setItem(AI_USAGE_KEY, JSON.stringify(log)); }catch(e){}
+  }catch(e){}
+}
+function aiUsageStats(){
+  try{
+    const raw=localStorage.getItem(AI_USAGE_KEY); if(!raw) return null;
+    return JSON.parse(raw);
+  }catch(e){ return null; }
+}
+function renderUsageStats(){
+  const el=document.getElementById('aiUsageStats'); if(!el) return;
+  const log=aiUsageStats();
+  if(!log || !log.total || !log.total.calls){
+    el.innerHTML='<div class="hint" style="font-size:11px;color:var(--ink-soft);margin:0;">还没有用量数据。发几条消息后，这里会显示 token 消耗与缓存命中（DeepSeek / OpenRouter 支持）。</div>';
+    return;
+  }
+  const t=log.total;
+  const hitRate=(t.hit+t.miss)>0?Math.round(t.hit/(t.hit+t.miss)*100):0;
+  const money=t.prompt?(t.prompt/1000000*2).toFixed(2):'0'; // 粗估：按输入 2 元/百万 token
+  el.innerHTML='<div>请求 <b>'+t.calls+'</b> 次 · 输入 <b>'+fmtTokens(t.prompt)+'</b> · 输出 <b>'+fmtTokens(t.comp)+'</b></div>'+
+    '<div>缓存命中 <b style="color:var(--green-dark);">'+hitRate+'%</b>（'+fmtTokens(t.hit)+' 复用 / 未命中 '+fmtTokens(t.miss)+'）— 系统提示词等稳定内容被服务端复用，省下的重复输入费 ≈ <b style="color:var(--green-dark);">¥'+money+'</b></div>';
+}
+function fmtTokens(n){
+  if(n>=1000000) return (n/1000000).toFixed(1)+'M';
+  if(n>=1000) return (n/1000).toFixed(1)+'k';
+  return String(n);
+}
+
+// ── 流式生成（SSE）：供陪伴「首句优先」使用（Cove：不要等完整答案，首句先出声）──
+// OpenAI 兼容 chat/completions stream:true，OpenRouter / DeepSeek / 中转均支持。
+// 用法：streamAICallText(messages, cfg, opts, onDelta)
+//   onDelta(piece, acc) 同步回调：piece=增量文本，acc=当前累积全文
+//   返回 {ok:true, text, usage?} 或 {error, part?}（part=中断前已生成的部分文本，可用于继续/兜底）
+async function streamAICallText(messages, cfg, opts, onDelta){
+  opts = opts || {};
+  let url, headers = {};
+  if(cfg.mode==='relay'){
+    url = (cfg.relayUrl||'').replace(/\/+$/,'') + '/v1/chat/completions';
+  } else if(cfg.mode==='proxy'){
+    url = 'http://localhost:8000/v1/chat/completions';
+  } else {
+    let base = (cfg.baseUrl||'https://openrouter.ai/api/v1').replace(/\/+$/,'');
+    const suffix = /\/v1$/i.test(base) ? '/chat/completions' : '/v1/chat/completions';
+    url = base + suffix;
+  }
+  headers['content-type'] = 'application/json';
+  headers['authorization'] = 'Bearer ' + (cfg.apiKey||'');
+  if(cfg.mode==='direct'){
+    const burl = (cfg.baseUrl||'').toLowerCase();
+    if(burl.indexOf('openrouter')>=0){
+      headers['HTTP-Referer'] = 'https://mhm.local';
+      headers['X-Title'] = 'MHM Workbench';
+    }
+  }
+  const modelName = (cfg.model || 'deepseek-v4-flash').trim();
+  const cleanMsgs = (messages||[]).map(m=>{
+    const c = Object.assign({}, m);
+    if(c.userText !== undefined) delete c.userText;
+    return c;
+  });
+  const payload = { model: modelName, messages: cleanMsgs, temperature: 0.3, stream: true };
+  const ctrl = new AbortController();
+  const timer = setTimeout(()=>ctrl.abort(), (opts.timeoutMs || 30000));
+  let resp;
+  try{
+    resp = await fetch(url, {method:'POST', headers: headers, body: JSON.stringify(payload), signal: ctrl.signal});
+  }catch(err){
+    clearTimeout(timer);
+    return {error: (err && err.name==='AbortError') ? '连接超时（30 秒无响应）' : ('网络/跨域错误：' + ((err && err.message) || '未知'))};
+  }
+  if(!resp.ok){
+    clearTimeout(timer);
+    let data = {};
+    try{ data = JSON.parse(await resp.text()); }catch(e){}
+    let msg = (data && data.error && data.error.message) ? data.error.message : ('HTTP ' + resp.status);
+    if(resp.status===402) msg = '余额不足（402）：该模型需充值，或换带 :free 的免费模型。';
+    else if(resp.status===401) msg = 'API Key 无效/未授权（401）。';
+    else if(resp.status===429) msg = '请求太频繁（429）：稍等几秒再试。';
+    return {error: msg};
+  }
+  const reader = resp.body ? resp.body.getReader() : null;
+  if(!reader){ clearTimeout(timer); return {error:'当前浏览器/环境不支持流式读取'}; }
+  const dec = new TextDecoder();
+  let buf = '', text = '', usage = null, evData = null;
+  const handleDataLine = (data)=>{
+    if(data === '[DONE]') return true;
+    let j;
+    try{ j = JSON.parse(data); }catch(e){ return false; }
+    if(j && j.usage){ usage = j.usage; logAIUsage(j.usage); } // B1：流式请求同样记录缓存命中
+    const delta = j && j.choices && j.choices[0] && j.choices[0].delta;
+    const piece = (delta && typeof delta.content === 'string') ? delta.content : '';
+    if(piece){ text += piece; try{ if(onDelta) onDelta(piece, text); }catch(e){} }
+    return false;
+  };
+  try{
+    let doneFlag = false;
+    while(!doneFlag){
+      const r = await reader.read();
+      if(r.done) break;
+      buf += dec.decode(r.value, {stream:true});
+      let nl;
+      while(!doneFlag && (nl = buf.indexOf('\n')) >= 0){ // 按行解析：兼容 \n 与 \r\n 两种 SSE 换行
+        const line = buf.slice(0, nl).replace(/\r$/, ''); buf = buf.slice(nl + 1);
+        if(line === ''){
+          if(evData !== null){ doneFlag = handleDataLine(evData); evData = null; }
+          continue;
+        }
+        if(line.indexOf('data:') === 0) evData = line.slice(5).trim();
+      }
+    }
+    if(evData !== null) handleDataLine(evData); // 流结束前的残留事件
+  }catch(err){
+    clearTimeout(timer);
+    return {error: '流式中断：' + ((err && err.message) || '未知'), part: text};
+  }
+  clearTimeout(timer);
+  return {ok: true, text: text, usage: usage};
 }
 
 function execTool(name, argsStr){
@@ -10252,10 +10398,11 @@ init();
     if(!motionChanged && sinceObs<effMax) return;
     const frame=grabFrame();
     if(!frame) return;
+    const myEpoch=epoch; // 发起观察时锁定代际：post() 会自动填「当前」epoch，若不锁定，迟到返回的旧观察会被洗成新代际（Cove：每个异步结果必须带发起时的身份）
     lastObserveAt=now; motionChanged=false;
     const obs=await visionObserve(frame);
-    if(!running) return;
-    post({type:'OBSERVATION',obs:obs});
+    if(!running || myEpoch!==epoch) return; // 观察飞行期间用户已开口（epoch+1）或会话结束 → 丢弃过期观察，绝不让旧画面触发新开口
+    post({type:'OBSERVATION',obs:obs,epoch:myEpoch}); // 显式带发起时代际，orchestrate 的 ev.epoch<epoch 过滤才能拦住它
     const ob=document.getElementById('compObs'); if(ob && ob.style.display!=='none') renderObs(obs);
   }
   async function visionObserve(frame){
@@ -10472,9 +10619,98 @@ init();
   }
   function stopPlayback(){ compStopMouth(); }
 
+  // ── A1 流式首句（Cove：不要等完整答案，首句先出声）──
+  // 模型边生成边按标点切句 → 串行播放队列（同一时刻只有一句在响）；每句经 epoch 检查，打断即弃。
+  let speakChain=Promise.resolve();
+  function enqueueSpeak(s,myEpoch,tid,voice,onFirst){
+    speakChain=speakChain.then(async ()=>{
+      if(myEpoch!==epoch) return; // 打断：队列后续句子全部跳过
+      if(cueActive){ // A3 抢占本地短反馈：模型首句一到，立刻停掉系统语音短反馈
+        try{ if(typeof speechSynthesis!=='undefined') speechSynthesis.cancel(); }catch(e){}
+        cueActive=false; if(cueFinish){ const f=cueFinish; cueFinish=null; f(); }
+      }
+      speaking=true; updateStatus();
+      post({type:'TURN_SPEAKING',turnId:tid,epoch:myEpoch});
+      showBubble(cleanForShow(s)); setSub('');
+      if(onFirst) onFirst();
+      await compSpeak(s,myEpoch,tid,voice);
+    }).catch(()=>{});
+    return speakChain;
+  }
+  // 流式切句：优先自然标点（。！？!?；;\n）；无标点按硬长度切（首段激进 12，后续 24）；硬切找尾部逗号做软边界
+  function findCutPos(t, hard){
+    if(!t) return 0;
+    for(const ch of '。！？!?；;\n'){
+      const idx=t.lastIndexOf(ch);
+      if(idx>=1) return idx+1;
+    }
+    if(t.length>=hard){
+      const c=t.lastIndexOf('，');
+      if(c>=1 && t.length-c<=6) return c+1;
+      return t.length;
+    }
+    return 0;
+  }
+
+  // ── A3 本地短反馈：模型等待期填空白（Cove 13 节）──
+  // 原则：只对「用户开口」播；按最终转写分类；8s 冷却防机械"嗯"；模型首句到达立即抢占（enqueueSpeak 里 cancel）。
+  // 播短反馈期间 speaking=true 挡住识别器（防"嗯"被听成用户说话触发一轮空对话）；3s 哑火兜底。
+  const LOCAL_CUE_COOLDOWN=8000;
+  let lastCueAt=0, cueActive=false, cueFinish=null;
+  const LOCAL_CUES={
+    think:['嗯，我在呢。','好，我看看。','我在听，你说。'],
+    share:['嗯，我在听你说。','我在呢，你慢慢说。'],
+    plain:['嗯。','我在呢。','你说，我在听。']
+  };
+  function cueKindOf(text){
+    if(!text) return null;
+    if(/[吗呢么]|怎么|为什么|能不能|可不可以|帮我|建议|觉得|是不是/.test(text)) return 'think';
+    if(/我今天|我跟你说|我昨天|我最近|我告诉你|吐槽|烦|累|开心|难过/.test(text)) return 'share';
+    return 'plain';
+  }
+  function maybeLocalCue(userText,myEpoch){
+    if(userText==null) return; // 视觉主动开口本来就短，不播
+    if(myEpoch!==epoch) return;
+    const now=Date.now();
+    if(now-lastCueAt<LOCAL_CUE_COOLDOWN) return;
+    const kind=cueKindOf(userText);
+    if(!kind) return;
+    const pool=LOCAL_CUES[kind];
+    const text=pool[Math.floor(Math.random()*pool.length)];
+    lastCueAt=now;
+    if(typeof speechSynthesis==='undefined'){ setSub('（'+text+'）'); return; }
+    try{
+      speechSynthesis.cancel();
+      const u=new SpeechSynthesisUtterance(text);
+      u.lang='zh-CN';
+      const v=ttsPickVoice&&ttsPickVoice(); if(v) u.voice=v;
+      u.rate=0.98; u.pitch=1.1;
+      const fin=()=>{ cueActive=false; cueFinish=null; speaking=false; updateStatus(); };
+      cueActive=true; cueFinish=fin;
+      u.onend=fin; u.onerror=fin;
+      setTimeout(()=>{ if(cueActive){ const f=cueFinish; cueFinish=null; if(f) f(); } }, 3000); // iOS 哑火兜底
+      speaking=true; updateStatus();
+      speechSynthesis.speak(u);
+    }catch(e){ cueActive=false; cueFinish=null; speaking=false; updateStatus(); }
+  }
+
+  // ── A4 分段延迟日志（Cove 3 节：先看分段，别只凭"感觉慢"）──
+  function logVoiceLatency(l){
+    try{
+      const seg={};
+      seg.user_end_to_first_text = (l.t1 && l.t0) ? (l.t1-l.t0)+'ms' : 'n/a';
+      seg.first_text_to_first_audio = (l.t2 && l.t1) ? (l.t2-l.t1)+'ms' : 'n/a';
+      seg.total_incl_playback = (l.t3 && l.t0) ? (l.t3-l.t0)+'ms' : 'n/a';
+      const entry={at:new Date().toISOString(), trigger:l.trig, ...seg};
+      console.info('[陪伴延迟]', entry);
+      try{ (window.__companionLatency=window.__companionLatency||[]).push(entry); if(window.__companionLatency.length>50) window.__companionLatency.shift(); }catch(e){}
+    }catch(e){}
+  }
+
   // 一次发言 = 一个发言流；句子串行；无论哪个出口离开，finally 必发 TURN_DONE
   async function speakTurn(userText,trigger,myEpoch,tid){
     let spoke=false, spokeText='';
+    const lat={t0:Date.now(),t1:null,t2:null,t3:null,trig:trigger};
     try{
       if(!session||!session.resident) return;
       const volatile='[vision]\n'+visionToBlock(vision);
@@ -10486,39 +10722,87 @@ init();
         ...hist,
         {role:'user',content:volatile+'\n\n'+userPart}
       ];
-      const r=await aiCall(messages,getAiCfg(),1,{noTools:true});
-      if(r.error){ showBubble('（刚才那句没说成，网络或模型出了点问题）'); post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); return; }
-      if(myEpoch!==epoch) return; // 出口⑤：生成期间被打断
-      const msg=r.data.choices[0].message;
-      const content=(typeof msg.content==='string')?msg.content:(Array.isArray(msg.content)?msg.content.map(p=>p.text||'').join(''):'');
-      if(!content||!content.trim()){ post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); return; } // 出口②：沉默，不消耗发言权
-      // 记入会话历史（生成出来即记录，即使念到一半被打断，AI 也记得这轮说过什么）
-      if(!session.history) session.history=[];
-      session.history.push({role:'user',content:userText?('用户说：'+userText):'（画面有变化，AI 主动开口）'});
-      session.history.push({role:'assistant',content:content});
-      if(session.history.length>12) session.history=session.history.slice(-12);
-      // 角色音色：解析【角色名】前缀 → 剥掉标记 + 选定音色下标（与主 AI 面板同套逻辑）
-      const rv=(typeof aiResolveVoice==='function')?aiResolveVoice(content):{clean:content,voice:0};
-      transAdd('ai', rv.clean); // 对话记录：AI 完整回复（剥掉角色名）进滚动区，不只显示最后一轮
+      maybeLocalCue(userText,myEpoch); // A3：模型等待期先轻声回应（仅用户开口；冷却内跳过）
       const isVision=!userText; // 主动开口（基于画面）只说一句，绝不啰嗦；用户主动说话才正常多聊
-      const rawSents=splitSentences(rv.clean);
-      const sents=isVision?rawSents.slice(0,1):rawSents;
-      // 不主动停识别器：靠 onresult 的 if(speaking) return 双保险挡回声，避免 stop/start 循环导致耳朵起不来（Android 上异步重启不可靠）
-      for(const s of sents){
-        if(myEpoch!==epoch) return; // 打断：当场弃
-        spoke=true; speaking=true; updateStatus();
-        post({type:'TURN_SPEAKING',turnId:tid,epoch:myEpoch});
-        showBubble(cleanForShow(s));
-        const ss=cleanForSpeak(s); spokeText+=' '+ss;
-        await compSpeak(ss,myEpoch,tid,rv.voice); // compSpeak 现在等音频真正播完才 resolve（见 compSpeak 防回声说明）
+      let full='', voice=0, voiceLocked=false, spokeCount=0;
+      const speakCut=(s)=>{
+        const ss=cleanForSpeak(s); spokeText+=' '+ss; spoke=true;
+        if(!isVision || spokeCount===0){ spokeCount++; enqueueSpeak(ss,myEpoch,tid,voice,()=>{ if(lat.t2===null) lat.t2=Date.now(); }); }
+      };
+      const tryCut=()=>{
+        while(true){
+          if(myEpoch!==epoch) return; // 打断：当场弃
+          if(/^【[^】]*$/.test(full) && full.length<16) return; // 角色标记【...】未闭合：等闭合再切（避免切碎角色名）
+          const cut=findCutPos(full, spokeCount===0?12:24);
+          if(!cut) break;
+          let s=full.slice(0,cut); full=full.slice(cut);
+          if(!voiceLocked){ // 首句带【角色名】前缀 → 剥标记 + 锁定本轮音色（后续句沿用）
+            const rr=aiResolveVoice(s); if(rr){ s=rr.clean||s; if(rr.voice){ voice=rr.voice; voiceLocked=true; } }
+          }
+          speakCut(s);
+        }
+      };
+      // A1：流式生成，边收边切边播；失败且有部分文本则继续用，完全没有才回退非流式
+      const r=await streamAICallText(messages,getAiCfg(),{noTools:true,timeoutMs:30000},(piece)=>{
+        if(myEpoch!==epoch) return;
+        if(lat.t1===null && piece.trim()) lat.t1=Date.now();
+        full+=piece;
+        tryCut();
+      });
+      if(myEpoch!==epoch) return; // 出口⑤：生成期间被打断
+      const text=(r&&r.ok)?(r.text||''):((r&&r.part)?r.part:'');
+      if(r && r.error && !(text && text.trim())){
+        // 流式完全不可用 → 回退非流式 aiCall（老路径，双保险）
+        const r2=await aiCall(messages,getAiCfg(),1,{noTools:true});
+        if(r2.error){ showBubble('（刚才那句没说成，网络或模型出了点问题）'); post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); return; }
+        if(myEpoch!==epoch) return;
+        const msg=r2.data.choices[0].message;
+        const content=(typeof msg.content==='string')?msg.content:(Array.isArray(msg.content)?msg.content.map(p=>p.text||'').join(''):'');
+        if(!content||!content.trim()){ post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); return; } // 出口②：沉默，不消耗发言权
+        if(!session.history) session.history=[];
+        session.history.push({role:'user',content:userText?('用户说：'+userText):'（画面有变化，AI 主动开口）'});
+        session.history.push({role:'assistant',content:content});
+        if(session.history.length>12) session.history=session.history.slice(-12);
+        const rv=(typeof aiResolveVoice==='function')?aiResolveVoice(content):{clean:content,voice:0};
+        transAdd('ai', rv.clean);
+        const sents=splitSentences(rv.clean);
+        const list=isVision?sents.slice(0,1):sents;
+        // 不主动停识别器：靠 onresult 的 if(speaking) return 双保险挡回声，避免 stop/start 循环导致耳朵起不来（Android 上异步重启不可靠）
+        for(const s of list){
+          if(myEpoch!==epoch) return; // 打断：当场弃
+          spoke=true; speaking=true; updateStatus();
+          post({type:'TURN_SPEAKING',turnId:tid,epoch:myEpoch});
+          showBubble(cleanForShow(s));
+          const ss=cleanForSpeak(s); spokeText+=' '+ss;
+          await compSpeak(ss,myEpoch,tid,rv.voice); // compSpeak 现在等音频真正播完才 resolve（见 compSpeak 防回声说明）
+        }
+        speaking=false; updateStatus();
+      } else {
+        // 流式路径：收尾切分（流结束后可能还有尾巴）+ 记录历史 + 等播放队列排空
+        if(text && text.trim()){
+          if(r && r.error){ full = text; } // 中断：以实际收到的完整文本为准（onDelta 已同步累积 full，此处双保险）
+          tryCut();
+          if(full && full.trim()){
+            let s=full; full='';
+            if(!voiceLocked){ const rr=aiResolveVoice(s); if(rr){ s=rr.clean||s; if(rr.voice){ voice=rr.voice; voiceLocked=true; } } }
+            speakCut(s);
+          }
+          if(!session.history) session.history=[];
+          session.history.push({role:'user',content:userText?('用户说：'+userText):'（画面有变化，AI 主动开口）'});
+          session.history.push({role:'assistant',content:text});
+          if(session.history.length>12) session.history=session.history.slice(-12);
+          const rr=(typeof aiResolveVoice==='function')?aiResolveVoice(text):{clean:text,voice:0};
+          transAdd('ai', rr.clean); // 对话记录：AI 完整回复（剥掉角色名）进滚动区
+        }
+        await speakChain; // 等队列真正播完（打断时内部自动跳过剩余句子）
       }
-      speaking=false; updateStatus();
     }catch(e){
       if(spoke) compStopMouth();
       speaking=false; updateStatus();
       showBubble('（刚才那句没说完整）');
     }finally{
       speaking=false; updateStatus();
+      lat.t3=Date.now(); logVoiceLatency(lat); // A4：分段耗时
       // 防回声：AI 说完瞬间开启宽限窗 + 记录本轮说的话与说完时刻（供识别结果内容去重）。
       // Android 的 Web Speech 结果有网络延迟：AI 声音被识别出的 final 可能迟到几百 ms~2s，此刻 speaking 已 false 挡不住。
       echoGraceUntil = Date.now() + ECHO_GRACE_MS;
@@ -10541,6 +10825,7 @@ init();
       }, 400);
     }
   }
+
 
   // ── 陪伴嘴（串行；瞬时打断；角色标记剥离）──
   function compStopMouth(){
