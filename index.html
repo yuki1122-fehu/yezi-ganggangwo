@@ -9967,7 +9967,11 @@ function aiTtsRoute(text, voiceIdx){
     aiTtsStoreSys();
     return;
   }
-  // 跟随全局：用全局音色（不混入角色 voiceId）
+  // 跟随全局：若角色填了自定义 MiniMax 音色 ID（voiceId），仍优先用角色音色——用户填了克隆/自定义 ID 就该听到它，而不是被"全局"吞掉
+  if(vo && vo.voiceId && ttsEngineReady()){
+    ttsMiniMax(text, vo).catch(()=>{ ttsSpeakSys(text, vo); aiTtsStoreSys(); });
+    return;
+  }
   if(ttsEngineReady()){
     ttsMiniMax(text, null).catch(()=>{ ttsSpeakSys(text, null); aiTtsStoreSys(); });
     return;
@@ -10777,7 +10781,7 @@ init();
         if(ss){ spokeText+=' '+ss; spoke=true; }
         if(!voiceLocked && st.voice){ voice=st.voice; voiceLocked=true; }
         if((!isVision || spokeCount===0) && ss){
-          speakCount++;
+          spokeCount++;
           // 同步置 speaking=true：enqueueSpeak 内部是微任务才置 true，若在此刻有识别 final 到达会漏网（回声窗口）。
           speaking=true; updateStatus();
           enqueueSpeak(ss,myEpoch,tid,voice,()=>{ if(lat.t2===null) lat.t2=Date.now(); });
@@ -10930,6 +10934,8 @@ init();
       };
       if(vo&&vo.engine==='mini'){ miniSpeak(text,vo); return; }
       if(vo&&vo.engine==='sys'){ sysSpeak(text,done,vo); return; }
+      // 跟随全局：若角色填了自定义 MiniMax 音色 ID（voiceId），仍优先用角色音色——用户填了克隆/自定义 ID 就该听到它，而不是被"全局"吞掉
+      if(vo&&vo.voiceId&&ttsEngineReady()){ miniSpeak(text,vo); return; }
       // 跟随全局音色：MiniMax 就绪用 MiniMax（全局 voiceId），否则系统语音
       if(ttsEngineReady()){ miniSpeak(text,null); return; }
       sysSpeak(text,done,vo);
