@@ -445,7 +445,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* ---------- 首页顶部左右布局：圆环/鼓励/scope 在左，天气在右 ---------- */
 .home-top{display:flex;gap:12px;margin-top:16px;padding:0 16px;align-items:stretch;}
 .home-left{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;}
-.home-right{flex:0 0 122px;display:flex;align-items:stretch;}
+.home-right{flex:0 0 130px;display:flex;align-items:stretch;}
 .weather-card{
   flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;
   gap:7px;padding:14px 8px;border-radius:var(--radius);
@@ -567,6 +567,50 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* 深色主题：文字颜色由 --ink 自动适配（浅底卡用浅色字、深底卡用白字），offline 除外 */
 [data-theme="dark"] .weather-card.offline{background:var(--glass-strong);border-color:var(--glass-line);color:var(--ink-soft);}
 
+/* ---------- 天气卡扩展区：分区天气 / 降雨速览 / 明日可预见条（液态玻璃） ---------- */
+.weather-ext{margin:2px 16px 0;display:flex;flex-direction:column;gap:8px;}
+.we-fold,.we-fc{
+  display:flex;align-items:center;gap:8px;padding:10px 13px;border-radius:var(--radius);
+  background:var(--glass-strong);border:1px solid var(--glass-line);
+  box-shadow:var(--shadow-inset);cursor:pointer;user-select:none;
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  transition:transform .16s var(--ease);
+  position:relative;overflow:hidden;
+}
+.we-fold::after,.we-fc::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(255,255,255,.5),rgba(255,255,255,.08) 46%,rgba(255,255,255,0) 70%);
+}
+.we-fold:active{transform:scale(.99);}
+.we-fold-t{position:relative;font-size:12.5px;font-weight:700;color:var(--ink);}
+.we-fold-s{position:relative;flex:1;min-width:0;font-size:11.5px;color:var(--ink-soft);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.we-caret{position:relative;font-size:10px;color:var(--ink-faint);transition:transform .22s var(--ease);}
+.we-panel{
+  display:grid;grid-template-columns:1fr 1fr;overflow:hidden;
+  border:1px solid var(--glass-line);border-radius:var(--radius);
+  background:var(--glass);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+}
+.wd-row{display:flex;align-items:center;gap:6px;padding:7px 12px;font-size:11.5px;color:var(--ink);
+  border-bottom:1px solid rgba(127,127,127,.09);white-space:nowrap;}
+.wd-row:nth-child(odd){background:rgba(127,127,127,.05);}
+.wd-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;}
+.wd-temp{font-weight:700;font-variant-numeric:tabular-nums;}
+.wd-rain{font-size:10.5px;font-weight:700;color:#b45309;}
+.wd-rain::before{content:"☔ ";}
+[data-theme="dark"] .wd-rain{color:#f5b860;}
+.we-fc{cursor:default;}
+.we-fc .wf-tag{position:relative;flex-shrink:0;font-size:11px;font-weight:800;color:#fff;
+  background:#2f9e6e;padding:2px 8px;border-radius:999px;}
+.we-fc .wf-desc{position:relative;flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.we-fc .wf-aux{position:relative;font-size:10.5px;color:var(--ink-soft);white-space:nowrap;}
+.we-fc .wf-aux b{font-weight:700;color:var(--ink);}
+/* 天气卡内补充行：部分区有雨提示 */
+.w-rain-note{position:relative;z-index:3;font-size:10.5px;font-weight:700;line-height:1.4;
+  color:#0e7490;max-width:100%;}
+[data-theme="dark"] .w-rain-note{color:#67d8e6;}
+
 /* ---------- 天气警告条 ---------- */
 .warning-bar{
   margin:12px 16px 0;padding:10px 14px;border-radius:var(--radius-sm);
@@ -607,11 +651,12 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   .home-top{flex-direction:column;gap:12px;}
   .home-left{width:100%;flex:none;min-width:auto;}
   .home-right{width:100%;flex:none;}
-  .weather-card{flex-direction:row;align-items:center;justify-content:center;gap:14px;padding:12px 16px;text-align:left;}
+  .weather-card{flex-direction:row;align-items:center;justify-content:center;gap:14px;padding:12px 16px;text-align:left;flex-wrap:wrap;}
   .weather-card .w-icon{font-size:40px;}
   .weather-card .w-temp{font-size:22px;white-space:nowrap;}
   .weather-card .w-desc{text-align:left;}
   .weather-card .w-meta{text-align:left;}
+  .w-rain-note{flex:1 1 100%;text-align:left;font-size:10px;padding:0 2px;}
   .ring-wrap{justify-content:center;gap:12px;}
   .cheer{text-align:center;}
   .ring-scope{max-width:100%;}
@@ -1731,9 +1776,19 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
           <div class="w-icon" id="weatherIcon">🌤</div>
           <div class="w-temp" id="weatherTemp">--°C</div>
           <div class="w-desc" id="weatherDesc">正在获取…</div>
+          <div class="w-rain-note" id="weatherRainNote" style="display:none;"></div>
           <div class="w-meta" id="weatherMeta">--</div>
         </div>
       </div>
+    </div>
+    <div class="weather-ext" id="weatherExt" style="display:none;">
+      <div class="we-fold" onclick="toggleDistrictPanel()" role="button" aria-expanded="false">
+        <span class="we-fold-t">各区</span>
+        <span class="we-fold-s" id="weFoldSummary">点击查看分区天气</span>
+        <span class="we-caret" id="weFoldCaret">▾</span>
+      </div>
+      <div class="we-panel" id="wePanel" style="display:none;"></div>
+      <div class="we-fc" id="weFc"></div>
     </div>
   </header>
 
@@ -3199,6 +3254,62 @@ async function fetchHKORaw(timeoutMs){
   }
 }
 
+/* 温度站 → 行政区映射（lang=sc 简体站名，18 行政区全覆盖） */
+var REGION_TEMP_MAP = {
+  '京士柏':'油尖旺','香港天文台':'油尖旺','黄竹坑':'南区','赤柱':'南区',
+  '打鼓岭':'北区','流浮山':'元朗','元朗公园':'元朗','大埔':'大埔','大美督':'大埔',
+  '沙田':'沙田','屯门':'屯门','将军澳':'西贡','西贡':'西贡',
+  '长洲':'离岛区','赤鱲角':'离岛区','青衣':'葵青',
+  '石岗':'荃湾','荃湾可观':'荃湾','荃湾城门谷':'荃湾',
+  '香港公园':'中西区','筲箕湾':'东区','九龙城':'九龙城','启德跑道公园':'九龙城',
+  '跑马地':'湾仔','黄大仙':'黄大仙','观塘':'观塘','深水埗':'深水埗'
+};
+/* rhrread rainfall 某站是否有雨（兼容 main 字符串/数值 与 max/min） */
+function rainfallHasRain(st){
+  if(!st) return false;
+  const m = st.main, mx = st.max;
+  return (typeof m === 'number' && m > 0) || (typeof mx === 'number' && mx > 0)
+      || (typeof m === 'string' && m !== '' && !/false/i.test(m) && parseFloat(m) > 0);
+}
+function rainfallPeak(st){
+  if(!st) return 0;
+  let best = 0;
+  ['max','min','main'].forEach(k=>{
+    const v = st[k];
+    if(typeof v === 'number' && v > best) best = v;
+    else if(typeof v === 'string' && v !== '' && !/false/i.test(v)){ const n = parseFloat(v); if(!isNaN(n) && n > best) best = n; }
+  });
+  return best;
+}
+/* 把 27 温度站 + 18 行政区雨量 聚合为 18 区分区表（温度取区内容）。同步产出有雨区列表与全港降雨状态 */
+function aggregateRegions(data, refDistrict){
+  const tempSum = {}, tempCnt = {};
+  ((data.temperature && data.temperature.data) || []).forEach(t=>{
+    const reg = REGION_TEMP_MAP[t.place];
+    if(!reg || t.value == null) return;
+    tempSum[reg] = (tempSum[reg]||0) + t.value;
+    tempCnt[reg] = (tempCnt[reg]||0) + 1;
+  });
+  const rainBy = {};
+  ((data.rainfall && data.rainfall.data) || []).forEach(r=>{ if(r && r.place) rainBy[r.place] = r; });
+  const rainPlaces = [], regions = [];
+  ((data.rainfall && data.rainfall.data) || []).forEach(r=>{
+    if(!r || !r.place) return;
+    const has = rainfallHasRain(r);
+    if(has) rainPlaces.push(r.place);
+    regions.push({
+      name: r.place,
+      temp: tempCnt[r.place] ? Math.round(tempSum[r.place]/tempCnt[r.place]) : null,
+      rain: has ? rainfallPeak(r) : 0,
+      hasRain: has
+    });
+  });
+  const shown = rainPlaces.length;
+  const refRain = refDistrict ? rainBy[refDistrict] : null;
+  const rainStatus = !shown ? 'none' : (refRain && rainfallHasRain(refRain) ? 'here' : 'patchy');
+  return { regions, rainPlaces, rainStatus };
+}
+
 /* 解析天文台 rhrread 实况为页面 payload */
 function parseHKOWeather(data){
   const tempItem = data.temperature && data.temperature.data && data.temperature.data.find(x=>x.place==='香港天文台');
@@ -3229,6 +3340,17 @@ function parseHKOWeather(data){
   }catch(e){}
   const warning = ((data.warningMessage && (Array.isArray(data.warningMessage) ? data.warningMessage.join('') : (data.warningMessage||''))) || '').trim(); // HKO 返回数组或字符串都兼容
   const tcMsg = (data.tcmessage&&Array.isArray(data.tcmessage) && data.tcmessage[0]) || (typeof data.tcmessage==='string' ? data.tcmessage : '') || '';
+  // 分区聚合 + 有雨区 + 全港降雨状态（参考区=油尖旺=天文台所在，用户常见位置）
+  const ag = aggregateRegions(data, '油尖旺');
+  // 紫外线指数：rhrread 已含 uvindex.data[0]={place,value,desc}，无需额外请求
+  const uvItem = (data.uvindex && data.uvindex.data && data.uvindex.data[0]) || null;
+  let uv = null;
+  if(uvItem && uvItem.value != null){
+    let d = uvItem.desc || '';
+    const v = uvItem.value;
+    if(!d) d = v <= 2 ? '低' : v <= 5 ? '中等' : v <= 7 ? '高' : v <= 10 ? '甚高' : '极高';
+    uv = { value: v, desc: d };
+  }
   return {
     ok:true,
     temp: tempItem ? tempItem.value : null,
@@ -3240,7 +3362,11 @@ function parseHKOWeather(data){
     emoji: emoji,
     warning: warning,
     tcMessage: tcMsg,
-    updateTime: data.updateTime || data.iconUpdateTime || null
+    updateTime: data.updateTime || data.iconUpdateTime || null,
+    uv: uv,                       // 紫外线 {value, desc}
+    regions: ag.regions,          // 18 行政区 {name,temp,rain,hasRain}
+    rainPlaces: ag.rainPlaces,    // 有雨区名列表
+    rainStatus: ag.rainStatus     // 'none' 无雨 / 'patchy' 部分区有雨 / 'here' 本区也在下
   };
 }
 
@@ -3278,6 +3404,7 @@ async function fetchHKWeatherFresh(){
         weatherState = payload;
         setCachedWeather(payload);
         renderWeather();
+        refreshAuxWeather(); // 预报/空气质素并行拉取，失败不影响主体
         return payload;
       }catch(parseErr){
         console.error('parseHKOWeather error:', parseErr && parseErr.message);
@@ -3308,6 +3435,74 @@ async function fetchHKWeatherFresh(){
   weatherState = {ok:false, error: '网络异常，获取失败', isCorsOrNetwork: true};
   renderWeather();
   return weatherState;
+}
+
+/* 九天天气预报（fnd）：取最近一天作为"明日可预见条"（含显著降雨概率 PSR） */
+async function fetchForecastHK(){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 6000);
+  try{
+    const res = await fetch('https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=fnd&lang=sc', {signal: controller.signal});
+    clearTimeout(timer);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    const arr = (data.weatherForecast && data.weatherForecast.length) ? data.weatherForecast : null;
+    if(!arr) return null;
+    const t = arr[0]; // 最近一天（通常为明日）
+    return {
+      date: t.forecastDate || '',
+      week: t.week || '',
+      weather: t.forecastWeather || '',
+      maxtemp: (t.forecastMaxtemp && t.forecastMaxtemp.value != null) ? t.forecastMaxtemp.value : null,
+      mintemp: (t.forecastMintemp && t.forecastMintemp.value != null) ? t.forecastMintemp.value : null,
+      icon: t.ForecastIcon != null ? t.ForecastIcon : null,
+      psr: t.PSR || '',
+      updateTime: data.updateTime || null
+    };
+  }catch(e){
+    clearTimeout(timer);
+    return null; // 预报失败不影响主体天气卡
+  }
+}
+/* 空气质素健康指数（AQHI）：dashboard.data.gov.hk 各监测站实时，取风险最高站作为展示（更谨慎） */
+const AQHI_RISK_RANK = {Low:0, Moderate:1, High:2, 'Very High':3, Serious:4};
+const AQHI_RISK_CN = {Low:'低', Moderate:'中等', High:'高', 'Very High':'甚高', Serious:'严重'};
+async function fetchAQHI(){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 6000);
+  try{
+    const res = await fetch('https://dashboard.data.gov.hk/api/aqhi-individual?format=json', {signal: controller.signal});
+    clearTimeout(timer);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const arr = await res.json();
+    if(!Array.isArray(arr) || !arr.length) return null;
+    let worst = arr[0];
+    arr.forEach(s=>{
+      const rk = AQHI_RISK_RANK[s.health_risk] != null ? AQHI_RISK_RANK[s.health_risk] : -1;
+      const wr = AQHI_RISK_RANK[worst.health_risk] != null ? AQHI_RISK_RANK[worst.health_risk] : -1;
+      if(rk > wr || (rk === wr && s.aqhi > worst.aqhi)) worst = s;
+    });
+    return {
+      value: worst.aqhi,
+      risk: AQHI_RISK_CN[worst.health_risk] || worst.health_risk || '',
+      station: worst.station || ''
+    };
+  }catch(e){
+    clearTimeout(timer);
+    return null;
+  }
+}
+/* 附加数据（预报/空气质素）并行拉取：成功即并入 weatherState 并重绘，不阻塞主流程 */
+async function refreshAuxWeather(){
+  const settled = await Promise.allSettled([fetchForecastHK(), fetchAQHI()]);
+  if(!weatherState || !weatherState.ok) return;
+  let changed = false;
+  if(settled[0].status === 'fulfilled' && settled[0].value){ weatherState.forecast = settled[0].value; changed = true; }
+  if(settled[1].status === 'fulfilled' && settled[1].value){ weatherState.aqhi = settled[1].value; changed = true; }
+  if(changed){
+    setCachedWeather(weatherState);
+    renderWeather();
+  }
 }
 
 async function fetchHKWeather(force){
@@ -3363,6 +3558,8 @@ function renderWeather(){
     tempEl.textContent = '--°C';
     descEl.textContent = '正在获取…';
     metaEl.textContent = '香港天文台';
+    const ne = document.getElementById('weatherRainNote'); if(ne) ne.style.display = 'none';
+    const ex = document.getElementById('weatherExt'); if(ex) ex.style.display = 'none';
     return;
   }
   if(!weatherState.ok){
@@ -3371,6 +3568,8 @@ function renderWeather(){
     tempEl.textContent = '--°C';
     descEl.textContent = '网络异常';
     metaEl.textContent = '点我重试';
+    const ne = document.getElementById('weatherRainNote'); if(ne) ne.style.display = 'none';
+    const ex = document.getElementById('weatherExt'); if(ex) ex.style.display = 'none';
     return;
   }
   card.classList.remove('offline');
@@ -3384,7 +3583,24 @@ function renderWeather(){
     if(!isNaN(t.getTime())) meta += ' ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0');
   }
   if(weatherState.humidity!==null) meta += ' · 湿度 ' + weatherState.humidity + '%';
+  if(weatherState.uv && weatherState.uv.desc && !weatherState.stale) meta += ' · UV ' + weatherState.uv.desc;
+  if(weatherState.aqhi && weatherState.aqhi.risk && !weatherState.stale) meta += ' · 空气 ' + weatherState.aqhi.risk;
   metaEl.textContent = meta;
+  // 部分区有雨提示行（香港"此区晴彼区雨"很常见，单点图标会漏掉）
+  const noteEl = document.getElementById('weatherRainNote');
+  if(noteEl){
+    if(!weatherState.stale && weatherState.rainStatus === 'patchy' && Array.isArray(weatherState.rainPlaces) && weatherState.rainPlaces.length){
+      const list = weatherState.rainPlaces.slice(0,3).join('、');
+      const more = weatherState.rainPlaces.length > 3 ? '等' + weatherState.rainPlaces.length + '区' : '';
+      noteEl.textContent = '☔ ' + list + (more || '') + ' 正在下雨';
+      noteEl.style.display = '';
+    }else if(!weatherState.stale && weatherState.rainStatus === 'here'){
+      noteEl.textContent = '☔ 本区正在下雨';
+      noteEl.style.display = '';
+    }else{
+      noteEl.style.display = 'none';
+    }
+  }
   card.classList.remove('w-sunny','w-rain','w-cloudy','w-storm','w-snow','w-fog');
   const wk = weatherKind();
   if(wk) card.classList.add('w-'+wk);
@@ -3393,6 +3609,75 @@ function renderWeather(){
   if(window.WeatherFX){
     try{ WeatherFX.set(wk || 'loading'); }catch(e){ console.error('[WeatherFX]', e); }
   }
+  renderWeatherExt();
+}
+
+/* 天气扩展区：明日可预见条 + 分区折叠（全部容错，缺数据自动隐藏整区） */
+function renderWeatherExt(){
+  const ext = document.getElementById('weatherExt');
+  if(!ext) return;
+  const w = weatherState;
+  const fresh = w && w.ok && !w.stale;
+  const hasFc = fresh && w.forecast && w.forecast.weather;
+  const hasReg = fresh && Array.isArray(w.regions) && w.regions.length;
+  if(!hasFc && !hasReg){ ext.style.display = 'none'; return; }
+  ext.style.display = 'flex';
+  const fcEl = document.getElementById('weFc');
+  if(fcEl){
+    if(hasFc){
+      const f = w.forecast;
+      const nd = new Date();
+      const ymd = String(nd.getFullYear()) + String(nd.getMonth()+1).padStart(2,'0') + String(nd.getDate()).padStart(2,'0');
+      const isToday = f.date === ymd;
+      const tag = isToday ? '今' : (f.week || '明');
+      const temp = (f.mintemp != null && f.maxtemp != null) ? f.mintemp + '–' + f.maxtemp + '°'
+                : (f.maxtemp != null ? f.maxtemp + '°' : '');
+      const psrMap = {'高':'降雨概率高','中高':'降雨概率中高','中':'降雨概率中','中低':'降雨概率中低','低':'降雨概率低'};
+      const psr = psrMap[f.psr] || (f.psr ? '降雨' + f.psr : '');
+      const aux = [isToday ? '今日' : '明日', temp, psr].filter(Boolean).join(' · ');
+      fcEl.innerHTML = '<span class="wf-tag">' + escHtml(tag) + '</span>'
+        + '<span class="wf-desc">' + escHtml(f.weather) + '</span>'
+        + (aux ? '<span class="wf-aux"><b>' + escHtml(aux) + '</b></span>' : '');
+      fcEl.style.display = 'flex';
+    }else{
+      fcEl.style.display = 'none';
+    }
+  }
+  const sum = document.getElementById('weFoldSummary');
+  if(sum){
+    if(hasReg){
+      const n = (w.rainPlaces && w.rainPlaces.length) || 0;
+      sum.textContent = n ? n + ' 个区正下雨 · 点此看各区' : '全港无雨 · 点此看各区';
+    }else{
+      sum.textContent = '点此看分区天气';
+    }
+  }
+  const caret = document.getElementById('weFoldCaret');
+  if(caret){
+    const p = document.getElementById('wePanel');
+    caret.textContent = (p && p.style.display !== 'none') ? '▴' : '▾';
+  }
+  renderDistrictPanel();
+}
+/* 分区面板：18 行政区（温度 + 雨量），有雨区高亮 */
+function renderDistrictPanel(){
+  const panel = document.getElementById('wePanel');
+  if(!panel || !weatherState || !Array.isArray(weatherState.regions)) return;
+  panel.innerHTML = weatherState.regions.map(r=>{
+    const t = r.temp != null ? r.temp + '°' : '--';
+    const rn = r.hasRain ? '<span class="wd-rain">' + (r.rain > 0 ? r.rain.toFixed(1) : '') + '</span>' : '';
+    return '<div class="wd-row"><span class="wd-name">' + escHtml(r.name) + '</span><span class="wd-temp">' + t + '</span>' + rn + '</div>';
+  }).join('');
+}
+function toggleDistrictPanel(){
+  const panel = document.getElementById('wePanel');
+  const caret = document.getElementById('weFoldCaret');
+  const fold = document.querySelector('.we-fold');
+  if(!panel) return;
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : '';
+  if(caret) caret.textContent = open ? '▾' : '▴';
+  if(fold) fold.setAttribute('aria-expanded', open ? 'false' : 'true');
 }
 
 /* =====================================================================
@@ -10272,6 +10557,7 @@ init();
     </div>
     <div class="comp-btns">
       <button id="compMicBtn" class="comp-btn" onclick="compToggleMic()">🎤 点我说</button>
+      <button id="compCloudBtn" class="comp-btn" onclick="tcAsrSetup()" title="腾讯云语音识别：解决安卓识别器一两个回合后失聪">☁️ 云识别</button>
       <button id="compProBtn" class="comp-btn on" onclick="compToggleProactive()">🗣 主动开口</button>
       <button id="compSaveBtn" class="comp-btn on" onclick="compToggleSaveFlow()">🌱 省流</button>
       <button id="compLvlBtn" class="comp-btn" onclick="compCycleLevel()">😊 适度</button>
@@ -10284,6 +10570,208 @@ init();
     </div>
   </div>
 </div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   腾讯云实时语音识别 · 前端直连模块（无 CDN；WebSocket + ScriptProcessor）
+   解决 Web Speech 在安卓"一两个回合后失聪"：云端会话稳定，前台直连无后端。
+   用法（陪伴内）：
+     const client = window.__tcAsr.client || window.__tcAsr.create(cfg);
+     client.start(onFinal, onSub, onError)  → onFinal(句文本)
+     client.stop()
+   cfg = { appId, secretId, secretKey, yue, stream }
+   ═══════════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  if(typeof window==='undefined') return;
+  function utf8Bytes(str){
+    const out=[];
+    for(let i=0;i<str.length;i++){
+      let c=str.charCodeAt(i);
+      if(c<0x80) out.push(c);
+      else if(c<0x800){ out.push(0xC0|(c>>6), 0x80|(c&0x3F)); }
+      else if(c<0xD800||c>=0xE000){ out.push(0xE0|(c>>12), 0x80|((c>>6)&0x3F), 0x80|(c&0x3F)); }
+      else{ i++; const c2=str.charCodeAt(i); c=0x10000+(((c&0x3FF)<<10)|(c2&0x3FF)); out.push(0xF0|(c>>18), 0x80|((c>>12)&0x3F), 0x80|((c>>6)&0x3F), 0x80|(c&0x3F)); }
+    }
+    return out;
+  }
+  function sha1Bytes(bytes){
+    const L=bytes.length;
+    const blen=Math.ceil((L+9)/64)*64;
+    const b=new Array(blen);
+    for(let i=0;i<L;i++) b[i]=bytes[i];
+    b[L]=0x80;
+    for(let i=L+1;i<blen-8;i++) b[i]=0;
+    const totalBits=L*8;
+    const blHi=Math.floor(totalBits/4294967296), blLo=totalBits>>>0;
+    b[blen-8]=(blHi>>>24)&0xFF; b[blen-7]=(blHi>>>16)&0xFF; b[blen-6]=(blHi>>>8)&0xFF; b[blen-5]=blHi&0xFF;
+    b[blen-4]=(blLo>>>24)&0xFF; b[blen-3]=(blLo>>>16)&0xFF; b[blen-2]=(blLo>>>8)&0xFF; b[blen-1]=blLo&0xFF;
+    let h0=0x67452301,h1=0xEFCDAB89,h2=0x98BADCFE,h3=0x10325476,h4=0xC3D2E1F0;
+    const K=[0x5A827999,0x6ED9EBA1,0x8F1BBCDC,0xCA62C1D6];
+    const w=new Array(80);
+    const rol=(n,s)=>(n<<s)|(n>>>(32-s));
+    for(let i=0;i<b.length;i+=64){
+      for(let t=0;t<16;t++) w[t]=(b[i+t*4]<<24)|(b[i+t*4+1]<<16)|(b[i+t*4+2]<<8)|b[i+t*4+3];
+      for(let t=16;t<80;t++) w[t]=rol(w[t-3]^w[t-8]^w[t-14]^w[t-16],1);
+      let a=h0,bv=h1,c=h2,d=h3,e=h4;
+      for(let t=0;t<80;t++){
+        const f=t<20?((bv&c)|(~bv&d)):t<40?(bv^c^d):t<60?((bv&c)|(bv&d)|(c&d)):(bv^c^d);
+        const tmp=(rol(a,5)+f+e+K[t<20?0:t<40?1:t<60?2:3]+w[t])>>>0;
+        e=d; d=c; c=rol(bv,30); bv=a; a=tmp;
+      }
+      h0=(h0+a)>>>0; h1=(h1+bv)>>>0; h2=(h2+c)>>>0; h3=(h3+d)>>>0; h4=(h4+e)>>>0;
+    }
+    const hx=n=>{ let s=''; for(let i=28;i>=0;i-=4) s+=((n>>i)&0xF).toString(16); return s; };
+    return hx(h0)+hx(h1)+hx(h2)+hx(h3)+hx(h4);
+  }
+  function hexToByteArr(hex){
+    const a=[];
+    for(let i=0;i<hex.length;i+=2) a.push(parseInt(hex.substr(i,2),16));
+    return a;
+  }
+  function hexToStr(hex){
+    let s='';
+    for(let i=0;i<hex.length;i+=2) s+=String.fromCharCode(parseInt(hex.substr(i,2),16));
+    return s;
+  }
+  function hmacSha1Hex(keyStr, msgStr){
+    const key=utf8Bytes(keyStr);
+    const msgBytes=msgStr.split('').map(c=>c.charCodeAt(0)&0xFF); // 签名原文纯 ASCII
+    let kp=key.length>64?hexToByteArr(sha1Bytes(key)):key.slice();
+    while(kp.length<64) kp.push(0);
+    const ipad=new Array(64), opad=new Array(64);
+    for(let i=0;i<64;i++){ ipad[i]=kp[i]^0x36; opad[i]=kp[i]^0x5c; }
+    const inner=ipad.concat(msgBytes);
+    const h1=sha1Bytes(inner);
+    const outer=opad.concat(hexToByteArr(h1));
+    return sha1Bytes(outer);
+  }
+  function hmacSha1B64(keyStr, msgStr){
+    const hex=hmacSha1Hex(keyStr, msgStr);
+    try{ return btoa(hexToStr(hex)); }catch(e){ return hex; }
+  }
+  function uuid(){
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{
+      const r=Math.random()*16|0, v=c==='x'?r:(r&0x3|0x8);
+      return v.toString(16);
+    });
+  }
+  function buildWsUrl(cfg){
+    const now=Math.floor(Date.now()/1000);
+    const params={
+      engine_model_type: cfg.engine || (cfg.yue?'16k_yue':'16k_zh'),
+      expired: now + (cfg.expireSeconds!=null?cfg.expireSeconds:300),
+      filter_dirty: 1,
+      filter_modal: 1,
+      filter_punc: 1,
+      needvad: 1,
+      nonce: now*1000 + Math.floor(Math.random()*100000),
+      secretid: cfg.secretId,
+      timestamp: now,
+      voice_format: 1,
+      voice_id: uuid()
+    };
+    const keys=Object.keys(params).sort();
+    const query=keys.map(k=>k+'='+params[k]).join('&');
+    const source='asr.cloud.tencent.com/asr/v2/'+cfg.appId+'?'+query;
+    const sig=encodeURIComponent(hmacSha1B64(cfg.secretKey, source));
+    return { url:'wss://asr.cloud.tencent.com/asr/v2/'+cfg.appId+'?'+query+'&signature='+sig, voice_id: params.voice_id };
+  }
+  // 音频采集：48k→16k 降采样 → PCM Int16 → 每 200ms(3200 sample) 帧
+  class Pcm16kSource {
+    constructor(stream, onFrame, onError){
+      this.ctx=null; this.node=null; this.source=null; this.running=false;
+      this.onFrame=onFrame; this.onError=onError;
+      this.buf=[]; this.resampleAcc=0;
+      const CTX=window.AudioContext||window.webkitAudioContext;
+      if(!CTX){ if(onError) onError('no-AudioContext'); return; }
+      try{ this.ctx=new CTX(); }catch(e){ if(onError) onError('AudioContext:'+e.message); return; }
+      this.node=this.ctx.createScriptProcessor(4096,1,1);
+      this.node.onaudioprocess=e=>this._onAudio(e);
+      this.source=this.ctx.createMediaStreamSource(stream);
+      this.source.connect(this.node);
+      this.node.connect(this.ctx.destination);
+      this.running=true;
+    }
+    _onAudio(e){
+      if(!this.running) return;
+      const input=e.inputBuffer.getChannelData(0);
+      const ratio=16000/this.ctx.sampleRate;
+      let acc=this.resampleAcc;
+      for(let i=0;i<input.length;i++){
+        acc+=ratio;
+        while(acc>=1){ acc-=1; this._push(input[i]); }
+      }
+      this.resampleAcc=acc;
+    }
+    _push(sample){
+      this.buf.push(sample);
+      if(this.buf.length>=3200){
+        const frame=new Int16Array(3200);
+        for(let i=0;i<3200;i++){
+          let v=this.buf[i];
+          v=v<1?v>-1?v:-1:1;
+          frame[i]=(v*32767)|0;
+        }
+        this.buf=[];
+        if(this.onFrame) this.onFrame(frame);
+      }
+    }
+    stop(){
+      this.running=false;
+      try{ if(this.node) this.node.disconnect(); }catch(e){}
+      try{ if(this.source) this.source.disconnect(); }catch(e){}
+      try{ if(this.ctx) this.ctx.close(); }catch(e){}
+      this.ctx=null; this.node=null; this.source=null;
+    }
+  }
+  class TencentAsrClient {
+    constructor(cfg){ this.cfg=cfg||{}; this.ws=null; this.audio=null; this.voiceId=''; this.enabled=false; this.onFinal=null; this.onSub=null; this.onError=null; }
+    start(onFinal, onSub, onError){
+      this.onFinal=onFinal; this.onSub=onSub; this.onError=onError;
+      if(!this.cfg.appId||!this.cfg.secretId||!this.cfg.secretKey){ if(onError) onError('缺腾讯云 AppID/SecretId/SecretKey'); return false; }
+      try{
+        const {url, voice_id}=buildWsUrl(this.cfg);
+        this.voiceId=voice_id;
+        this.enabled=true;
+        this.ws=new WebSocket(url);
+        this.ws.binaryType='arraybuffer';
+        this.ws.onopen=()=>{
+          try{
+            this.audio=new Pcm16kSource(this.cfg.stream, frame=>{
+              if(this.ws && this.ws.readyState===1) this.ws.send(frame.buffer);
+            }, err=>{ if(this.onError) this.onError(err); });
+          }catch(e){ if(this.onError) this.onError('录音:'+e.message); }
+        };
+        this.ws.onmessage=e=>{
+          try{
+            const j=JSON.parse(e.data);
+            if(j.code!==0){ if(this.onError) this.onError('ASR:'+(j.message||('code '+j.code))); this.stop(); return; }
+            const r=j.result;
+            if(r && r.slice_type===2 && r.voice_text_str){
+              const t=String(r.voice_text_str).trim();
+              if(t && this.onFinal) this.onFinal(t);
+            }
+          }catch(e){}
+        };
+        this.ws.onerror=()=>{ if(this.onError) this.onError('WS错误'); };
+        this.ws.onclose=()=>{ this.enabled=false; if(this.audio){ this.audio.stop(); this.audio=null; } };
+        return true;
+      }catch(e){ if(onError) onError('启动:'+e.message); return false; }
+    }
+    stop(){
+      this.enabled=false;
+      if(this.audio){ try{ this.audio.stop(); }catch(e){} this.audio=null; }
+      if(this.ws){
+        try{ this.ws.send(JSON.stringify({type:'end'})); }catch(e){}
+        try{ this.ws.close(); }catch(e){}
+        this.ws=null;
+      }
+    }
+  }
+  window.__tcAsr = { client:null, create(cfg){ this.client=new TencentAsrClient(cfg); return this.client; }, hmacB64:hmacSha1B64, buildUrl:buildWsUrl };
+})();
+</script>
 
 <script>
 /* ══════════════════════════════════════════════════════════════════
@@ -10432,6 +10920,7 @@ init();
     post({type:'SESSION_CLOSE'});
     clearTimeout(listenGuardTimer);
     if(restartTimer){ clearTimeout(restartTimer); restartTimer=null; }
+    stopCloudAsr(); // 云识别长连接：先停（发 end 帧 + 关 WS + 停采集）
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
     if(stream){ stream.getTracks().forEach(t=>{try{t.stop();}catch(e){}}); stream=null; }
     if(videoEl){ try{ videoEl.srcObject=null; }catch(e){} videoEl=null; }
@@ -10512,13 +11001,33 @@ init();
   const OBSERVE_PROMPT='你是陪伴助手的"眼睛"。看一张用户当下的摄像头画面，用中文输出严格 JSON，不要任何前缀或解释，第一个字符必须是 {。\n字段：\n{\n "scene":"用一句话客观描述画面里正在发生什么（如：用户正低头在纸上写字）",\n "subject_state":"用户当前的状态/姿态/表情（如：专注、放松、发呆、疲惫、伸懒腰）",\n "changed_from_last":true或false（相比上一次观察，画面明显变化了吗）, \n "salience":0到1的数字（这一刻值不值得开口说一句，0=完全不必，1=很值得；只有真正有意思的变化才给高分，大多数安静工作时刻给低分）, \n "uncertain":true或false（看不清/被遮挡/光线太暗就填 true，绝不许猜）\n}\n铁律：看不清就 uncertain:true 且 scene/subject_state 留空，绝对不要编造画面内容。salience 要保守，安静工作的画面给 0.1~0.3，只有明显异常或有趣变化才给 0.6+。';
 
   // ── 耳朵（Web Speech；无识别能力降级文字输入）──
+  // 共用"最终识别文本"处理管线：Web Speech 的 final 与腾讯云 ASR 的稳态句都走这里
+  // （防回声②③ / 2.5s 去重 / 停嘴 / 事件链）
+  function handleFinalSpeech(finalText){
+    if(!finalText) return;
+    if(speaking) return; // 防回声①
+    // 防回声②：AI 说完瞬间的 400ms 消尾窗
+    if(Date.now() < echoGraceUntil){ setSub(''); return; }
+    // 防回声③：LATE_ECHO_MS 内到达且与 AI 刚说的高度重合 = 迟到的回声
+    if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(finalText,lastAISaidNorm)){ setSub(''); return; }
+    // 同一句 2.5s 去重
+    if(finalText===lastFinalTxt && Date.now()-lastFinalAtTxt<2500) return;
+    lastFinalTxt=finalText; lastFinalAtTxt=Date.now();
+    setSub('');
+    const key=finalText;
+    compStopMouth(); // 用户开口当场停（不等队列）
+    const ne=epoch+1;
+    post({type:'USER_SPEECH_START',epoch:ne});
+    post({type:'USER_SPEECH',text:finalText,turnKey:key,epoch:ne});
+    showYou(finalText);
+  }
+  let lastFinalTxt='', lastFinalAtTxt=0;
   function startRecog(){
     try{
       const RR=window.SpeechRecognition||window.webkitSpeechRecognition;
       if(!RR) return false;
       recog=new RR();
       recog.lang='zh-CN'; recog.continuous=true; recog.interimResults=true;
-      let lastFinal='', lastFinalAt=0;
       lastRecogHit=Date.now(); // 心跳：证明识别器刚启动/还活着
       recog.onresult=function(e){
         lastRecogHit=Date.now(); // 有任何结果（含 interim）= 识别器活着，心跳用
@@ -10530,22 +11039,7 @@ init();
           if(r.isFinal) finalText+=r[0].transcript; else interim+=r[0].transcript;
         }
         if(interim) setSub(interim); // 中间结果：仅字幕，绝不进 prompt / 落库
-        if(finalText){
-          // 防回声②：AI 说完瞬间的 400ms 消尾窗（只压播放结束的残响；长了会吃掉用户紧接 AI 的话）
-          if(Date.now() < echoGraceUntil){ setSub(''); return; }
-          // 防回声③：说完后 LATE_ECHO_MS 内到达、且与 AI 刚说的内容高度重合 = 迟到回声（Android 识别结果有网络延迟），丢弃
-          if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(finalText,lastAISaidNorm)){ setSub(''); return; }
-          // 同一句只在 2.5s 内去重（防 Chrome 对同一段语音重复触发 final）；超过时间窗用户可以重复说同样的话
-          if(finalText===lastFinal && Date.now()-lastFinalAt<2500) return;
-          lastFinal=finalText; lastFinalAt=Date.now();
-          setSub('');
-          const key=finalText;
-          compStopMouth(); // 用户开口当场停（不等队列）
-          const ne=epoch+1;
-          post({type:'USER_SPEECH_START',epoch:ne});
-          post({type:'USER_SPEECH',text:finalText,turnKey:key,epoch:ne});
-          showYou(finalText);
-        }
+        handleFinalSpeech(finalText);
       };
       recog.onerror=function(e){
         const er=e&&e.error;
@@ -10575,12 +11069,19 @@ init();
   function setupEars(){
     recogAvailable=!!(window.SpeechRecognition||window.webkitSpeechRecognition);
     const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex'; // 文字条始终可用：语音识别不稳时的可靠兜底
+    // 云识别优先（腾讯云 ASR）：解决 Web Speech 在安卓"一两个回合后失聪"；失败/未配置自动回退 Web Speech
+    if(tcAsrEnabled()){
+      if(!startCloudAsr()){ if(micOn && recogAvailable) startRecog(); }
+      updateStatus();
+      return;
+    }
     if(!recogAvailable){ updateStatus(); return; }
     if(micOn && !startRecog()){ /* 启动失败：保持文字条，等用户点🎤唤醒 */ }
     updateStatus();
   }
   function disableMic(){
     micOn=false;
+    stopCloudAsr();
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
     if(stream){ stream.getAudioTracks().forEach(t=>{try{t.enabled=false;}catch(e){}}); }
     const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
@@ -10590,6 +11091,63 @@ init();
   // 说话期间临时停麦：只停识别器（不动 micOn / 不关音频轨道），说完再恢复；用于消灭回声
   function stopRecogKeepFlag(){
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+  }
+
+  // ── 腾讯云 ASR（云识别）──
+  // 解决 Web Speech 在安卓"一两个回合后失聪"：云端会话稳定、前段直连无后端。
+  // 配置存 cfg.tcAsr={appId,secretId,secretKey,on}，在陪伴控制栏设置（见 tcAsrSetup）。
+  let tcAsrClient=null, tcAsrActive=false;
+  function tcAsrEnabled(){ const t=cfg&&cfg.tcAsr; return !!(t && t.on && t.appId && t.secretId && t.secretKey); }
+  function startCloudAsr(){
+    if(!tcAsrEnabled()) return false;
+    if(tcAsrActive) return true;
+    if(!window.__tcAsr) return false;
+    const t=cfg.tcAsr;
+    const client=tcAsrClient || window.__tcAsr.create({appId:t.appId,secretId:t.secretId,secretKey:t.secretKey,yue:t.yue,stream:stream});
+    tcAsrClient=client;
+    const ok=client.start(
+      (txt)=>{ // onFinal：稳态句 → 走共用管线（等效 Web Speech 的 final）
+        if(!speaking) handleFinalSpeech(txt);
+      },
+      (sub)=>{ if(sub && !speaking) setSub(sub); }, // onSub：中间结果 → 字幕
+      (err)=>{ // onError：失败回退 Web Speech（不打扰用户，静默回退）
+        try{ if(window.toast) toast('☁️ 云识别退避:'+String(err).slice(0,40)); }catch(e){}
+        tcAsrActive=false;
+        if(tcAsrClient){ try{ tcAsrClient.stop(); }catch(e){} }
+        if(!recog && micOn && running) startRecog();
+      }
+    );
+    tcAsrActive=!!ok;
+    if(tcAsrActive){ recog=null; markNeedTapReset(); updateStatus(); }
+    return ok;
+  }
+  function stopCloudAsr(){
+    tcAsrActive=false;
+    if(tcAsrClient){ try{ tcAsrClient.stop(); }catch(e){} }
+    tcAsrClient=null;
+  }
+  function markNeedTapReset(){ recogNeedTap=false; }
+  function tcAsrSetup(){
+    // 简单配置弹窗：填 AppID / SecretId / SecretKey（全角用半角黏贴；存在 localStorage mhm_companion_cfg.tcAsr）
+    const t=(cfg.tcAsr && cfg.tcAsr.appId) ? cfg.tcAsr : {appId:'',secretId:'',secretKey:'',on:false,yue:false};
+    const appId=prompt('腾讯云 AppID（语音识别控制台可见，如 1259xxxxxxx）', t.appId||'');
+    if(appId===null) return;
+    const secretId=prompt('腾讯云 SecretId', t.secretId||'');
+    if(secretId===null) return;
+    const secretKey=prompt('腾讯云 SecretKey', t.secretKey||'');
+    if(secretKey===null) return;
+    const yue=confirm('识别粤语（16k_yue）？\n\n确定=粤语 / 取消=普通话(16k_zh)');
+    cfg.tcAsr={appId:String(appId||'').trim(), secretId:String(secretId||'').trim(), secretKey:String(secretKey||'').trim(), on:!!(appId&&secretId&&secretKey), yue:!!yue};
+    saveCfg();
+    if(cfg.tcAsr.on){
+      toast('☁️ 云识别已启用'+(cfg.tcAsr.yue?'（粤语）':'（普通话）')+'，重启陪伴生效');
+      // 若已在运行：热切换
+      if(running && micOn){ stopCloudAsr(); if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; } startCloudAsr(); updateStatus(); }
+    }
+  }
+  function tcAsrStatus(){
+    if(tcAsrEnabled()) return tcAsrActive?'☁️ 云识别中':'☁️ 云识别(待启动)';
+    return '';
   }
   // 识别器彻底断线（onend 重启连续失败）：标记需用户点🎤唤醒，并明确提示（不再静默"安静"）
   function markNeedTap(){
@@ -10631,6 +11189,7 @@ init();
   // 给会话续命；若 stop 后 1.5s onend 都没来（引擎挂死）→ 强杀重建。
   function compHeartbeat(){
     if(!running||!micOn||speaking) return;
+    if(tcAsrActive) return; // 云识别是长连接：WS 自带心跳/onclose，不需要 Web Speech 的强杀体检
     if(!recog) return; // 断线/待命：等用户点🎤（不自动重启，避免触发权限/手势限制）
     const now=Date.now();
     if(now-lastRecogHit < 8000) return; // 有动静（可能有人在说话），不打扰
@@ -11177,7 +11736,7 @@ init();
   // 原来"在跑→暂停"的语义导致：识别器静默死亡后用户点一下只是暂停、看起来"点了没用"，必须连点两下才恢复。
   function compToggleMic(){
     if(!running) return;
-    if(!recogAvailable){
+    if(!recogAvailable && !tcAsrEnabled()){
       const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
       if(window.toast) toast('此设备不支持语音识别，用下方打字也能聊');
       return;
@@ -11185,6 +11744,19 @@ init();
     micOn=true;
     if(stream){ stream.getAudioTracks().forEach(t=>{ try{ t.enabled=true; }catch(e){} }); }
     recogNeedTap=false;
+    if(tcAsrEnabled()){
+      // 云识别：重建长连接（停旧的 → 立即重启）
+      stopCloudAsr();
+      if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+      if(startCloudAsr()){ if(window.toast) toast('☁️ 云识别已重新连接'); }
+      else {
+        const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
+        if(window.toast) toast('云识别启动失败，回退系统识别');
+        if(startRecog()){} else { const b2=document.getElementById('compInputBar'); if(b2) b2.style.display='flex'; }
+      }
+      syncCtrlButtons(); updateStatus();
+      return;
+    }
     if(recog) stopRecogKeepFlag(); // 停掉旧实例（可能已静默死亡），立刻在用户手势内重启，最可靠
     if(startRecog()){
       if(window.toast) toast('已重新连接，正在听你说话');
@@ -11221,6 +11793,8 @@ init();
   window.compCycleLevel=compCycleLevel;
   window.compToggleObsDebug=compToggleObsDebug;
   window.compSendText=compSendText;
+  window.tcAsrSetup=tcAsrSetup;
+  window.tcAsrStatus=tcAsrStatus;
 })();
 </script>
 
