@@ -10824,6 +10824,9 @@ init();
   let lastFrame=null, lastFrameGray=null, lastMotion=0, motionChanged=false, present=false;
   let vision=null, lastObserveAt=0;
   let speaking=false, pendingSpeak={};
+  // 逐句回声基准：云/WebSpeech 把 AI 多句回复里的"某一句"识别回来时，整段基准受 60% 门槛漏网。
+  // 这里存最近几句 AI 单句的归一化文本，单句级比对可命中"AI 某一句被回声"这类自说自话。
+  let aiSaidSents=[];
   // 防回声（Android 麦克风会把 AI 自己喇叭的声音识别成"用户说话"）：
   //  ①speaking 覆盖到音频真正播完（见 compSpeak 的 waitAudioEnd），播放期间识别结果直接丢弃；
   //  ②ECHO_GRACE_MS=AI 说完后的极短消尾窗（400ms，只压播放结束瞬间的残响）——不能长，否则会吃掉用户紧接 AI 说的话；
@@ -11008,8 +11011,12 @@ init();
     if(speaking) return; // 防回声①
     // 防回声②：AI 说完瞬间的 400ms 消尾窗
     if(Date.now() < echoGraceUntil){ setSub(''); return; }
-    // 防回声③：LATE_ECHO_MS 内到达且与 AI 刚说的高度重合 = 迟到的回声
+    // 防回声③：LATE_ECHO_MS 内到达且与 AI 刚说的内容高度重合 = 迟到的回声，丢弃（整段基准 + 逐句基准双保险）
     if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(finalText,lastAISaidNorm)){ setSub(''); return; }
+    if((Date.now()-lastAISaidAt) < LATE_ECHO_MS && aiSaidSents && aiSaidSents.length){
+      const nf=normTxt(finalText);
+      if(nf && aiSaidSents.some(s=>s && isEchoLike(nf,s))){ setSub(''); return; } // 云/WebSpeech 把 AI 某一单句回声回来（自说自话）
+    }
     // 同一句 2.5s 去重
     if(finalText===lastFinalTxt && Date.now()-lastFinalAtTxt<2500) return;
     lastFinalTxt=finalText; lastFinalAtTxt=Date.now();
@@ -11230,7 +11237,7 @@ init();
           listenGuardTimer=setTimeout(()=>{ if(state===S.LISTENING && activeTurn===null){ state=S.IDLE; } }, 2500);
           break;
         case 'USER_SPEECH':
-          lastAISaidNorm=''; lastAISaidAt=0; // 用户真的开口了（已通过回声守卫）：清空回声比对基准，防止把用户重复 AI 的话误杀
+          lastAISaidNorm=''; lastAISaidAt=0; aiSaidSents=[]; // 用户真的开口了（已通过回声守卫）：清空回声比对基准，防止把用户重复 AI 的话误杀
           clearTimeout(listenGuardTimer); // 消费掉 → 守卫取消
           if(state===S.LISTENING){
             const tid=tryAcquireFloor(S.LISTENING,epoch);
@@ -11374,7 +11381,7 @@ init();
       // 说完同样喂给回声基准，防止 cue 的尾巴被当成用户开口触发一轮空对话。
       const fin=()=>{ cueActive=false; cueFinish=null; speaking=false; updateStatus(); };
       cueActive=true; cueFinish=fin;
-      u.onend=()=>{ echoGraceUntil=Date.now()+ECHO_GRACE_MS; lastAISaidNorm=normTxt(text); lastAISaidAt=Date.now(); fin(); };
+      u.onend=()=>{ echoGraceUntil=Date.now()+ECHO_GRACE_MS; lastAISaidNorm=normTxt(text); lastAISaidAt=Date.now(); aiSaidSents.push(normTxt(text)); if(aiSaidSents.length>12) aiSaidSents.shift(); fin(); };
       u.onerror=fin;
       setTimeout(()=>{ if(cueActive){ const f=cueFinish; cueFinish=null; if(f) f(); } }, 3000); // iOS 哑火兜底
       speaking=true; updateStatus();
@@ -11425,6 +11432,7 @@ init();
         if(!voiceLocked && st.voice){ voice=st.voice; voiceLocked=true; }
         if((!isVision || spokeCount===0) && ss){
           spokeCount++;
+          aiSaidSents.push(normTxt(ss)); if(aiSaidSents.length>12) aiSaidSents.shift(); // 逐句回声基准
           // 同步置 speaking=true：enqueueSpeak 内部是微任务才置 true，若在此刻有识别 final 到达会漏网（回声窗口）。
           speaking=true; updateStatus();
           enqueueSpeak(ss,myEpoch,tid,voice,()=>{ if(lat.t2===null) lat.t2=Date.now(); });
@@ -11479,6 +11487,7 @@ init();
           post({type:'TURN_SPEAKING',turnId:tid,epoch:myEpoch});
           showBubble(cleanForShow(s));
           const ss=cleanForSpeak(s); spokeText+=' '+ss;
+          aiSaidSents.push(normTxt(ss)); if(aiSaidSents.length>12) aiSaidSents.shift();
           await compSpeak(ss,myEpoch,tid,rv.voice); // compSpeak 现在等音频真正播完才 resolve（见 compSpeak 防回声说明）
         }
         speaking=false; updateStatus();
@@ -11715,10 +11724,18 @@ init();
     if(hear){
       if(!micOn){ hear.classList.remove('on'); hear.textContent='🎤 关'; }
       else if(speaking){ hear.classList.remove('on'); hear.textContent='🎤 稍候'; } // AI 说话时麦暂歇（防回声）
+      else if(tcAsrActive){ hear.classList.add('on'); hear.textContent='🎤 云听…'; } // 云识别长连接正在听
       else if(recog){ hear.classList.add('on'); hear.textContent='🎤 听…'; } // 正在聆听
       else { hear.classList.remove('on'); hear.textContent='🎤 点我说'; } // 待命/断线，点🎤唤醒
     }
     if(spk){ spk.classList.toggle('on',speaking); spk.textContent=speaking?'💬 说着':'💬 静'; }
+    // 云识别按钮状态随动（识别中/已开启/未配置）
+    const cl=document.getElementById('compCloudBtn');
+    if(cl){
+      const enabled=tcAsrEnabled();
+      cl.classList.toggle('on',enabled);
+      cl.textContent = enabled ? (tcAsrActive ? '☁️ 识别中' : '☁️ 已开启') : '☁️ 云识别';
+    }
   }
   function syncCtrlButtons(){
     const pro=document.getElementById('compProBtn'),sv=document.getElementById('compSaveBtn'),lv=document.getElementById('compLvlBtn');
@@ -11729,6 +11746,13 @@ init();
     if(lv) lv.textContent=LEVELS[levelIdx].label;
     if(obs) obs.style.display=voiceMode?'none':''; // 纯语音：观察调试无意义 → 隐藏
     const mic=document.getElementById('compMicBtn'); if(mic) mic.classList.toggle('on',!!recog);
+    // 云识别按钮状态：已填密钥(可启用)→点亮；识别中→文本高亮；未配置→保持灰色
+    const cl=document.getElementById('compCloudBtn');
+    if(cl){
+      const enabled=tcAsrEnabled();
+      cl.classList.toggle('on',enabled);
+      cl.textContent = enabled ? (tcAsrActive ? '☁️ 识别中' : '☁️ 已开启') : '☁️ 云识别';
+    }
   }
 
   // ── 控制开关 ──
