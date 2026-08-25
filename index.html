@@ -2639,6 +2639,23 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <label style="margin-top:14px;">自定义音色 ID（设计/复刻/官网生成，填这里优先于系统音色）</label>
       <input type="text" id="psMiniVoiceId" placeholder="例如 ttv-voice-xxx 或 MiniMaxVoice001（留空则用上方系统音色）">
       <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 0;line-height:1.5;">自定义音色绑定创建它的 GroupId，更换账号/GroupId 后原音色会失效；想用系统音色请把这里清空。</p>
+      <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+            <input type="checkbox" id="psMiniYueVoice" style="opacity:0;width:0;height:0;position:absolute;">
+            <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+          </label>
+          <span style="font-size:13px;color:var(--ink-dark);">🎙 粤语发音（语音用粤语读）</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+            <input type="checkbox" id="psMiniYueText" style="opacity:0;width:0;height:0;position:absolute;">
+            <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+          </label>
+          <span style="font-size:13px;color:var(--ink-dark);">💬 粤语文字输出（自动改提示词）</span>
+        </div>
+      </div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 0;line-height:1.6;">练粤语两件套，可分开开：<b>粤语发音</b>=MiniMax 传 language_boost=Chinese,Yue，克隆音色口音不受影响；<b>粤语文字输出</b>=自动改提示词让 AI 用粤语口语回复。只开发音=普通话文字粤语腔；只开文字=粤语文字普通话读音；都开=完整粤语对话。</p>
       <label style="margin-top:14px;">音色设计（文字描述生成全新音色，首次合成时计费 ¥9.9/音色）</label>
       <div style="display:flex;gap:6px;">
         <input type="text" id="psDesignPrompt" placeholder="如：温柔知性、带一点气音的女声" style="flex:1;">
@@ -5912,6 +5929,13 @@ function buildSystem(){
   if(memBlocks) sys += '\n\n' + memBlocks;
   const roleProto = buildRoleProtocol(); // 多角色音色协议：强制回复以【角色名】开头（音色切换用）
   if(roleProto) sys += '\n\n' + roleProto;
+  // 粤语文字输出开关：开启后自动注入"用粤语回复"指令（练粤语用），配合语音粤语 language_boost=Chinese,Yue 成完整粤语对话
+  try{
+    const _ps = (pomoData && pomoData.settings) ? pomoData.settings : {};
+    if(_ps.miniYueText){
+      sys += '\n\n<粤语模式>用户希望用粤语练口语。请用粤语（繁体）口语回复，像香港朋友聊天那样自然：可用「你哋」「我哋」「唔」「係」「嘅」「咗」「喺」「啲」等粤语字词；用户理解粤语、正在练习，不需要翻译或解释。';
+    }
+  }catch(e){}
   return sys;
 }
 
@@ -9630,6 +9654,7 @@ async function ttsMiniMax(text, vo){
   const body = {
     model: (s.miniModel || 'speech-2.8-turbo'),
     text: String(text).slice(0,500), // 单次 ≤500 字符
+    language_boost: s.miniLang || 'auto', // 粤语场景传 Chinese,Yue（否则同字按普通话读）；auto=模型自主判断
     voice_setting: {
       voice_id: (vo && vo.voiceId) ? vo.voiceId : (s.miniVoiceId || s.miniVoice || 'female-tianmei'), // 角色音色优先，否则全局
       speed: Math.min(2, Math.max(0.5, (vo && vo.rate != null) ? vo.rate : (s.rate!=null ? s.rate : 0.98))),
@@ -10040,6 +10065,8 @@ function openPomoSettings(){
   document.getElementById('psMiniKey').value = s.miniKey || '';
   document.getElementById('psMiniVoice').value = s.miniVoice || 'female-tianmei';
   document.getElementById('psMiniVoiceId').value = s.miniVoiceId || '';
+  document.getElementById('psMiniYueVoice').checked = (s.miniLang==='Chinese,Yue');
+  document.getElementById('psMiniYueText').checked = !!s.miniYueText;
   document.getElementById('psMiniModel').value = s.miniModel || 'speech-2.8-turbo';
   document.getElementById('psDesignPrompt').value = '';
   pomoEngineUI();
@@ -10080,6 +10107,8 @@ function savePomoSettings(){
   s.miniKey = String(document.getElementById('psMiniKey').value || '').trim();
   s.miniVoice = document.getElementById('psMiniVoice').value || 'female-tianmei';
   s.miniVoiceId = String(document.getElementById('psMiniVoiceId').value || '').trim();
+  s.miniLang = document.getElementById('psMiniYueVoice').checked ? 'Chinese,Yue' : 'auto';
+  s.miniYueText = document.getElementById('psMiniYueText').checked ? true : false;
   s.miniModel = document.getElementById('psMiniModel').value || 'speech-2.8-turbo';
   s.voice = document.getElementById('psVoice').value || 'gentle';
   s.pitch = clamp(parseInt(document.getElementById('psPitch').value,10), 50, 200, 112)/100;
@@ -10143,6 +10172,8 @@ init();
   background:linear-gradient(135deg, rgba(122,202,132,.4), rgba(90,170,110,.28));
   color:#eaffea;font-size:16px;font-weight:700;cursor:pointer;backdrop-filter:blur(10px);
   box-shadow:0 8px 26px rgba(60,140,80,.35);}
+.comp-bigstart.alt{border:1px solid rgba(140,170,235,.5);background:linear-gradient(135deg, rgba(120,150,220,.32), rgba(95,120,190,.22));
+  box-shadow:0 8px 26px rgba(70,100,170,.28);color:#eaf0ff;font-size:15px;}
 .comp-notice{font-size:12px;color:#aecbae;line-height:1.65;text-align:center;max-width:540px;}
 .comp-err{color:#ffb4b4;font-size:12px;text-align:center;min-height:0;}
 .comp-controls{position:relative;z-index:2;padding:10px 14px calc(14px + env(safe-area-inset-bottom));
@@ -10189,8 +10220,9 @@ init();
   </div>
 
   <div class="comp-start" id="compStartWrap">
-    <button class="comp-bigstart" onclick="compStart()">📹 开启摄像头与麦克风，开始陪伴</button>
-    <div class="comp-notice">伴侣会一直看着你、偶尔主动开口。摄像头与麦克风仅在你的设备本地处理，原始画面与声音绝不上传或保存；只有「此刻看到什么」的结构化描述会发给视觉模型，且看不清时它会如实说看不清。可随时结束。</div>
+    <button class="comp-bigstart" onclick="compStart('video')">📹 开启摄像头与麦克风，开始陪伴</button>
+    <button class="comp-bigstart alt" onclick="compStart('voice')">🎧 纯语音陪伴（省流量 / 不开启摄像头）</button>
+    <div class="comp-notice">视频陪伴：伴侣会一直看着你、偶尔主动开口。纯语音：只开麦克风、不跑画面观察，更省流量和 AI 用量。摄像头与麦克风仅在你的设备本地处理，原始画面与声音绝不上传或保存；只有「此刻看到什么」的结构化描述会发给视觉模型，且看不清时它会如实说看不清。可随时结束。</div>
     <div id="compStartErr" class="comp-err"></div>
   </div>
 
@@ -10302,38 +10334,49 @@ init();
   }
   function closeCompanion(){ compStop(); const m=document.getElementById('compMask'); if(m) m.style.display='none'; }
 
-  async function compStart(){
+  async function compStart(mode){
+    mode = (mode === 'voice') ? 'voice' : 'video'; // voice=纯语音（只麦克风、不跑视觉观察，省流量/省 token）
     const errEl=document.getElementById('compStartErr'); if(errEl) errEl.textContent='';
     if(running) return;
     if(!acquireLock()){ if(errEl) errEl.textContent='另一个标签页已在运行实时陪伴，请先关闭它。'; if(window.toast) toast('已有实时陪伴会话在运行'); return; }
     running=true; state=S.IDLE; epoch=0; activeTurn=null; turnSeq=0; queue=[];
     cfg=loadCfg();
-    session={startedAt:Date.now(), taskNow:(document.getElementById('compTask').value||'').trim(), history:[]}; // history=本次会话对话历史（AI 能看到自己之前说了什么，有沉浸感）
+    session={mode, startedAt:Date.now(), taskNow:(document.getElementById('compTask').value||'').trim(), history:[]}; // history=本次会话对话历史（AI 能看到自己之前说了什么，有沉浸感）
     try{ session.resident=await buildFocusPrefix(); }catch(e){ session.resident=defaultResident(); }
 
-    let gotCam=false;
-    try{
-      stream=await navigator.mediaDevices.getUserMedia({
-        video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},
-        audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}
-      });
-      gotCam=true;
-    }catch(e1){
+    if(mode==='voice'){
+      // 纯语音：只要麦克风，不碰摄像头、不跑本地眼/云眼（省流量 + 省 token 的核心）
+      cfg.proactive=false; saveCfg();
       try{
         stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
-        if(window.toast) toast('没拿到摄像头，已用纯语音/文字陪伴（看不见你）');
-      }catch(e2){ if(window.toast) toast('没拿到摄像头和麦克风，已用纯文字陪伴'); }
-    }
-    if(stream){
-      const v=document.getElementById('compVideo');
-      if(v){ v.srcObject=stream; videoEl=v; try{ await v.play().catch(()=>{}); }catch(e){} }
-      canvasEl=document.createElement('canvas'); canvasEl.width=320; canvasEl.height=240;
-      ctx2d=canvasEl.getContext('2d',{willReadFrequently:true});
-      startLocalEye();
+      }catch(e){
+        if(window.toast) toast('没拿到麦克风权限，已用纯文字陪伴');
+      }
+    } else {
+      let gotCam=false;
+      try{
+        stream=await navigator.mediaDevices.getUserMedia({
+          video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},
+          audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}
+        });
+        gotCam=true;
+      }catch(e1){
+        try{
+          stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
+          if(window.toast) toast('没拿到摄像头，已用纯语音/文字陪伴（看不见你）');
+        }catch(e2){ if(window.toast) toast('没拿到摄像头和麦克风，已用纯文字陪伴'); }
+      }
+      if(stream){
+        const v=document.getElementById('compVideo');
+        if(v){ v.srcObject=stream; videoEl=v; try{ await v.play().catch(()=>{}); }catch(e){} }
+        canvasEl=document.createElement('canvas'); canvasEl.width=320; canvasEl.height=240;
+        ctx2d=canvasEl.getContext('2d',{willReadFrequently:true});
+        startLocalEye();
+      }
     }
     setupEars();
     lastObserveAt=0; vision=null; lastFrame=null;
-    observeTimer=setInterval(maybeObserve,1000);
+    if(mode!=='voice') observeTimer=setInterval(maybeObserve,1000); // 纯语音不跑观察轮询
     lockTimer=setInterval(heartbeatLock,5000);
     heartbeatTimer=setInterval(compHeartbeat,10000); // 耳朵体检：防安卓识别引擎静默死亡
     const sw=document.getElementById('compStartWrap'); if(sw) sw.style.display='none';
@@ -10342,7 +10385,7 @@ init();
     updateStatus();
     window.addEventListener('pagehide',compStop);
     spawn(orchestrate());
-    showBubble('我在呢，开始吧～你专注，我陪着你。');
+    showBubble(mode==='voice' ? '我在呢，纯语音模式，看不见画面，你说我听～' : '我在呢，开始啦～你专注，我陪着你。');
   }
 
   function compStop(){
@@ -10760,7 +10803,9 @@ init();
     const lat={t0:Date.now(),t1:null,t2:null,t3:null,trig:trigger};
     try{
       if(!session||!session.resident) return;
-      const volatile='[vision]\n'+visionToBlock(vision);
+      const volatile=(session&&session.mode==='voice')
+        ? '[vision]\n（当前是纯语音陪伴：没有摄像头画面，完全看不到用户。不要假装看见、不要描述画面、不要基于画面主动开口；只当用户说话时好好接话。）'
+        : '[vision]\n'+visionToBlock(vision);
       const userPart=userText?('用户说：'+userText):'（你看到用户画面有变化，用一句话、不超过15个字，像朋友在身边轻声提醒或鼓励，不要展开、不要提问、不要长篇大论）';
       // 对话记忆：带上本次会话最近几轮（AI 能看到自己之前说过什么，不重复开场、有延续感；最多 12 条=6 轮）
       const hist=(session.history&&session.history.length)?session.history.slice(-12):[];
@@ -10979,10 +11024,20 @@ init();
     blocks.push('[task_now]\n'+task);
     const rp=(typeof buildRoleProtocol==='function')?buildRoleProtocol():null; if(rp) blocks.push(rp);
     blocks.push('[陪伴规则]\n你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n你有本次会话的记忆：下方对话记录里能看到你们之前聊过什么（包括你自己说过的话），主动开口前先回想自己刚才说过什么——已经提醒过的事不要重复说，换个时机或换个说法；用户主动接话时基于上下文自然延续，而不是每次都像第一次见面。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。');
+    // 粤语文字输出开关：开启后自动注入"用粤语回复"指令（练粤语用），配合语音粤语 language_boost=Chinese,Yue 成完整粤语对话
+    try{
+      const _ps=(pomoData&&pomoData.settings)?pomoData.settings:{};
+      if(_ps.miniYueText) blocks.push('[粤语模式]\n用户希望用粤语练口语。请用粤语（繁体）口语回复，像香港朋友聊天那样自然：可用「你哋」「我哋」「唔」「係」「嘅」「咗」「喺」「啲」等粤语字词；用户理解粤语、正在练习，不需要翻译或解释。');
+    }catch(e){}
     return blocks.join('\n\n');
   }
   function defaultResident(){
-    return '[identity]\n'+((typeof memIdentity==='function'?memIdentity():DEFAULT_MEM_IDENTITY)||'')+'\n\n[task_now]\n'+((session&&session.taskNow)?session.taskNow:'随意陪伴');
+    let r='[identity]\n'+((typeof memIdentity==='function'?memIdentity():DEFAULT_MEM_IDENTITY)||'')+'\n\n[task_now]\n'+((session&&session.taskNow)?session.taskNow:'随意陪伴');
+    try{
+      const _ps=(pomoData&&pomoData.settings)?pomoData.settings:{};
+      if(_ps.miniYueText) r+='\n\n[粤语模式]\n用户希望用粤语练口语。请用粤语（繁体）口语回复，像香港朋友聊天那样自然：可用「你哋」「我哋」「唔」「係」「嘅」「咗」「喺」「啲」等粤语字词；用户理解粤语、正在练习，不需要翻译或解释。';
+    }catch(e){}
+    return r;
   }
   async function focusRecentSummary(){
     try{
@@ -11055,7 +11110,10 @@ init();
   // ── 状态指示（以真实轨道/识别/播报状态为准）──
   function updateStatus(){
     const see=document.getElementById('compSee'),hear=document.getElementById('compHear'),spk=document.getElementById('compSpeak');
-    if(see){ const on=!!(stream&&stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')); see.classList.toggle('on',on); see.textContent=on?'👁 看着你':'👁 未开'; }
+    if(see){
+      if(session && session.mode==='voice'){ see.classList.remove('on'); see.textContent='🎧 纯语音'; }
+      else { const on=!!(stream&&stream.getVideoTracks().some(t=>t.enabled&&t.readyState==='live')); see.classList.toggle('on',on); see.textContent=on?'👁 看着你':'👁 未开'; }
+    }
     if(hear){
       if(!micOn){ hear.classList.remove('on'); hear.textContent='🎤 关'; }
       else if(speaking){ hear.classList.remove('on'); hear.textContent='🎤 稍候'; } // AI 说话时麦暂歇（防回声）
@@ -11066,9 +11124,12 @@ init();
   }
   function syncCtrlButtons(){
     const pro=document.getElementById('compProBtn'),sv=document.getElementById('compSaveBtn'),lv=document.getElementById('compLvlBtn');
-    if(pro) pro.classList.toggle('on',cfg.proactive);
+    const obs=document.getElementById('compObsBtn');
+    const voiceMode=!!(session && session.mode==='voice');
+    if(pro){ pro.classList.toggle('on',cfg.proactive); pro.style.display=voiceMode?'none':''; } // 纯语音：没画面，主动开口无意义 → 隐藏
     if(sv) sv.classList.toggle('on',cfg.saveFlow);
     if(lv) lv.textContent=LEVELS[levelIdx].label;
+    if(obs) obs.style.display=voiceMode?'none':''; // 纯语音：观察调试无意义 → 隐藏
     const mic=document.getElementById('compMicBtn'); if(mic) mic.classList.toggle('on',!!recog);
   }
 
