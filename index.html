@@ -10651,6 +10651,46 @@ init();
     }
     return 0;
   }
+  // 剥离句首角色标记【角色名】（无论是否匹配配置角色都不该被读/显示出来；匹配则顺带锁定音色）。
+  // 返回：{wait:true} = 括号未闭合，暂缓切句；{wait:false, clean, voice} = 可继续处理。
+  // 用它统一替换原先"只挡未闭合 / 只剥匹配角色"的脆弱逻辑，避免【零落】被切进句子朗读。
+  function stripRoleLabel(s){
+    if(s==null) return {wait:false, clean:'', voice:0};
+    const t=String(s);
+    const m=t.match(/^\s*([【\[（〔])/);
+    if(!m) return {wait:false, clean:t, voice:0};
+    const open=m[1];
+    const close=open==='【'?'】':open==='['?']':open==='（'?')':'〕';
+    const rest=t.slice(m[0].length);
+    const ci=rest.indexOf(close);
+    if(ci<0) return {wait:true}; // 【… 未闭合：等闭合再切（避免切碎角色名）
+    const name=rest.slice(0,ci).replace(/[:\：]\s*$/,'').trim();
+    const after=rest.slice(ci+1).replace(/^\s*[:\：]?\s*/,'');
+    let voice=0;
+    if(name){
+      try{
+        const v=(typeof aiVoices==='function')?aiVoices():null;
+        if(v && v.a && v.a.name && name===v.a.name) voice=1;
+        else if(v && v.b && v.b.name && name===v.b.name) voice=2;
+      }catch(e){}
+    }
+    return {wait:false, clean:after, voice};
+  }
+  // 剥离首句角色标记并取音色（空串安全）：不依赖 `clean || s`（空串是假值会回退成原串 → 裸标记被朗读）。
+  function reapVoice(s){
+    if(s==null) return {text:'', voice:0};
+    let out={text:String(s), voice:0};
+    try{
+      if(typeof aiResolveVoice==='function'){
+        const rr=aiResolveVoice(String(s));
+        if(rr){
+          if(rr.clean!=null) out.text=rr.clean;
+          out.voice=rr.voice||0;
+        }
+      }
+    }catch(e){}
+    return out;
+  }
 
   // ── A3 本地短反馈：模型等待期填空白（Cove 13 节）──
   // 原则：只对「用户开口」播；按最终转写分类；8s 冷却防机械"嗯"；模型首句到达立即抢占（enqueueSpeak 里 cancel）。
@@ -10685,9 +10725,12 @@ init();
       u.lang='zh-CN';
       const v=ttsPickVoice&&ttsPickVoice(); if(v) u.voice=v;
       u.rate=0.98; u.pitch=1.1;
+      // 短反馈也是 AI 自己的声音（"嗯，我在呢"会被麦克风识别回 2~4 字）：
+      // 说完同样喂给回声基准，防止 cue 的尾巴被当成用户开口触发一轮空对话。
       const fin=()=>{ cueActive=false; cueFinish=null; speaking=false; updateStatus(); };
       cueActive=true; cueFinish=fin;
-      u.onend=fin; u.onerror=fin;
+      u.onend=()=>{ echoGraceUntil=Date.now()+ECHO_GRACE_MS; lastAISaidNorm=normTxt(text); lastAISaidAt=Date.now(); fin(); };
+      u.onerror=fin;
       setTimeout(()=>{ if(cueActive){ const f=cueFinish; cueFinish=null; if(f) f(); } }, 3000); // iOS 哑火兜底
       speaking=true; updateStatus();
       speechSynthesis.speak(u);
@@ -10726,19 +10769,34 @@ init();
       const isVision=!userText; // 主动开口（基于画面）只说一句，绝不啰嗦；用户主动说话才正常多聊
       let full='', voice=0, voiceLocked=false, spokeCount=0;
       const speakCut=(s)=>{
-        const ss=cleanForSpeak(s); spokeText+=' '+ss; spoke=true;
-        if(!isVision || spokeCount===0){ spokeCount++; enqueueSpeak(ss,myEpoch,tid,voice,()=>{ if(lat.t2===null) lat.t2=Date.now(); }); }
+        let ss=(s==null?'':String(s));
+        // 剥离句首角色标记（空串安全）：无论是否命中配置角色，标记本身绝不能被朗读/显示
+        const st=stripRoleLabel(ss);
+        ss=st.clean;
+        ss=cleanForSpeak(ss);
+        if(ss){ spokeText+=' '+ss; spoke=true; }
+        if(!voiceLocked && st.voice){ voice=st.voice; voiceLocked=true; }
+        if((!isVision || spokeCount===0) && ss){
+          speakCount++;
+          // 同步置 speaking=true：enqueueSpeak 内部是微任务才置 true，若在此刻有识别 final 到达会漏网（回声窗口）。
+          speaking=true; updateStatus();
+          enqueueSpeak(ss,myEpoch,tid,voice,()=>{ if(lat.t2===null) lat.t2=Date.now(); });
+        }
       };
       const tryCut=()=>{
         while(true){
           if(myEpoch!==epoch) return; // 打断：当场弃
-          if(/^【[^】]*$/.test(full) && full.length<16) return; // 角色标记【...】未闭合：等闭合再切（避免切碎角色名）
+          const pre=stripRoleLabel(full); // 句首是【角色名】标记 → 直接剥掉（标记本身绝不出现在待切文本里）
+          if(pre.wait) return; // 【… 未闭合：等闭合再切（避免切碎角色名）
+          if(pre.clean!==full){
+            full=pre.clean; // 已完整剥掉句首标记
+            if(!voiceLocked && pre.voice){ voice=pre.voice; voiceLocked=true; }
+            if(!full) continue; // 纯标记（如"【零落】"）：不产生句子，继续收流
+          }
           const cut=findCutPos(full, spokeCount===0?12:24);
           if(!cut) break;
           let s=full.slice(0,cut); full=full.slice(cut);
-          if(!voiceLocked){ // 首句带【角色名】前缀 → 剥标记 + 锁定本轮音色（后续句沿用）
-            const rr=aiResolveVoice(s); if(rr){ s=rr.clean||s; if(rr.voice){ voice=rr.voice; voiceLocked=true; } }
-          }
+          if(!voiceLocked){ const rr=reapVoice(s); s=rr.text; if(rr.voice){ voice=rr.voice; voiceLocked=true; } }
           speakCut(s);
         }
       };
@@ -10784,7 +10842,7 @@ init();
           tryCut();
           if(full && full.trim()){
             let s=full; full='';
-            if(!voiceLocked){ const rr=aiResolveVoice(s); if(rr){ s=rr.clean||s; if(rr.voice){ voice=rr.voice; voiceLocked=true; } } }
+            if(!voiceLocked){ const rr=reapVoice(s); s=rr.text; if(rr.voice){ voice=rr.voice; voiceLocked=true; } }
             speakCut(s);
           }
           if(!session.history) session.history=[];
@@ -10947,18 +11005,29 @@ init();
   function normTxt(t){ return String(t||'').toLowerCase().replace(/[\s，。！？!?、,.：:；;·'"“”‘’…~～\-—()（）]/g,''); }
   function isEchoLike(a,b){
     const A=normTxt(a), B=normTxt(b);
-    if(A.length<3||B.length<3) return false;
+    if(A.length<1||B.length<1) return false;
     const short=A.length<=B.length?A:B, long=A.length<=B.length?B:A;
+    // ① 2~3 字的完整包含片段：极可能是麦克风捕捉的 AI 尾巴/角色名（如"零落"或"加油哦"），直接判回声。
+    //    本次修复点：旧逻辑 <3 字一律放行，导致 AI 把自己刚说的 2~3 字尾巴当成用户输入回复（回声+重复抢话循环）。
+    //    1 字（如"好""嗯"）不判回声——用户顺着 AI 的单字确认很常见，不能误杀。
+    if(short.length>=2 && short.length<=3 && long.indexOf(short)>=0) return true;
+    // ② 完整包含（≥4 字）：AI 说过的一句话被原样识别回来 → 回声。
+    //    仍先过 60% 门槛：保护用户顺着 AI 的话做简短确认（如"休息一下"），不误杀。
+    if(short.length>=4 && long.indexOf(short)>=0 && short.length>=long.length*0.6) return true;
+    // ③ 别误杀用户顺着 AI 的话做简短确认（如"休息一下"）：长度差过大不算回声
     if(short.length < long.length*0.6) return false;
-    if(long.indexOf(short)>=0) return true; // 完全包含：AI 整句被识别回来
-    let best=0;
-    const step=Math.min(short.length,20);
-    for(let i=0;i<=short.length-step;i++){
-      let k=0;
-      while(i+k<short.length && long.indexOf(short.slice(i,i+k+1))>=0) k++;
-      if(k>best) best=k;
+    // ④ 边界：短句本身是 AI 原话的一个片段但没被完整包含（部分字被吞），用最长公共子串兜底
+    if(short.length>=3){
+      let best=0;
+      const step=Math.min(short.length,20);
+      for(let i=0;i<=short.length-step;i++){
+        let k=0;
+        while(i+k<short.length && long.indexOf(short.slice(i,i+k+1))>=0) k++;
+        if(k>best) best=k;
+      }
+      return best>=Math.min(4,short.length) && (best/short.length)>=0.85; // 最长公共子串占短句≥85%
     }
-    return best>=Math.min(4,short.length) && (best/short.length)>=0.85; // 最长公共子串占短句≥85%
+    return false;
   }
   function cleanForSpeak(t){ return (aiTtsClean&&aiTtsClean(t))||t; }
   function cleanForShow(t){ return (aiTtsClean&&aiTtsClean(t))||t; }
