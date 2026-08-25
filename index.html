@@ -11385,6 +11385,8 @@ init();
     return 'plain';
   }
   function maybeLocalCue(userText,myEpoch){
+    // [2026-08-25] 已禁用：用户反馈"我在听"等系统语音填充语太机械，不再播短反馈
+    return;
     if(userText==null) return; // 视觉主动开口本来就短，不播
     if(myEpoch!==epoch) return;
     const now=Date.now();
@@ -11727,11 +11729,20 @@ init();
   function showBubble(t){ const el=document.getElementById('compBubble'); if(el) el.textContent=t||''; }
   function showYou(t){ const el=document.getElementById('compYou'); if(el) el.textContent='你：'+t; transAdd('you', t); }
   // 对话记录（小字滚动区）：让页面不只显示最后一轮，AI/用户最近几轮都可见（配合会话记忆，沉浸感）
+  // 去重：Web Speech continuous 模式下长句子可能拆成多个 final（先返回片段再返回完整句），
+  // 新消息与上一条同角色消息有子串关系时替换而非追加，避免"比较远的地方"+"完整句"的重复。
   function transAdd(kind, t){
     const el=document.getElementById('compTrans'); if(!el) return;
+    const txt=String(t||'').trim().slice(0,80);
+    // 智能合并：新消息与上一条同角色消息有包含关系 → 替换为更长的那条
+    const last=el.lastElementChild;
+    if(last && ((kind==='ai' && !last.classList.contains('t-you')) || (kind!=='ai' && last.classList.contains('t-you')))){
+      const lastTxt=last.textContent.replace(/^(你：|助理：)/,'');
+      if(txt.includes(lastTxt) || lastTxt.includes(txt)){ last.textContent=(kind==='ai'?'':'你：')+txt; el.scrollTop=el.scrollHeight; return; }
+    }
     const line=document.createElement('div');
     line.className='comp-trans-line'+(kind==='ai'?'':' t-you');
-    line.textContent=(kind==='ai'?'':'你：')+String(t||'').trim().slice(0,80);
+    line.textContent=(kind==='ai'?'':'你：')+txt;
     el.appendChild(line);
     while(el.children.length>8) el.removeChild(el.firstChild);
     el.scrollTop=el.scrollHeight;
