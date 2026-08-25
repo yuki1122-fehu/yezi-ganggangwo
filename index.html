@@ -10665,6 +10665,10 @@ init();
       filter_modal: 1,
       filter_punc: 1,
       needvad: 1,
+      // 断句静音阈值：默认 1000ms，长句中停顿稍长就被截断。调到 1500ms 容忍更多停顿。
+      // 注意：官方文档此参数仅支持 8k_zh/16k_zh 等普通话引擎，16k_yue 不支持 → 粤语不传（用默认）。
+      // (cfg.vadSilenceTime||1500)
+      ...((cfg.yue||cfg.engine==='16k_yue')?{}:{vad_silence_time:(cfg.vadSilenceTime!=null?cfg.vadSilenceTime:1500)}),
       nonce: now*1000 + Math.floor(Math.random()*100000),
       secretid: cfg.secretId,
       timestamp: now,
@@ -10726,7 +10730,10 @@ init();
     }
   }
   class TencentAsrClient {
-    constructor(cfg){ this.cfg=cfg||{}; this.ws=null; this.audio=null; this.voiceId=''; this.enabled=false; this.onFinal=null; this.onSub=null; this.onError=null; }
+    constructor(cfg){ this.cfg=cfg||{}; this.ws=null; this.audio=null; this.voiceId=''; this.enabled=false; this.onFinal=null; this.onSub=null; this.onError=null;
+      // 长句保护：VAD 可能把一句话拆成多段（句中停顿/主线程卡顿造成假静音），
+      // 800ms 内到达的稳定句合并成一条再提交，避免"话没说完 AI 就回复"。
+      this.pendingTxt=''; this.commitTimer=null; this.lastSliceAt=0; this.MERGE_MS=800; }
     start(onFinal, onSub, onError){
       this.onFinal=onFinal; this.onSub=onSub; this.onError=onError;
       if(!this.cfg.appId||!this.cfg.secretId||!this.cfg.secretKey){ if(onError) onError('缺腾讯云 AppID/SecretId/SecretKey'); return false; }
@@ -10750,7 +10757,14 @@ init();
             const r=j.result;
             if(r && r.slice_type===2 && r.voice_text_str){
               const t=String(r.voice_text_str).trim();
-              if(t && this.onFinal) this.onFinal(t);
+              if(t){
+                const now=Date.now();
+                if(this.pendingTxt && (now-this.lastSliceAt) < this.MERGE_MS){ this.pendingTxt+=t; } // 同句话的延续：拼起来
+                else { this.pendingTxt=t; }
+                this.lastSliceAt=now;
+                if(this.commitTimer) clearTimeout(this.commitTimer);
+                this.commitTimer=setTimeout(()=>{ this.commitTimer=null; this._commitPending(); }, this.MERGE_MS);
+              }
             }
           }catch(e){}
         };
@@ -10761,11 +10775,21 @@ init();
     }
     stop(){
       this.enabled=false;
+      // 停止前冲刷残句：用户点停止/被打断时，已识别未提交的半句也交出去（不丢失）
+      if(this.commitTimer){ clearTimeout(this.commitTimer); this.commitTimer=null; }
+      const pending=this.pendingTxt; this.pendingTxt='';
+      if(pending && this.onFinal) this.onFinal(pending);
       if(this.audio){ try{ this.audio.stop(); }catch(e){} this.audio=null; }
       if(this.ws){
         try{ this.ws.send(JSON.stringify({type:'end'})); }catch(e){}
         try{ this.ws.close(); }catch(e){}
         this.ws=null;
+      }
+    }
+    _commitPending(){
+      if(this.pendingTxt){
+        const t=this.pendingTxt; this.pendingTxt='';
+        if(t && this.onFinal) this.onFinal(t);
       }
     }
   }
