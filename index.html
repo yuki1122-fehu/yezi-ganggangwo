@@ -2140,6 +2140,30 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       </div>
     </div>
 
+    <!-- ===================== 粤语（练口语） ===================== -->
+    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(120,170,220,.12),rgba(165,192,162,.06));border:1px solid rgba(120,160,200,.45);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;color:var(--green-dark);">🀄 粤语（练口语）</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+            <input type="checkbox" id="aiYueVoice" style="opacity:0;width:0;height:0;position:absolute;">
+            <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+          </label>
+          <span style="font-size:13px;color:var(--ink-dark);">🎙 粤语发音（语音用粤语读）</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+            <input type="checkbox" id="aiYueText" style="opacity:0;width:0;height:0;position:absolute;">
+            <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+          </label>
+          <span style="font-size:13px;color:var(--ink-dark);">💬 粤语文字输出（自动改提示词）</span>
+        </div>
+      </div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.6;">与番茄钟语音设置里的粤语开关是同一份，任意一处改都生效：<b>粤语发音</b>=MiniMax 朗读用粤语（language_boost=Chinese,Yue）；<b>粤语文字输出</b>=自动注入提示词让助理用粤语繁体口语回复。两个都开 = 完整粤语对话。</p>
+    </div>
+
     <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
       <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">📎 发送给助理的内容</div>
       <div class="row" style="margin:0;gap:10px;align-items:flex-end;">
@@ -6522,6 +6546,10 @@ function openAISettings(){
   aiVoiceEngineUI(1);
   aiVoiceEngineUI(2);
   syncVoiceUI();
+  // 粤语开关（与番茄钟语音设置共用 pomoData.settings，任一页改动都生效）
+  const _ps2 = (pomoData && pomoData.settings) ? pomoData.settings : {};
+  document.getElementById('aiYueVoice').checked = (_ps2.miniLang === 'Chinese,Yue');
+  document.getElementById('aiYueText').checked = !!_ps2.miniYueText;
   document.getElementById('aiSystemTpl').value = (cfg.systemTpl!==undefined ? cfg.systemTpl : DEFAULT_SYSTEM_TPL);
   document.getElementById('tplHint').textContent='';
   document.getElementById('aiPersona').value = (cfg.persona!==undefined ? cfg.persona : DEFAULT_PERSONA);
@@ -6744,6 +6772,14 @@ function saveAISettings(){
     a: { name: document.getElementById('aiVoiceAName').value.trim() || '零落', engine: document.getElementById('aiVoiceAEngine').value, voiceId: document.getElementById('aiVoiceAVoice').value.trim(), pitch: parseFloat(document.getElementById('aiVoiceAPitch').value) || 1.15, rate: parseFloat(document.getElementById('aiVoiceARate').value) || 0.95 },
     b: { name: document.getElementById('aiVoiceBName').value.trim() || '沈容', engine: document.getElementById('aiVoiceBEngine').value, voiceId: document.getElementById('aiVoiceBVoice').value.trim(), pitch: parseFloat(document.getElementById('aiVoiceBPitch').value) || 0.95, rate: parseFloat(document.getElementById('aiVoiceBRate').value) || 0.95 }
   }));
+  // 粤语开关（与番茄钟语音设置共用 pomoData.settings，任一页改动都生效）
+  try{
+    if(!pomoData) pomoData = {settings:{}};
+    pomoData.settings = pomoData.settings || {};
+    pomoData.settings.miniLang = document.getElementById('aiYueVoice').checked ? 'Chinese,Yue' : 'auto';
+    pomoData.settings.miniYueText = document.getElementById('aiYueText').checked;
+    if(typeof savePomoData === 'function') savePomoData();
+  }catch(e){}
   // 工作台名称
   const rawTitle = document.getElementById('appTitle').value.trim();
   localStorage.setItem(APP_TITLE_KEY, rawTitle || DEFAULT_TITLE);
