@@ -2046,16 +2046,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <input id="aiBase" placeholder="或手动输入 Base URL" value="">
     <label>API Key</label>
     <input id="aiKey" placeholder="API Key" type="password">
-    <label>风格与身份（最常改，单独一条）
-      <span style="font-size:11px;color:var(--ink-soft)">助理的语气与说话方式。留空则用默认。注意：叶子是谁、你们的关系在「🧠 记忆」的关系身份里设，这里只管语气，避免同一件事写两遍。</span>
-    </label>
-    <textarea id="aiPersona" style="min-height:96px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre;"></textarea>
-    <div style="display:flex;gap:8px;align-items:center;margin:6px 0 14px;">
-      <button class="btn ghost" type="button" onclick="resetPersona()" style="flex:0 0 auto;">↺ 恢复默认风格</button>
-      <span id="personaHint" style="font-size:11px;color:var(--ink-soft);"></span>
-    </div>
     <label>其余系统提示词（一般不用动，出问题才改）
-      <span style="font-size:11px;color:var(--ink-soft)">占位符：{{PERSONA}} 角色身份、{{TIME_ANCHOR}} 当前时间、{{WEATHER}} 香港天气、{{WARNINGS}} 天气警告、{{SCHEDULE}} 近期任务/课表。默认模板已用 &lt;角色身份&gt;&lt;当前时间&gt; 等标签组织，AI 对"现在几点"等更敏感。留空则用默认。</span>
+      <span style="font-size:11px;color:var(--ink-soft)">占位符：{{TIME_ANCHOR}} 当前时间、{{WEATHER}} 香港天气、{{WARNINGS}} 天气警告、{{SCHEDULE}} 近期任务/课表。默认模板已用 &lt;当前时间&gt;&lt;天气&gt; 等标签组织，AI 对"现在几点"等更敏感。留空则用默认。风格与语气统一在「🧠 记忆」的关系身份里设，这里只管系统骨架。</span>
     </label>
     <textarea id="aiSystemTpl" style="min-height:220px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre;"></textarea>
     <div style="display:flex;gap:8px;align-items:center;margin:6px 0 2px;">
@@ -2291,6 +2283,21 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <div id="memList" style="max-height:55vh;overflow:auto;font-size:13px;line-height:1.6;"></div>
     <div class="row" style="margin-top:12px;">
       <button class="btn ghost" onclick="closeMemView()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 记忆单条编辑弹窗 -->
+<div class="mask" id="memEditMask" style="z-index:93;">
+  <div class="sheet glass-strong">
+    <h3>编辑记忆</h3>
+    <label style="font-size:12px;color:var(--ink-soft);">摘要（一句话总结，可修正 AI 的总结错误）</label>
+    <textarea id="memEditSummary" style="width:100%;min-height:92px;resize:vertical;font-size:13px;line-height:1.5;margin-top:6px;padding:8px 10px;border:1px solid var(--ink-faint);border-radius:10px;background:rgba(255,255,255,.6);font-family:inherit;box-sizing:border-box;"></textarea>
+    <label style="font-size:12px;color:var(--ink-soft);margin-top:12px;display:block;">标签（逗号分隔，用于磁铁召回；改了会覆盖原标签）</label>
+    <input id="memEditTags" type="text" style="width:100%;font-size:13px;margin-top:6px;padding:8px 10px;border:1px solid var(--ink-faint);border-radius:10px;background:rgba(255,255,255,.6);box-sizing:border-box;">
+    <div class="row" style="margin-top:14px;">
+      <button class="btn ghost" onclick="closeMemEdit()">取消</button>
+      <button class="btn primary" onclick="memItemSave()">保存</button>
     </div>
   </div>
 </div>
@@ -6116,14 +6123,11 @@ function aiScheduleSection(){
 }
 
 // 系统提示词「固定部分」完整模板：除动态抓取的近期任务/课表与实时时间外，全部内容都可在这里编辑。
-// 两个占位符在每次发送时动态替换：
-//   {{PERSONA}}     → 风格与身份（最常改，单独可编辑，见 DEFAULT_PERSONA / aiPersona）
+// 占位符在每次发送时动态替换：
 //   {{TIME_ANCHOR}} → 当前实时时间锚点（nowAnchor()，每次发送重算）
 //   {{WEATHER}}     → 香港当前天气（getWeatherSummary()，来自香港天文台）
 //   {{SCHEDULE}}    → 近期任务/课表速览（aiScheduleSection()，天数由设置控制）
-// —— 风格与身份（最常改动的部分，单独一条自定义；留空则用默认）——
-// 分工：这里只管「怎么说话」（语气）；「叶子是谁、你们是什么关系」由记忆系统的「关系身份」块负责，避免用户画像双写打架。
-const DEFAULT_PERSONA = `你是"港港窝"的内置助理。你的风格与身份：语气温暖简洁，像靠谱的学长/学姐`;
+// 风格与语气统一由「🧠 记忆」的关系身份块负责，这里不再单独设「风格与身份」。
 // —— 旧版默认提示词（保留仅用于迁移：已保存过该默认值的用户会自动升级到新版；用户自定义过的不动）——
 const LEGACY_SYS_TPL = `{{PERSONA}}
 【当前时间锚点】{{TIME_ANCHOR}}它是判断一切时间问题的唯一基准：现在是几点、白天还是晚上、今天是几号，全部以此为准。回答任何涉及"今天/明天/后天/下周/几天后/还有多久/现在几点/白天还是晚上"的问题，必须严格以这个锚点为唯一基准推算具体日期，再与下方任务/课表中的实际日期(YYYY-MM-DD 或 MM/DD)核对，禁止凭直觉或训练时的日期说"明天/今天"，更严禁根据对话历史里较早的消息（可能来自前一天或更早）推断当前时间。
@@ -6164,10 +6168,7 @@ const LEGACY_SYS_TPL = `{{PERSONA}}
 - 不确定就调用工具查，不要编造任务信息.`;
 
 // —— 新版默认提示词：补全工具总览（记账/批量改课/心情）、合并重复规则、强化防呆（日期金额逐字、相似候选确认）——
-const DEFAULT_SYSTEM_TPL = `<角色身份>
-{{PERSONA}}
-</角色身份>
-<当前时间>
+const DEFAULT_SYSTEM_TPL = `<当前时间>
 {{TIME_ANCHOR}}
 </当前时间>
 <天气>
@@ -6232,11 +6233,10 @@ const DEFAULT_SYSTEM_TPL = `<角色身份>
 function buildSystem(){
   const cfg = getAiCfg();
   const tpl = (cfg.systemTpl && cfg.systemTpl.trim()) ? cfg.systemTpl : DEFAULT_SYSTEM_TPL;
-  const persona = (cfg.persona && cfg.persona.trim()) ? cfg.persona : DEFAULT_PERSONA;
   // 关键优化：时间/天气/警告/日程等动态内容**不再拼进 system**——它们每轮变化，插在 prompt 最前前缀会打穿 DeepSeek/OpenRouter 的 prefix cache（长 system 全价计费）。
   // 改为全部移到最后一条 user 消息开头（见 injectTimeAnchor / buildLiveContext），system 保持绝对稳定以最大化缓存命中、降低涨价后的 API 成本。
   let sys = tpl
-    .replace(/\{\{PERSONA\}\}/g, persona)
+    .replace(/\{\{PERSONA\}\}/g, '')
     .replace(/\{\{TIME_ANCHOR\}\}/g, '')
     .replace(/\{\{WEATHER\}\}/g, '')
     .replace(/\{\{WARNINGS\}\}/g, '')
@@ -6361,7 +6361,6 @@ function getAiCfg(){
   if(cfg.systemTpl && cfg.systemTpl.indexOf('<行为规则>') >= 0 && cfg.systemTpl.indexOf('自然对话优先') < 0){
     cfg.systemTpl = DEFAULT_SYSTEM_TPL;
   }
-  if(cfg.persona === undefined) cfg.persona = DEFAULT_PERSONA;
   if(cfg.aiTts === undefined) cfg.aiTts = true;
   if(cfg.aiTtsMode === undefined) cfg.aiTtsMode = 'full';
   // 2026-07-24 DeepSeek 正式废弃旧模型名 deepseek-chat / deepseek-reasoner（再调用会返回 400，用户实测"模型暂时抽风（400）"）。
@@ -6844,8 +6843,6 @@ function openAISettings(){
   document.getElementById('aiYueText').checked = !!_ps2.miniYueText;
   document.getElementById('aiSystemTpl').value = (cfg.systemTpl!==undefined ? cfg.systemTpl : DEFAULT_SYSTEM_TPL);
   document.getElementById('tplHint').textContent='';
-  document.getElementById('aiPersona').value = (cfg.persona!==undefined ? cfg.persona : DEFAULT_PERSONA);
-  document.getElementById('personaHint').textContent='';
   document.getElementById('aiDaysTask').value = (cfg.daysTask!=null ? cfg.daysTask : 21);
   document.getElementById('aiDaysCourse').value = (cfg.daysCourse!=null ? cfg.daysCourse : 21);
   document.getElementById('aiRounds').value = (cfg.roundsConv!=null ? cfg.roundsConv : 8);
@@ -6866,12 +6863,6 @@ function resetSystemTpl(){
   if(!ta) return;
   ta.value = DEFAULT_SYSTEM_TPL;
   document.getElementById('tplHint').textContent='已恢复默认，点「保存」生效。';
-}
-function resetPersona(){
-  const ta = document.getElementById('aiPersona');
-  if(!ta) return;
-  ta.value = DEFAULT_PERSONA;
-  document.getElementById('personaHint').textContent='已恢复默认，点「保存」生效。';
 }
 /* ---- 视觉模型开关联动：关掉时配置区变灰禁用 ---- */
 function syncVisionUI(){
@@ -7121,7 +7112,6 @@ function saveAISettings(){
     visionKey: document.getElementById('aiVisionKey').value.trim(),
     visionModel: document.getElementById('aiVisionModel').value.trim(),
     systemTpl: document.getElementById('aiSystemTpl').value,
-    persona: document.getElementById('aiPersona').value,
     daysTask: clampInt(document.getElementById('aiDaysTask').value, 0, 120, 21),
     daysCourse: clampInt(document.getElementById('aiDaysCourse').value, 0, 120, 21),
     roundsConv: clampInt(document.getElementById('aiRounds').value, 0, 40, 8),
@@ -7878,6 +7868,10 @@ async function memView(){
         '<div style="font-size:13px;line-height:1.55;">' + escHtml(e.summary || '（无摘要）') + '</div>' +
         (tgs ? '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;"># ' + escHtml(tgs) + '</div>' : '') +
         '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">' + (e.created_at || '').slice(0, 16).replace('T', ' ') + '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:6px;">' +
+          '<button class="btn ghost" type="button" onclick="memItemEdit(' + e.id + ')" style="font-size:11px;padding:3px 10px;">✏️ 改</button>' +
+          '<button class="btn ghost" type="button" onclick="memItemDelete(' + e.id + ')" style="font-size:11px;padding:3px 10px;color:#a32d2d;">🗑 删</button>' +
+        '</div>' +
         '</div>';
     }
     box.innerHTML = html;
@@ -7901,6 +7895,69 @@ async function memClear(){
         .then(()=>{ try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){} memRefreshStats(); });
     }}
   ]);
+}
+// ---- 记忆单条：编辑 / 删除（AI 总结有误时精准修正，不连累其他记忆）----
+let _memEditId = null;
+function memItemEdit(id){
+  _memEditId = id;
+  Promise.all([memGetAll('entries'), memGetAll('tags')]).then(([entries, tags])=>{
+    const e = entries.find(x => x && x.id === id);
+    if(!e){ toast('记忆不存在'); return; }
+    const tgs = tags.filter(t => t && t.entry_id === id).map(t=>t.tag).join('，');
+    const sa = document.getElementById('memEditSummary');
+    const ta = document.getElementById('memEditTags');
+    if(sa) sa.value = e.summary || '';
+    if(ta) ta.value = tgs;
+    openMask(document.getElementById('memEditMask'));
+  }).catch(()=>{ toast('读取失败'); });
+}
+function closeMemEdit(){ closeMask(document.getElementById('memEditMask')); }
+async function memReplaceTags(entryId, tagList){
+  try{
+    const tags = await memGetAll('tags');
+    const old = tags.filter(t => t && t.entry_id === entryId);
+    for(const t of old){ await memDelete('tags', t.id).catch(()=>{}); }
+    for(const tag of tagList){ await memPut('tags', { entry_id: entryId, axis:'keyword', tag: tag, weight:1 }).catch(()=>{}); }
+  }catch(e){}
+}
+async function memItemSave(){
+  const id = _memEditId;
+  if(!id) return;
+  const sa = document.getElementById('memEditSummary');
+  const ta = document.getElementById('memEditTags');
+  const summary = sa ? sa.value.trim() : '';
+  const tagList = ta ? ta.value.split(/[,，]/).map(s=>s.trim()).filter(Boolean).slice(0, 8) : [];
+  try{
+    const entries = await memGetAll('entries');
+    const e = entries.find(x => x && x.id === id);
+    if(e){
+      await memPut('entries', { id:id, source_msg_id: e.source_msg_id, summary: summary, detail: e.detail || '', active: 1, created_at: e.created_at }).catch(()=>{});
+    }
+    await memReplaceTags(id, tagList);
+    closeMemEdit();
+    memRelRefresh(getAiCfg()).catch(()=>{});
+    await memRefreshStats();
+    memView();
+    toast('已保存');
+  }catch(e){ toast('保存失败'); }
+}
+function memItemDelete(id){
+  showDialog('删除这条记忆？', '只删这一条记忆（含其标签），不影响其他记忆，也不删你们的对话气泡。删除后 AI 不会再召回它。', [
+    {label:'取消', cls:'ghost'},
+    {label:'删除这条', cls:'danger', fn: ()=>{ memDeleteEntry(id); }}
+  ]);
+}
+async function memDeleteEntry(id){
+  try{
+    await memDelete('entries', id);
+    const tags = await memGetAll('tags');
+    const old = tags.filter(t => t && t.entry_id === id);
+    for(const t of old){ await memDelete('tags', t.id).catch(()=>{}); }
+    memRelRefresh(getAiCfg()).catch(()=>{});
+    await memRefreshStats();
+    memView();
+    toast('已删除这条记忆');
+  }catch(e){ toast('删除失败'); }
 }
 if(window.addEventListener){ window.addEventListener('pagehide', ()=>{ if(_memPending > 0) memRunTagger(); }); }
 
@@ -9889,8 +9946,8 @@ function pomoEggGenerate(opts){
   if(!isAI){ finish(pomoEggFallback(theme)); return; }
   const cfg = getAiCfg();
   if(!cfg.apiKey){ finish(pomoEggFallback(theme)); return; }
-  // 严格跟随用户自定义的助理性格
-  const persona = (cfg.persona && cfg.persona.trim()) ? cfg.persona : DEFAULT_PERSONA;
+  // 人格统一用「🧠 记忆」的关系身份（memIdentity），不再单独读 aiPersona
+  const persona = memIdentity();
   const customHint = theme==='custom' ? '（用户指定主题：「' + themeDesc + '」，请围绕它创作）' : '';
   const completionText = taskName
     ? '用户刚刚完成了' + mins + '分钟的「' + taskName + '」任务'
@@ -11849,12 +11906,6 @@ init();
     const blocks=[];
     // [identity] 用用户自定义的「关系身份」（memIdentity()，未设置时回退默认）——之前硬编码 DEFAULT_MEM_IDENTITY，用户配的身份没被引用
     blocks.push('[identity]\n'+((typeof memIdentity==='function'?memIdentity():DEFAULT_MEM_IDENTITY)||'').trim());
-    // [风格] 用用户在主 AI 设置里配的「人设」（persona），让陪伴也按用户设定的性格说话
-    try{
-      const _cfg=getAiCfg();
-      const _persona=(_cfg&&_cfg.persona&&_cfg.persona.trim())?_cfg.persona.trim():'';
-      if(_persona) blocks.push('[风格]\n'+_persona);
-    }catch(e){}
     const recent=await focusRecentSummary();
     if(recent) blocks.push('[recent]\n'+recent);
     const task=(session&&session.taskNow&&session.taskNow.trim())?session.taskNow.trim():'这场的专注任务未设定，随意陪伴即可。';
