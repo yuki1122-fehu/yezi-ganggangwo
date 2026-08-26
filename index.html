@@ -3319,7 +3319,7 @@ async function fetchQWeatherNow(){
   }
 }
 
-/* 和风 7 天预报（/v7/weather/7d）：取 arr[0] 作为「今日/明日」可预见条 */
+/* 和风 7 天预报（/v7/weather/7d）：取 arr[1] 作为「明日」可预见条（和风 daily[0]=今天、daily[1]=明天，对齐 HKO fnd「最近一天」语义） */
 async function fetchQWeatherForecast(){
   const controller = new AbortController();
   const timer = setTimeout(()=>controller.abort(), 6000);
@@ -3332,12 +3332,15 @@ async function fetchQWeatherForecast(){
     if(data.code !== '200') throw new Error('QWeather code '+data.code);
     const arr = (data.daily && data.daily.length) ? data.daily : null;
     if(!arr) return null;
-    const t = arr[0];
+    const t = arr[1] || arr[0]; // 优先明日；若只剩今天也兜底展示
     const fx = String(t.fxDate||'').replace(/-/g,'');
+    const dayTxt = t.textDay || t.text || '';
+    const nightTxt = t.textNight || '';
+    const fcWeather = (nightTxt && nightTxt !== dayTxt) ? (dayTxt + '，晚' + nightTxt) : dayTxt; // 早晚天气不同才拼接
     return {
       date: fx,
       week: '',
-      weather: t.textDay || t.text || '',
+      weather: fcWeather,
       maxtemp: t.tempMax!=null ? Number(t.tempMax) : null,
       mintemp: t.tempMin!=null ? Number(t.tempMin) : null,
       icon: t.iconDay || null,
