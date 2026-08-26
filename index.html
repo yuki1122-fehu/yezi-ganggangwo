@@ -7851,26 +7851,28 @@ async function memSaveEntryAndTags(msgId, t){
   for(const tag of tags){ await memPut('tags', tag).catch(()=>{}); }
 }
 async function memRunTagger(){
-  if(!memEnabled()) return;
+  if(!memEnabled()) return 0;
   const cfg = getAiCfg();
-  if(!cfg.apiKey) return;
+  if(!cfg.apiKey) return 0;
   try{
     const msgs = await memGetAll('messages');
-    if(!msgs.length) return;
+    if(!msgs.length) return 0;
     const wm = await memKvGet('tagger_watermark') || 0;
     const rows = msgs.filter(m=>m.id > wm).sort((a,b)=>a.id-b.id);
-    if(!rows.length) return;
+    if(!rows.length) return 0;
+    const BATCH_MAX = 40; // 清空后历史重打：一次最多 40 条，剩余留到下次（避免一次性输入超长/超时）
+    const batch = rows.slice(0, BATCH_MAX);
     let tagged = 0, skipped = 0;
     // 批量话题段聚合优先（一条记忆 = 一段同主题对话，主旨级、少而精）；整批失败才回退逐条打标保底
     try{
-      const segs = await memTagBatch(cfg, rows);
+      const segs = await memTagBatch(cfg, batch);
       for(const t of segs){
-        await memSaveEntryAndTags(rows[0].id, t); // 溯源挂段内第一条消息（entry 独立自增 id，不冲突）
+        await memSaveEntryAndTags(batch[0].id, t); // 溯源挂段内第一条消息（entry 独立自增 id，不冲突）
         tagged++;
       }
     }catch(e){
       console.warn('[mem] 批量聚合失败，回退逐条打标', e);
-      for(const r of rows){
+      for(const r of batch){
         try{
           const t = await memTagOne(cfg, r.content);
           await memSaveEntryAndTags(r.id, t);
@@ -7878,10 +7880,11 @@ async function memRunTagger(){
         }catch(e2){ skipped++; } // MUST：单条失败隔离，不连累同批
       }
     }
-    await memKvSet('tagger_watermark', rows[rows.length-1].id);
-    if(rows.length && tagged === 0) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
+    await memKvSet('tagger_watermark', batch[batch.length-1].id);
+    if(batch.length && tagged === 0) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
     memRelRefresh(cfg).catch(()=>{}); // 打标后顺手刷新关系摘要
-  }catch(e){ console.warn('[mem] tagger', e); }
+    return Math.max(0, rows.length - batch.length); // 剩余待打条数，供"立即打标"提示继续
+  }catch(e){ console.warn('[mem] tagger', e); return 0; }
 }
 // ---- 关系摘要（§5 resident 块之一）：最近点滴 → 2-4 句关系近况，缓存 ----
 async function memRelRefresh(cfg){
@@ -8061,18 +8064,30 @@ function closeMemView(){ closeMask(document.getElementById('memViewMask')); }
 async function memTagNow(){
   const hint = document.getElementById('memTagHint');
   if(hint) hint.textContent = '正在后台打标…';
-  await memRunTagger();
+  const left = await memRunTagger();
   await memRefreshStats();
-  if(hint) hint.textContent = '✅ 打标完成（失败的单条会跳过，不影响其他）。';
+  if(hint) hint.textContent = left>0
+    ? ('✅ 本批打标完成，还有 '+left+' 条对话待处理，可再点一次继续。')
+    : '✅ 打标完成（失败的单条会跳过，不影响其他）。';
 }
 async function memClear(){
-  showDialog('确定清空全部记忆？', '这会删除所有记忆条目、标签与对话记录（只影响记忆库，不影响任务 / 课表 / 记账）。', [
+  // 默认只清「已提炼的记忆条目+标签」，保留 messages（对话记录=打标原料）：
+  // 清空后可点「立即打标」用新机制（话题段聚合）把历史对话重新提炼成主旨记忆，不会误删原料。
+  showDialog('确定清空记忆？', '"清空记忆条目"只删已提炼的记忆与标签，对话记录会保留（删后不可恢复的是条目本身）。只有"连对话记录也清"才会删掉打标原料。', [
     {label:'取消', cls:'ghost'},
-    {label:'全部清空', cls:'danger', fn: ()=>{
-      Promise.all([memClearStore('entries'), memClearStore('tags'), memClearStore('messages')])
-        .then(()=>memKvSet('tagger_watermark', 0))
-        .catch(()=>{})
-        .then(()=>{ try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){} memRefreshStats(); });
+    {label:'清空记忆条目', cls:'', fn: async ()=>{
+      await Promise.all([memClearStore('entries'), memClearStore('tags')]).catch(()=>{});
+      await memKvSet('tagger_watermark', 0).catch(()=>{}); // 水位归零：历史对话可重新打标
+      try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){}
+      memRefreshStats();
+      toast('已清空记忆条目；对话记录已保留，点「立即打标」可按新机制重新提炼');
+    }},
+    {label:'连对话记录也清', cls:'danger', fn: async ()=>{
+      await Promise.all([memClearStore('entries'), memClearStore('tags'), memClearStore('messages')]).catch(()=>{});
+      await memKvSet('tagger_watermark', 0).catch(()=>{});
+      try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){}
+      memRefreshStats();
+      toast('已全部清空（含对话记录，删除后不可恢复）');
     }}
   ]);
 }
