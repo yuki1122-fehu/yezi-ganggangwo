@@ -2251,6 +2251,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
         <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
           <button class="btn ghost" type="button" onclick="memTagNow()" style="flex:0 0 auto;">⚡ 立即打标</button>
+          <button class="btn ghost" type="button" onclick="memRescueNow()" style="flex:0 0 auto;" title="把聊天界面最近 40 轮对话回灌进记忆库（清空记忆后的补丁：不重新聊天也能重新打标）">♻️ 恢复对话记录</button>
           <button class="btn ghost" type="button" onclick="memClear()" style="flex:0 0 auto;color:#a32d2d;">🗑 清空记忆</button>
         </div>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">
@@ -8069,6 +8070,46 @@ async function memTagNow(){
   if(hint) hint.textContent = left>0
     ? ('✅ 本批打标完成，还有 '+left+' 条对话待处理，可再点一次继续。')
     : '✅ 打标完成（失败的单条会跳过，不影响其他）。';
+}
+// 从聊天界面记录(mhm_ai_conv，最多 40 条)回灌对话到记忆库 messages——清空记忆后的补丁：
+// 不需要重新聊天，也能把最近这段对话按新机制（话题段聚合）重新打标。按 mid 幂等，不重复入库。
+async function memRescueFromConv(){
+  if(!memEnabled()) return 0;
+  try{
+    const raw = localStorage.getItem(CONV_KEY);
+    if(!raw) return 0;
+    const arr = JSON.parse(raw);
+    if(!Array.isArray(arr) || !arr.length) return 0;
+    const rows = await memGetAll('messages');
+    const have = new Set(rows.map(r=>r.mid).filter(Boolean));
+    let added = 0;
+    for(const m of arr){
+      if(!m || m.role === 'system') continue;
+      const id = m.id || ('m' + Date.now() + '_' + Math.random().toString(36).slice(2, 7));
+      if(have.has(id)) continue;
+      const text = memTextOf(m.content);
+      if(!text || !text.trim()) continue;
+      await memPut('messages', { role: m.role, content: text.trim(), mid: id, created_at: new Date().toISOString() }).catch(()=>{});
+      have.add(id);
+      added++;
+    }
+    return added;
+  }catch(e){ console.warn('[mem] rescue', e); return 0; }
+}
+async function memRescueNow(){
+  const hint = document.getElementById('memTagHint');
+  if(hint) hint.textContent = '正在从聊天记录恢复对话…';
+  const added = await memRescueFromConv();
+  if(added <= 0){
+    if(hint) hint.textContent = '聊天记录里没有能提取的新对话（可能已恢复过，或记录为空）。';
+    await memRefreshStats();
+    return;
+  }
+  const left = await memRunTagger(); // 回灌后立即打标一批（话题段聚合）
+  await memRefreshStats();
+  if(hint) hint.textContent = left > 0
+    ? ('✅ 已恢复 ' + added + ' 条对话并完成本批打标，还有 ' + left + ' 条待处理，可再点一次继续。')
+    : ('✅ 已恢复 ' + added + ' 条对话并完成打标。');
 }
 async function memClear(){
   // 默认只清「已提炼的记忆条目+标签」，保留 messages（对话记录=打标原料）：
