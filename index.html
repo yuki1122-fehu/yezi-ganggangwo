@@ -6347,7 +6347,8 @@ function buildSystem(){
     .replace(/\{\{TIME_ANCHOR\}\}/g, '')
     .replace(/\{\{WEATHER\}\}/g, '')
     .replace(/\{\{WARNINGS\}\}/g, '')
-    .replace(/\{\{SCHEDULE\}\}/g, '');
+    .replace(/\{\{SCHEDULE\}\}/g, '')
+    .replace(/<角色身份>\s*<\/角色身份>/g, ''); // 清掉旧自定义模板残留的空壳标签（DEFAULT 已无此标签；历史自定义模板带 <角色身份></角色身份> 白费 token）
   const memBlocks = buildMemorySyncBlocks(); // 记忆常驻块：仅关系身份（关系摘要/动作回执/磁铁召回皆为动态内容，改在发送时注入末尾 user 消息，见 buildLiveContext —— 动态块进 system 会打穿 prefix cache）
   if(memBlocks) sys += '\n\n' + memBlocks;
   const roleProto = buildRoleProtocol(); // 多角色音色协议：强制回复以【角色名】开头（音色切换用）
