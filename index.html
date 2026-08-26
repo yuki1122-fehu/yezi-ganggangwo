@@ -2275,6 +2275,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     </div>
 
     <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
+    <button class="btn ghost" type="button" onclick="openDiag()" style="width:100%;margin-bottom:8px;">🩺 诊断自检（出问题点这个，复制后发给 AI 排查）</button>
     <div class="row">
       <button class="btn ghost" onclick="closeAISettings()">取消</button>
       <button class="btn primary" onclick="saveAISettings()">保存</button>
@@ -2305,6 +2306,19 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <button class="btn primary" onclick="copyPayload()">复制全部</button>
     </div>
     <p class="hint" style="font-size:11px;color:var(--ink-soft);margin-top:12px;line-height:1.6;">这里展示「实际发给模型」的完整消息：系统提示词、近期日程、近期对话、工具调用结果。图片 base64 已省略。底部附最近一次视觉模型的调用与原始返回，发图结果不对时可对照排查。</p>
+  </div>
+</div>
+
+<!-- 诊断自检弹窗 -->
+<div class="mask" id="diagMask" style="z-index:95;">
+  <div class="sheet glass-strong">
+    <h3>🩺 诊断自检</h3>
+    <div class="payload-meta" style="font-size:11px;color:var(--ink-soft);">一键收集环境 / 网络 / 配置 / 记忆库 / 运行态 / 最近错误。Key 只显示长度不显示明文。复制到任意 AI 即可排查（本功能不会自动发送）。</div>
+    <pre class="payload-box" id="diagBox" style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.55;max-height:55vh;overflow:auto;">收集中…</pre>
+    <div class="row">
+      <button class="btn ghost" onclick="closeDiag()">关闭</button>
+      <button class="btn primary" onclick="copyDiag()">复制全部</button>
+    </div>
   </div>
 </div>
 
@@ -6897,6 +6911,80 @@ async function testVisionConn(){
 }
 function closeAISettings(){ closeMask(document.getElementById('aiSetMask')); }
 
+/* ====== 🩺 诊断自检：一键收集运行快照，复制后发给 AI 排查（不自动发送） ====== */
+async function collectDiag(){
+  const lines = [];
+  const L = (k,v)=>lines.push(k+': '+v);
+  // 环境
+  L('时间', new Date().toLocaleString());
+  L('标题', getAppTitle());
+  L('运行协议', location.protocol);
+  L('PWA模式', (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ? 'standalone(已安装)' : 'browser');
+  L('UA', navigator.userAgent);
+  // AI 配置（Key 只显示长度）
+  const cfg = getAiCfg();
+  L('--- AI配置 ---', '');
+  L('mode', cfg.mode || '(空=direct)');
+  L('baseUrl', cfg.baseUrl || '(默认 deepseek)');
+  L('model', cfg.model || 'deepseek-v4-flash');
+  L('apiKey', cfg.apiKey ? ('已填 '+cfg.apiKey.length+'位') : '未填');
+  if(cfg.relayUrl) L('relayUrl', cfg.relayUrl);
+  // 语音（番茄钟全局）
+  const ps = (pomoData && pomoData.settings) || {};
+  L('--- 语音(全局) ---', '');
+  L('engine', ps.engine || 'sys');
+  L('miniVoiceId', ps.miniVoiceId || '(空)');
+  // 角色音色
+  try{ const vv = aiVoices(); L('角色A', vv.a.engine+' / voiceId='+(vv.a.voiceId||'(空)')+' / '+vv.a.name); L('角色B', vv.b.engine+' / voiceId='+(vv.b.voiceId||'(空)')+' / '+vv.b.name); L('角色开关', vv.on); }catch(e){}
+  // 运行态
+  L('--- 运行态 ---', '');
+  L('aiBusy(卡死标志)', aiBusy ? 'TRUE(可能被卡住)' : 'false');
+  L('对话条数', (aiConv && aiConv.length) || 0);
+  L('记忆开关', (localStorage.getItem('mhm_mem_enabled') !== '0'));
+  L('最近AI错误', window.__lastAIError ? window.__lastAIError : '(无)');
+  const p = window.__lastAIPayload;
+  L('最近请求', p ? (p.time.toLocaleString()+' | '+p.mode+' | '+p.model) : '(无)');
+  // 记忆库健康（带超时，避免又卡死）
+  L('--- 记忆库(IndexedDB) ---', '');
+  try{
+    const health = await Promise.race([
+      (async()=>{
+        const e = await memGetAll('entries'), t = await memGetAll('tags'), m = await memGetAll('messages');
+        return 'entries='+(e?e.length:0)+' tags='+(t?t.length:0)+' messages='+(m?m.length:0)+' (可用)';
+      })(),
+      new Promise(res=>setTimeout(()=>res('读取超时/可能卡死(被其他连接阻塞)'), 2500))
+    ]);
+    L('状态', health);
+  }catch(e){ L('状态', '异常: '+(e.message||e)); }
+  // 网络连通性（no-cors 仅测网络层可达，不读响应，避免 CORS 误报）
+  L('--- 网络 ---', '');
+  try{
+    const ctrl = new AbortController();
+    const to = setTimeout(()=>ctrl.abort(), 5000);
+    const t0 = Date.now();
+    await fetch('https://api.deepseek.com/v1/models', {mode:'no-cors', signal:ctrl.signal});
+    clearTimeout(to);
+    L('DeepSeek可达', '是 ('+(Date.now()-t0)+'ms，请求已发出)');
+  }catch(e){
+    L('DeepSeek可达', '否 / 异常: '+(e.name||e.message||e));
+  }
+  return lines.join('\n');
+}
+async function openDiag(){
+  const box = document.getElementById('diagBox');
+  if(box) box.textContent = '正在收集诊断信息（含网络与记忆库探测，约需数秒）…';
+  openMask(document.getElementById('diagMask'));
+  const txt = await collectDiag();
+  if(box) box.textContent = txt;
+}
+function closeDiag(){ closeMask(document.getElementById('diagMask')); }
+function copyDiag(){
+  const t = (document.getElementById('diagBox') || {}).textContent || '';
+  const done = ()=>{ const b = document.querySelector('#diagMask .btn.primary'); if(b){ const o = b.textContent; b.textContent = '已复制✓'; setTimeout(()=>b.textContent = o, 1500); } };
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(done).catch(()=>{ fallbackCopy(t); done(); }); }
+  else { fallbackCopy(t); done(); }
+}
+
 /* ====== 查看发送给助理的内容 ====== */
 function openPayloadView(){ renderPayload(); openMask(document.getElementById('aiPayloadMask')); }
 function closePayloadView(){ closeMask(document.getElementById('aiPayloadMask')); }
@@ -7947,6 +8035,7 @@ async function aiRun(){
     while(loop++ < 6){
       const r = await aiCall(aiConv, cfg);
       if(r.error){
+        window.__lastAIError = 'AI错误: '+String(r.error);
         addAIMsg('ai','⚠️ '+r.error, aiMsgId()); break;
       }
       const msg = r.data.choices && r.data.choices[0] ? r.data.choices[0].message : null;
@@ -7995,6 +8084,7 @@ async function aiRun(){
       addAIMsg('ai','🔄 这一步涉及的改动比较多，我连续处理了几轮后达到了单次上限。已经完成的部分都保存好了；如果还有没做完的，你直接再说一遍（例如"继续删剩下的"），我会接着处理。', aiMsgId());
     }
   }catch(e){
+    window.__lastAIError = '异常: '+(e.message||'未知错误');
     addAIMsg('ai','出错了：'+(e.message||'未知错误'), aiMsgId());
   }finally{
     saveConv(); // 持久化本次对话，刷新后仍在
