@@ -2324,6 +2324,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <pre class="payload-box" id="diagBox" style="white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.55;max-height:55vh;overflow:auto;">收集中…</pre>
     <div class="row">
       <button class="btn ghost" onclick="closeDiag()">关闭</button>
+      <button class="btn ghost" onclick="forceUnstick('手动强制解除卡死：已释放忙碌态并清除三点气泡。'); openDiag();" style="border-color:#e0823c;color:#c96a1f;">🛠 强制解除卡死</button>
       <button class="btn primary" onclick="copyDiag()">复制全部</button>
     </div>
   </div>
@@ -6929,10 +6930,26 @@ async function collectDiag(){
   try{ const vv = aiVoices(); L('角色A', vv.a.engine+' / voiceId='+(vv.a.voiceId||'(空)')+' / '+vv.a.name); L('角色B', vv.b.engine+' / voiceId='+(vv.b.voiceId||'(空)')+' / '+vv.b.name); L('角色开关', vv.on); }catch(e){}
   // 运行态
   L('--- 运行态 ---', '');
-  L('aiBusy(卡死标志)', aiBusy ? 'TRUE(可能被卡住)' : 'false');
+  if(aiBusy && window.__aiBusySince){
+    const sec = Math.floor((Date.now()-window.__aiBusySince)/1000);
+    L('aiBusy(卡死标志)', 'TRUE(已卡 '+sec+' 秒，自 '+new Date(window.__aiBusySince).toLocaleTimeString()+')');
+  } else {
+    L('aiBusy(卡死标志)', 'false');
+  }
   L('对话条数', (aiConv && aiConv.length) || 0);
   L('记忆开关', (localStorage.getItem('mhm_mem_enabled') !== '0'));
   L('最近AI错误', window.__lastAIError ? window.__lastAIError : '(无)');
+  // 当前请求是否在飞（fetch 已开始但未返回）——这是判断「真·卡死」的关键，比 aiBusy 更准
+  const st = window.__aiReqStart || 0, dn = window.__aiReqDone || 0;
+  if(st && (!dn || dn < st)){
+    const sec = Math.floor((Date.now()-st)/1000);
+    L('当前请求', '🔄 进行中：已 '+sec+' 秒未返回响应（卡在 fetch/网络层，30s 超时可能未触发）');
+  } else if(st && dn){
+    L('当前请求', '✅ 上次已完成（耗时 '+Math.floor((dn-st)/1000)+' 秒）');
+  } else {
+    L('当前请求', '(无)');
+  }
+  L('残留思考气泡', document.getElementById('aiTypingBubble') ? '是(异常残留，三点未被清除)' : '无');
   const p = window.__lastAIPayload;
   L('最近请求', p ? (p.time.toLocaleString()+' | '+p.mode+' | '+p.model) : '(无)');
   // 记忆库健康（带超时，避免又卡死）
@@ -7260,8 +7277,21 @@ async function testAIConn(){
 
 function setAIBusy(b){
   aiBusy = b;
+  if(b) window.__aiBusySince = Date.now(); else window.__aiBusySince = 0;
   document.getElementById('aiSendBtn').disabled = b;
   if(b) document.getElementById('aiMsgs').scrollTop = document.getElementById('aiMsgs').scrollHeight;
+}
+// 强制解除卡死：用于「好几分钟只转圈、30s 超时疑似未触发」时手动/看门狗自救。
+// 仅当确实处于卡死态（aiBusy=true 或仍有残留三点气泡）才动作，否则静默返回。
+function forceUnstick(reason){
+  const hasBubble = !!document.getElementById('aiTypingBubble');
+  if(!aiBusy && !hasBubble) return;
+  const why = reason || '自动解除：请求超过 75 秒无响应且未被 30s 超时中断（疑似移动端 fetch 中止失效），已强制释放。';
+  window.__lastAIError = '卡死解除: ' + why;
+  window.__aiReqStart = 0; window.__aiReqDone = Date.now();
+  setAIBusy(false);
+  hideTyping();
+  addAIMsg('ai', '⏱ ' + why + ' 可点重试；若频繁发生，建议改用流式或联系排查。', aiMsgId());
 }
 
 function aiPickFile(ev, isImg){
@@ -8084,6 +8114,8 @@ async function aiRun(){
     return;
   }
   setAIBusy(true);
+  // 看门狗：若 30s 超时在某些手机上未触发（fetch 中止失效），75s 后强制释放，杜绝「好几分钟只转圈」
+  const wd = setTimeout(()=>{ if(aiBusy) forceUnstick(); }, 75000);
   try{
     const memUserText = memLastUserText();
     if(memUserText) await memInjectMagnet(memUserText); // 磁铁召回注入：说到什么就召回什么（空块整块消失）
@@ -8144,8 +8176,10 @@ async function aiRun(){
     window.__lastAIError = '异常: '+(e.message||'未知错误');
     addAIMsg('ai','出错了：'+(e.message||'未知错误'), aiMsgId());
   }finally{
+    clearTimeout(wd);
     saveConv(); // 持久化本次对话，刷新后仍在
     setAIBusy(false);
+    hideTyping(); // 双保险：任何路径结束都确保三点气泡被移除，绝不残留
   }
 }
 
@@ -8196,10 +8230,12 @@ async function aiCall(messages, cfg, attempt, opts){
   const ctrl = new AbortController();
   const timer = setTimeout(()=>ctrl.abort(), 30000); // 30 秒超时：慢网络/模型高峰更宽容
   let resp;
+  window.__aiReqStart = Date.now(); window.__aiReqDone = 0; // 标记请求已开始（诊断用：判断「在飞/卡死」）
   try{
     resp = await fetch(url, {method:'POST', headers: headers, body: JSON.stringify(payload), signal: ctrl.signal});
   }catch(err){
     clearTimeout(timer);
+    window.__aiReqDone = Date.now(); // 网络/中止错误也算「本次请求已结算」
     if(err && err.name==='AbortError'){
       return {error: '连接超时（30 秒无响应）：网络慢或被拦截。若用 OpenRouter 连不通，可能是网络访问受限，或当前在 WorkBuddy 内置预览沙箱里测（沙箱禁网）——请把本文件下载/传到手机或电脑真实浏览器打开再试。'};
     }
@@ -8216,6 +8252,7 @@ async function aiCall(messages, cfg, attempt, opts){
     return {error: tip};
   }
   clearTimeout(timer);
+  window.__aiReqDone = Date.now(); // 响应已收到，标记请求结算（诊断据此区分「在飞」与「已完成」）
   const rawText = await resp.text().catch(()=>''); // 保留原始响应体：400 等错误时能看到真实原因（不再只显示"抽风"）
   let data = {};
   try{ data = rawText ? JSON.parse(rawText) : {}; }catch(e){ data = {}; }
