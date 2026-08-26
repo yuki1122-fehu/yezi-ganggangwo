@@ -3249,6 +3249,95 @@ async function fetchOpenMeteo(){
   }
 }
 
+/* ============ 和风天气 QWeather（主数据源：实况 / 预报） ============
+   说明：叶子港港窝天气改为「和风」为主源（用户已在和风注册，实测/预报更贴合小米同款）。
+   香港天文台的黑雨 / 雷暴等天气警告（warnsum）仍保留 HKO；18 区分区实测雨量 HKO 独有，
+   也保留 HKO rainfall 用于分区面板（它属于实测雨量，不是「警告」）。
+   重要：必须在和风控制台「设置 → 授权域名」添加本 PWA 的域名（如
+   yuki1122-fehu.github.io），否则浏览器 fetch 会被 403 Invalid Host 拒绝。 */
+const QWEATHER_KEY  = '519c0a3fc5f34bfaa5f1ebd1c21e1310';
+const QWEATHER_HOST = 'kb62b8ucf6.re.qweatherapi.com';   // 用户控制台专属 API Host（实测 200，非通用 api.qweather.com）
+const QW_LOC        = '114.1830,22.3415';   // 黄大仙附近经纬度（和风要求【经度,纬度】顺序，勿反）
+const REF_DISTRICT  = '黄大仙';             // 参考区（本区下雨判断 + 分区状态基准）
+
+function qwEmoji(desc){
+  const d = String(desc||'');
+  if(/雷|雷暴|雷陣/.test(d)) return '⛈';
+  if(/暴雨|大雨|豪雨|暴(雨|風)|大驟雨|大骤雨/.test(d)) return '🌧';
+  if(d.indexOf('雪') >= 0) return '❄️';
+  if(/雨|雹|霰/.test(d)) return '🌧';
+  if(/霧|霧凇|煙霞|霾|雾|雾凇|烟霞/.test(d)) return '🌫️';
+  if(/陰|密雲|阴|密云/.test(d)) return '☁️';
+  if(/多雲|多云|少雲|少云|晴間多雲|晴间多云/.test(d)) return '⛅';
+  if(/天晴|陽光|阳光|晴|晴朗/.test(d)) return '☀️';
+  return '☀️';
+}
+
+/* 和风实况（/v7/weather/now）：温度/湿度/天气现象/降水量，均为气象站实测 */
+async function fetchQWeatherNow(){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 6000);
+  try{
+    const url = `https://${QWEATHER_HOST}/v7/weather/now?location=${encodeURIComponent(QW_LOC)}&lang=zh&key=${QWEATHER_KEY}`;
+    const res = await fetch(url, {signal: controller.signal});
+    clearTimeout(timer);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    if(data.code !== '200') throw new Error('QWeather code '+data.code);
+    const n = data.now || {};
+    const desc = n.text || '';
+    const precip = (n.precip != null) ? Number(n.precip) : 0;
+    return {
+      ok:true,
+      temp: n.temp!=null ? Math.round(Number(n.temp)) : null,
+      tempUnit:'C',
+      humidity: n.humidity!=null ? Number(n.humidity) : null,
+      humidityUnit:'%',
+      icon: String(n.icon||''),
+      desc: desc,
+      emoji: qwEmoji(desc),
+      precipitation: precip,
+      source:'QWeather',
+      isForecast:false,
+      updateTime: data.updateTime || n.obsTime || null
+    };
+  }catch(e){
+    clearTimeout(timer);
+    throw e;
+  }
+}
+
+/* 和风 7 天预报（/v7/weather/7d）：取 arr[0] 作为「今日/明日」可预见条 */
+async function fetchQWeatherForecast(){
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), 6000);
+  try{
+    const url = `https://${QWEATHER_HOST}/v7/weather/7d?location=${encodeURIComponent(QW_LOC)}&lang=zh&key=${QWEATHER_KEY}`;
+    const res = await fetch(url, {signal: controller.signal});
+    clearTimeout(timer);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    if(data.code !== '200') throw new Error('QWeather code '+data.code);
+    const arr = (data.daily && data.daily.length) ? data.daily : null;
+    if(!arr) return null;
+    const t = arr[0];
+    const fx = String(t.fxDate||'').replace(/-/g,'');
+    return {
+      date: fx,
+      week: '',
+      weather: t.textDay || t.text || '',
+      maxtemp: t.tempMax!=null ? Number(t.tempMax) : null,
+      mintemp: t.tempMin!=null ? Number(t.tempMin) : null,
+      icon: t.iconDay || null,
+      psr: (t.precipProbDay!=null && String(t.precipProbDay)!=='0') ? String(t.precipProbDay) : '',
+      updateTime: data.updateTime || null
+    };
+  }catch(e){
+    clearTimeout(timer);
+    return null;
+  }
+}
+
 function getCachedWeather(){
   try{
     const raw = localStorage.getItem(WEATHER_KEY);
@@ -3353,10 +3442,19 @@ function parseHKOWeather(data){
           return (typeof m === 'number' && m > 0) || (typeof mx === 'number' && mx > 0)
               || (typeof m === 'string' && m !== '' && !/false/i.test(m) && parseFloat(m) > 0);
         };
-        const refStation = rainArr.find(x=>x.place==='油尖旺') || null; // 天文台所在区
-        const anyRain = refStation ? hasRain(refStation) : rainArr.some(hasRain);
-        if(!anyRain && /雨|陣|骤|雷/.test(desc)){
-          desc = '天晴'; emoji = '☀️'; icon = 50; // HKO 图标 50 = 天晴
+        const anyRainInHK = rainArr.some(hasRain);                          // 全港是否任何区有雨
+        const refStation = rainArr.find(x=>x.place===REF_DISTRICT) || rainArr.find(x=>x.place==='油尖旺') || null;
+        const refHasRain = refStation ? hasRain(refStation) : false;        // 本区（黄大仙）是否实测有雨
+        if(anyRainInHK){
+          // 全港有雨：绝不把「雨」降级为晴；若图标滞后显示晴/多云但本区实测有雨 → 升级为「有雨」
+          if(refHasRain && !/雨|陣|骤|雷/.test(desc)){
+            desc = '有雨'; emoji = '🌧'; icon = 62; // HKO 图标 62 = 有雨
+          }
+        }else{
+          // 全港确实无雨，才把图标误报的「雨/雷」降级为天晴（避免图标滞后误报）
+          if(/雨|陣|骤|雷/.test(desc)){
+            desc = '天晴'; emoji = '☀️'; icon = 50; // HKO 图标 50 = 天晴
+          }
         }
       }
     }
@@ -3364,7 +3462,7 @@ function parseHKOWeather(data){
   const warning = ((data.warningMessage && (Array.isArray(data.warningMessage) ? data.warningMessage.join('') : (data.warningMessage||''))) || '').trim(); // HKO 返回数组或字符串都兼容
   const tcMsg = (data.tcmessage&&Array.isArray(data.tcmessage) && data.tcmessage[0]) || (typeof data.tcmessage==='string' ? data.tcmessage : '') || '';
   // 分区聚合 + 有雨区 + 全港降雨状态（参考区=油尖旺=天文台所在，用户常见位置）
-  const ag = aggregateRegions(data, '油尖旺');
+  const ag = aggregateRegions(data, REF_DISTRICT);
   // 紫外线指数：rhrread 已含 uvindex.data[0]={place,value,desc}，无需额外请求
   const uvItem = (data.uvindex && data.uvindex.data && data.uvindex.data[0]) || null;
   let uv = null;
@@ -3410,38 +3508,38 @@ async function fetchHKWeatherFresh(){
   let done = false;
   const guard = new Promise(resolve=>setTimeout(()=>{ if(!done){ done = true; resolve('TIMEOUT'); } }, 12000)); // 总兜底 12s，快速出结果
   const main = (async()=>{
-    let data = null;
-    try{
-      data = await fetchHKORaw(4000);
-    }catch(e1){
-      console.error('HKO 首次失败，重试一次:', e1 && e1.message);
-      try{
-        data = await fetchHKORaw(3000);
-      }catch(e2){
-        console.error('HKO 重试仍失败:', e2 && e2.message);
+    // 主源：和风实况；同时拉 HKO rhrread（用于 18 区分区实测 + UV，并作为和风失败时的回退）
+    const qwP = fetchQWeatherNow().catch(e=>{ console.error('QWeather now fail:', e && e.message); return null; });
+    const hkoP = (async()=>{ try{ return await fetchHKORaw(4000); }catch(e1){ try{ return await fetchHKORaw(3000); }catch(e2){ return null; } } })();
+    const [qw, hkoRaw] = await Promise.all([qwP, hkoP]);
+
+    let payload = null;
+    if(qw && qw.ok){
+      // 和风实况成功：主卡片用和风；合并 HKO 独有的 18 区分区实测 + UV
+      payload = { ...qw };
+      if(hkoRaw){
+        try{
+          const hp = parseHKOWeather(hkoRaw);
+          payload.regions = hp.regions;
+          payload.rainPlaces = hp.rainPlaces;
+          payload.rainStatus = hp.rainStatus;
+          payload.uv = hp.uv;
+        }catch(e){ console.error('HKO 分区合并失败:', e && e.message); }
       }
+    }else if(hkoRaw){
+      // 和风失败：回退 HKO 主源（纠偏已修复为双向，不会再误判晴/雨）
+      try{ payload = parseHKOWeather(hkoRaw); }catch(e){ console.error('parseHKOWeather error:', e && e.message); }
+    }else{
+      // HKO 也失败：最后回退 Open-Meteo（数值模型预报值）
+      try{ payload = await fetchOpenMeteo(); }catch(e2){ console.error('fetchOpenMeteo error:', e2 && e2.message); }
     }
-    if(data){
-      try{
-        const payload = parseHKOWeather(data);
-        weatherState = payload;
-        setCachedWeather(payload);
-        renderWeather();
-        refreshAuxWeather(); // 预报/空气质素并行拉取，失败不影响主体
-        return payload;
-      }catch(parseErr){
-        console.error('parseHKOWeather error:', parseErr && parseErr.message);
-      }
-    }
-    // 后备数据源：Open-Meteo（数值模型预报值，HKO 失败/超时时自动接管）
-    try{
-      const alt = await fetchOpenMeteo();
-      weatherState = alt;
-      setCachedWeather(alt);
+
+    if(payload && payload.ok){
+      weatherState = payload;
+      setCachedWeather(payload);
       renderWeather();
-      return alt;
-    }catch(e2){
-      console.error('fetchOpenMeteo error:', e2 && e2.message);
+      refreshAuxWeather(); // 预报（和风7d，失败回退 HKO fnd）+ 空气质素并行拉取
+      return payload;
     }
     return null;
   })().catch(masterErr=>{ console.error('fetchHKWeatherFresh master error:', masterErr && masterErr.message); return null; });
@@ -3517,11 +3615,19 @@ async function fetchAQHI(){
 }
 /* 附加数据（预报/空气质素）并行拉取：成功即并入 weatherState 并重绘，不阻塞主流程 */
 async function refreshAuxWeather(){
-  const settled = await Promise.allSettled([fetchForecastHK(), fetchAQHI()]);
   if(!weatherState || !weatherState.ok) return;
   let changed = false;
-  if(settled[0].status === 'fulfilled' && settled[0].value){ weatherState.forecast = settled[0].value; changed = true; }
-  if(settled[1].status === 'fulfilled' && settled[1].value){ weatherState.aqhi = settled[1].value; changed = true; }
+  // 预报：和风 7d 优先，失败回退 HKO fnd
+  try{
+    const fc = await fetchQWeatherForecast();
+    if(fc){ weatherState.forecast = fc; changed = true; }
+    else { const f = await fetchForecastHK(); if(f){ weatherState.forecast = f; changed = true; } }
+  }catch(e){ try{ const f = await fetchForecastHK(); if(f){ weatherState.forecast = f; changed = true; } }catch(e2){} }
+  // 空气质素（AQHI）保持不变
+  try{
+    const aq = await fetchAQHI();
+    if(aq){ weatherState.aqhi = aq; changed = true; }
+  }catch(e){}
   if(changed){
     setCachedWeather(weatherState);
     renderWeather();
@@ -3647,7 +3753,7 @@ function renderWeatherExt(){
       const temp = (f.mintemp != null && f.maxtemp != null) ? f.mintemp + '–' + f.maxtemp + '°'
                 : (f.maxtemp != null ? f.maxtemp + '°' : '');
       const psrMap = {'高':'降雨概率高','中高':'降雨概率中高','中':'降雨概率中','中低':'降雨概率中低','低':'降雨概率低'};
-      const psr = psrMap[f.psr] || (f.psr ? '降雨' + f.psr : '');
+      const psr = psrMap[f.psr] || (f.psr ? (/^\d+$/.test(f.psr) ? '降雨概率' + f.psr + '%' : '降雨' + f.psr) : '');
       const aux = [isToday ? '今日' : '明日', temp, psr].filter(Boolean).join(' · ');
       fcEl.innerHTML = '<span class="wf-tag">' + escHtml(tag) + '</span>'
         + '<span class="wf-desc">' + escHtml(f.weather) + '</span>'
