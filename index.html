@@ -6538,10 +6538,11 @@ function injectTimeAnchor(result){
   const full = ctx + (mb ? ('\n\n' + mb) : '');
   // 浅拷贝消息对象后再改 content，避免污染 aiConv 里的原始消息（否则会随 saveConv 存进历史）
   const copy = Object.assign({}, last);
+  // 用户当前这句话单独用 <用户当前指令> 包起来，与上面的实时上下文/记忆明确区分，AI 不会混淆"该回应哪句"
   if(typeof copy.content === 'string'){
-    copy.content = full + '\n' + copy.content;
+    copy.content = full + '\n<用户当前指令>\n' + copy.content + '\n</用户当前指令>';
   } else if(Array.isArray(copy.content)){
-    copy.content = [{type:'text', text: full}, ...copy.content];
+    copy.content = [{type:'text', text: full + '\n<用户当前指令>'}, ...copy.content, {type:'text', text:'</用户当前指令>'}];
   }
   result[idx] = copy;
   return result;
@@ -7787,6 +7788,9 @@ async function memDeleteByMid(mid){
 }
 // ---- 打标管线（§2）：水位线取「上次之后的新记录」，时区免疫；单条失败只跳过 ----
 const MEM_TAG_PROMPT = '你是记忆整理器。对下面这条对话记录：\n1) 用一句话总结(summary，<=40 字)；\n2) 抽取 keyword 标签(专名/名词/梗名，<=6 个)；\n3) 判定 emotion 标签(从这份类目表中选，可多选可为空)：{{EMO}}\n4) 判定 topic 标签(从这份类目表中选)：{{TOPIC}}\n只输出 JSON：{"summary":str,"keyword":[...],"emotion":[...],"topic":[...]}\n不确定就留空数组。禁止发明类目表之外的 emotion/topic。';
+// 批量话题段聚合版：一批连续对话 → 按话题合并成若干条「主旨记忆」（同一话题的连续几轮并成一段），
+// 解决旧版逐条打标导致的流水账/碎片化（召回后 AI 没有上下文、看不懂零散摘要）。失败时回退逐条打标保底。
+const MEM_TAG_BATCH_PROMPT = '你是记忆整理器。把下面这段连续对话按「话题」切成若干段：属于同一话题的连续几轮合并成一段，话题换了才开新段。每段写一条主旨记忆：\n1) summary（<=60 字）：这段到底聊了什么、有什么契机、有什么值得记住的细节或情绪——像朋友记日记，围绕「这事为什么值得记住」来写；禁止写"用户说/助理说/她说/他说"这类转述，禁止流水账式罗列；\n2) keyword 标签（专名/梗名/名词，<=4 个）；\n3) emotion 标签（从类目表中选，可多选可为空）：{{EMO}}\n4) topic 标签（从类目表中选 1-2 个）：{{TOPIC}}\n圈子很小，只保留有记忆价值的内容；纯寒暄/客套/无新信息的轮次并入相邻段，不要单开一段；最多切 4 段。\n只输出 JSON 数组：{"summary":str,"keyword":[...],"emotion":[...],"topic":[...]} 的数组，不要输出其他文字。';
 function memExtractJson(raw){
   const i = raw.indexOf('{');
   if(i < 0) return null;
@@ -7815,6 +7819,27 @@ async function memTagOne(cfg, text){
     topic:   Array.isArray(t.topic) ? t.topic.map(String) : []
   };
 }
+// 批量话题段聚合：一次调用把整批消息按话题分段总结（主旨级记忆，召回后无需上下文即可理解）
+async function memTagBatch(cfg, rows){
+  const prompt = MEM_TAG_BATCH_PROMPT.replace('{{EMO}}', MEM_EMO_AXES.join(' / ')).replace('{{TOPIC}}', MEM_TOPIC_AXES.join(' / '));
+  const lines = rows.map((r, i)=>{
+    const who = (r.role === 'user') ? '用户' : '角色';
+    return (i + 1) + '. [' + who + '] ' + String(r.content || '').slice(0, 220);
+  }).join('\n');
+  const r = await aiCall([{role:'system', content:'你是记忆整理器。只输出 JSON，不输出任何其他文字。'},{role:'user', content: prompt + '\n\n待整理的对话：\n' + lines}], cfg, 1, {noTools:true});
+  if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) throw new Error(r.error || 'no choices');
+  const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
+  const j = memExtractJson(raw);
+  if(!j) throw new Error('no json');
+  const arr = JSON.parse(j);
+  if(!Array.isArray(arr) || !arr.length) throw new Error('bad segs');
+  return arr.map(t=>({
+    summary: String(t.summary || '').slice(0, 60),
+    keyword: Array.isArray(t.keyword) ? t.keyword.map(String).slice(0, 6) : [],
+    emotion: Array.isArray(t.emotion) ? t.emotion.map(String) : [],
+    topic:   Array.isArray(t.topic) ? t.topic.map(String) : []
+  })).filter(t=> t.summary || t.keyword.length || t.emotion.length || t.topic.length);
+}
 async function memSaveEntryAndTags(msgId, t){
   if(!t.summary && !t.keyword.length && !t.emotion.length && !t.topic.length) return;
   const eid = await memPut('entries', { source_msg_id: msgId, summary: t.summary, detail: '', active: 1, created_at: new Date().toISOString() });
@@ -7836,12 +7861,22 @@ async function memRunTagger(){
     const rows = msgs.filter(m=>m.id > wm).sort((a,b)=>a.id-b.id);
     if(!rows.length) return;
     let tagged = 0, skipped = 0;
-    for(const r of rows){
-      try{
-        const t = await memTagOne(cfg, r.content);
-        await memSaveEntryAndTags(r.id, t);
+    // 批量话题段聚合优先（一条记忆 = 一段同主题对话，主旨级、少而精）；整批失败才回退逐条打标保底
+    try{
+      const segs = await memTagBatch(cfg, rows);
+      for(const t of segs){
+        await memSaveEntryAndTags(rows[0].id, t); // 溯源挂段内第一条消息（entry 独立自增 id，不冲突）
         tagged++;
-      }catch(e){ skipped++; } // MUST：单条失败隔离，不连累同批
+      }
+    }catch(e){
+      console.warn('[mem] 批量聚合失败，回退逐条打标', e);
+      for(const r of rows){
+        try{
+          const t = await memTagOne(cfg, r.content);
+          await memSaveEntryAndTags(r.id, t);
+          tagged++;
+        }catch(e2){ skipped++; } // MUST：单条失败隔离，不连累同批
+      }
     }
     await memKvSet('tagger_watermark', rows[rows.length-1].id);
     if(rows.length && tagged === 0) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
@@ -7852,10 +7887,12 @@ async function memRunTagger(){
 async function memRelRefresh(cfg){
   try{
     const entries = await memGetAll('entries');
-    const recent = entries.filter(e=>e.active===1 && e.summary).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 12);
+    const cutoff = Date.now() - 3 * 86400000; // 只看最近 3 天的点滴，避免把旧事写进"最近"
+    const recent = entries.filter(e=>e.active===1 && e.summary && new Date(e.created_at).getTime() >= cutoff)
+                          .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 12);
     if(!recent.length) return;
     const bullet = recent.map(e=>'· '+e.summary).join('\n');
-    const r = await aiCall([{role:'system', content:'你是关系摘要器。用 2-4 句自然中文写一段「最近的我们」：像朋友在回忆，突出共同经历与情绪温度，不要逐条复述，不要编造没有的内容。只输出正文。'},{role:'user', content:'最近的回忆片段：\n'+bullet}], cfg, 1, {noTools:true});
+    const r = await aiCall([{role:'system', content:'你是关系摘要器。用 2-3 句自然中文写一段「最近的我们」：像朋友在回忆用户和角色之间的共同经历与情绪温度。硬性要求：①只总结共同经历和关系氛围，不要复述任何一方的原话，不要写"她说/他说"式转述；②不要流水账式罗列做过的事；③实在没有值得说的就写一句"最近就是安稳的日常"，绝不硬编。只输出正文。'},{role:'user', content:'最近的回忆片段：\n'+bullet}], cfg, 1, {noTools:true});
     if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) return;
     const text = ((r.data.choices[0].message && r.data.choices[0].message.content) || '').trim();
     if(!text) return;
