@@ -7046,10 +7046,12 @@ function saveAISettings(){
   localStorage.setItem(MEM_ENABLED_KEY, document.getElementById('aiMemOn').checked ? '1' : '0');
   localStorage.setItem(MEM_IDENTITY_KEY, document.getElementById('aiMemIdentity').value.trim());
   // 角色音色（多角色自动切换）
+  const aEngine = document.getElementById('aiVoiceAEngine').value;
+  const bEngine = document.getElementById('aiVoiceBEngine').value;
   localStorage.setItem('mhm_ai_voices', JSON.stringify({
     on: document.getElementById('aiVoiceOn').checked,
-    a: { name: document.getElementById('aiVoiceAName').value.trim() || '零落', engine: document.getElementById('aiVoiceAEngine').value, voiceId: document.getElementById('aiVoiceAVoice').value.trim(), pitch: parseFloat(document.getElementById('aiVoiceAPitch').value) || 1.15, rate: parseFloat(document.getElementById('aiVoiceARate').value) || 0.95 },
-    b: { name: document.getElementById('aiVoiceBName').value.trim() || '沈容', engine: document.getElementById('aiVoiceBEngine').value, voiceId: document.getElementById('aiVoiceBVoice').value.trim(), pitch: parseFloat(document.getElementById('aiVoiceBPitch').value) || 0.95, rate: parseFloat(document.getElementById('aiVoiceBRate').value) || 0.95 }
+    a: { name: document.getElementById('aiVoiceAName').value.trim() || '零落', engine: aEngine, voiceId: aEngine === 'mini' ? document.getElementById('aiVoiceAVoice').value.trim() : '', pitch: parseFloat(document.getElementById('aiVoiceAPitch').value) || 1.15, rate: parseFloat(document.getElementById('aiVoiceARate').value) || 0.95 },
+    b: { name: document.getElementById('aiVoiceBName').value.trim() || '沈容', engine: bEngine, voiceId: bEngine === 'mini' ? document.getElementById('aiVoiceBVoice').value.trim() : '', pitch: parseFloat(document.getElementById('aiVoiceBPitch').value) || 0.95, rate: parseFloat(document.getElementById('aiVoiceBRate').value) || 0.95 }
   }));
   // 粤语开关（与番茄钟语音设置共用 pomoData.settings，任一页改动都生效）
   try{
@@ -10226,7 +10228,10 @@ function aiVoiceCfg(idx){
   const v = aiVoices();
   const r = idx === 1 ? v.a : (idx === 2 ? v.b : null);
   if(!r || !r.name) return null;
-  return { engine: r.engine || 'global', voiceId: (r.voiceId || '').trim(), pitch: (r.pitch != null ? +r.pitch : null), rate: (r.rate != null ? +r.rate : null), gender: idx === 1 ? 'female' : 'male' };
+  // 只有引擎选 MiniMax 时，角色的自定义音色 ID 才生效；跟随全局/系统语音时
+  // 强制清空残留 voiceId，避免隐藏输入框里的旧 ID 被运行时误用（这是本次女声锁死的根因）
+  const voiceId = (r.engine === 'mini') ? (r.voiceId || '').trim() : '';
+  return { engine: r.engine || 'global', voiceId: voiceId, pitch: (r.pitch != null ? +r.pitch : null), rate: (r.rate != null ? +r.rate : null), gender: idx === 1 ? 'female' : 'male' };
 }
 function aiResolveVoice(text){
   const t = String(text || '');
@@ -10255,6 +10260,11 @@ function aiVoiceEngineUI(idx){
   const eng = document.getElementById(idx === 1 ? 'aiVoiceAEngine' : 'aiVoiceBEngine');
   const row = document.getElementById(idx === 1 ? 'aiVoiceAMini' : 'aiVoiceBMini');
   if(row) row.style.display = (eng && eng.value === 'mini') ? 'block' : 'none';
+  // 切走 MiniMax 时清空隐藏的音色 ID 输入框，避免视觉与保存残留（恢复「跟随全局」即可真正跟随全局）
+  if(eng && eng.value !== 'mini'){
+    const vi = document.getElementById(idx === 1 ? 'aiVoiceAVoice' : 'aiVoiceBVoice');
+    if(vi) vi.value = '';
+  }
 }
 function aiRoleTest(idx){
   const v = aiVoices();
@@ -10271,7 +10281,15 @@ function aiRoleTest(idx){
     return;
   }
   if(vo && vo.engine === 'sys'){ ttsSpeakSys(sample, vo); return; }
-  ttsSpeak(sample);
+  // 跟随全局（engine==='global' 或未配置）：与运行时 aiTtsRoute 一致，用番茄钟全局 MiniMax 音色
+  if(ttsEngineReady()){
+    ttsMiniMax(sample, null).catch(err=>{
+      try{ if(typeof toast === 'function') toast('🎤 MiniMax 合成失败：' + ((err && err.message) || err) + '（已退回系统语音）'); }catch(e){}
+      ttsSpeakSys(sample, null);
+    });
+    return;
+  }
+  ttsSpeakSys(sample, null);
 }
 
 let aiTtsLast = null;    // 最近一次 AI 语音：{mid, text, url, el}
@@ -10350,11 +10368,7 @@ function aiTtsRoute(text, voiceIdx){
     aiTtsStoreSys();
     return;
   }
-  // 跟随全局：若角色填了自定义 MiniMax 音色 ID（voiceId），仍优先用角色音色——用户填了克隆/自定义 ID 就该听到它，而不是被"全局"吞掉
-  if(vo && vo.voiceId && ttsEngineReady()){
-    ttsMiniMax(text, vo).catch(()=>{ ttsSpeakSys(text, vo); aiTtsStoreSys(); });
-    return;
-  }
+  // 跟随全局（engine==='global' 或未命中角色）：用番茄钟全局 MiniMax 音色 / 系统语音兜底
   if(ttsEngineReady()){
     ttsMiniMax(text, null).catch(()=>{ ttsSpeakSys(text, null); aiTtsStoreSys(); });
     return;
