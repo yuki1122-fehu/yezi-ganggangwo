@@ -7629,7 +7629,7 @@ const MEM_ENABLED_KEY = 'mhm_mem_on';
 const MEM_IDENTITY_KEY = 'mhm_mem_identity';
 const MEM_REL_KEY = 'mhm_mem_rel';
 const MEM_FB_KEY = 'mhm_mem_feedback';
-const MEM_TAG_GAP = 12;      // 每累积 12 条新消息跑一次打标（绝不在每轮同步打标）
+const MEM_TAG_GAP = 24;      // 每累积 24 条新消息跑一次打标（回忆精而少，不必频繁）
 const MEM_BUDGET = 1200;     // 召回注入字符预算：记忆是配菜不是主食
 const MEM_RECALL_K = 8;
 const DEFAULT_MEM_IDENTITY = '你是叶子：25 岁中医执业医师，现居香港，正在读浸会大学中医健康管理硕士，日常维护「港港窝」这个小家。\n我是你的 AI 伙伴：既是工具助手，也是朋友+合作者。\n关系基调：轻松、可以互相吐槽也能互相托底；记得彼此的小事，像真朋友一样相处。';
@@ -7788,10 +7788,13 @@ async function memDeleteByMid(mid){
   }catch(e){ console.warn('[mem] deleteByMid', e); }
 }
 // ---- 打标管线（§2）：水位线取「上次之后的新记录」，时区免疫；单条失败只跳过 ----
-const MEM_TAG_PROMPT = '你是记忆整理器。对下面这条对话记录：\n1) 用一句话总结(summary，<=40 字)；\n2) 抽取 keyword 标签(专名/名词/梗名，<=6 个)；\n3) 判定 emotion 标签(从这份类目表中选，可多选可为空)：{{EMO}}\n4) 判定 topic 标签(从这份类目表中选)：{{TOPIC}}\n只输出 JSON：{"summary":str,"keyword":[...],"emotion":[...],"topic":[...]}\n不确定就留空数组。禁止发明类目表之外的 emotion/topic。';
-// 批量话题段聚合版：一批连续对话 → 按话题合并成若干条「主旨记忆」（同一话题的连续几轮并成一段），
-// 解决旧版逐条打标导致的流水账/碎片化（召回后 AI 没有上下文、看不懂零散摘要）。失败时回退逐条打标保底。
-const MEM_TAG_BATCH_PROMPT = '你是记忆整理器。把下面这段连续对话按「话题」切成若干段：属于同一话题的连续几轮合并成一段，话题换了才开新段。每段写一条主旨记忆：\n1) summary（<=60 字）：这段到底聊了什么、有什么契机、有什么值得记住的细节或情绪——像朋友记日记，围绕「这事为什么值得记住」来写；禁止写"用户说/助理说/她说/他说"这类转述，禁止流水账式罗列；\n2) keyword 标签（专名/梗名/名词，<=4 个）；\n3) emotion 标签（从类目表中选，可多选可为空）：{{EMO}}\n4) topic 标签（从类目表中选 1-2 个）：{{TOPIC}}\n圈子很小，只保留有记忆价值的内容；纯寒暄/客套/无新信息的轮次并入相邻段，不要单开一段；最多切 4 段。\n只输出 JSON 数组：{"summary":str,"keyword":[...],"emotion":[...],"topic":[...]} 的数组，不要输出其他文字。';
+// 记忆定位：情感层「值得日后回味的回忆」，不是信息档案。
+// 只有①完整/推进中的事件（有情绪/转折）②新产生的梗/暗号 才值得记；日常流水/寒暄/任务提醒一律不记。
+// 逐条兜底版（批量聚合失败时用）：宁缺毋滥，没价值输出空对象 = 不入库。
+const MEM_TAG_PROMPT = '你是记忆整理器。判断这条对话有没有「值得日后回味的记忆价值」：\n只有①完整或推进中的事件（有情绪或转折）②新产生的梗/暗号 才记；日常流水、寒暄、重复话题、天气闲聊、任务提醒一律不记。\n没价值就输出空对象：{}（不记）。有价值则：\n1) summary（<=60 字）典藏级概述：有细节有情绪，日后一看就懂；禁止"她说/他说"转述、禁止流水账；\n2) event（事件/梗的名字，用于跨批聚合）；\n3) status（done=完结 | open=推进中）；\n4) keyword（<=3 个）；\n5) emotion（从类目表选，可空）：{{EMO}}\n6) topic（从类目表选，可空）：{{TOPIC}}\n只输出 JSON：{"event":str,"status":"done|open","summary":str,"keyword":[...],"emotion":[...],"topic":[...]}';
+// 批量版：一批连续对话 → 判断有没有值得记的回忆（宁可 0 条），有则输出事件/梗条目；
+// 同事件后续进展必须复用【已有记忆】里的 event 原名并输出「合并后」完整摘要——跨批、跨天聚合收敛成一条。
+const MEM_TAG_BATCH_PROMPT = '你是记忆整理器。这段对话里，绝大多数内容【不需要】被记住——这份记忆库是用户和角色之间「值得日后回味的回忆」，不是信息档案。\n只有两类值得沉淀成记忆：\nA. 完整或正在推进的「事件」：有起点、过程、情绪或转折的经历（想吃→去吃→遇意外→事后感言，算一个完整觅食事件；第一次、里程碑、小成就、委屈心事、两人共同完成的经历都算）。\nB. 新产生的「梗/暗号」：两人之间专属的称呼、笑话、默契。\n判断规则：\n- 日常流水（无情绪无转折）、寒暄、重复话题、天气闲聊、任务提醒——一律不记。\n- 【已有记忆】中若存在同一事件：必须复用其 event 原名，且输出「合并后」的完整摘要（旧信息+本批新进展），status 同步更新；绝不另开新条。\n- 宁缺毋滥：与其记 10 条琐碎，不如只记 3 条值得的。通常一批 0~2 条。\n- summary（<=80 字）：典藏级完整概述，有细节有情绪，日后一看就懂当时发生了什么；禁止"用户说/她说"式转述，禁止流水账。\n- event：事件/梗的名字（用于跨批、跨天聚合）。\n- status：done=已完结；open=仍在推进（有新进展继续合并进同一条）。\n- keyword（<=3 个）；emotion（<=2 个，从类目表选）：{{EMO}}；topic（<=2 个，从类目表选）：{{TOPIC}}\n只输出 JSON 数组（可为空）：\n[{"event":str,"status":"done|open","summary":str,"keyword":[...],"emotion":[...],"topic":[...]}]，不要输出其他文字。';
 function memExtractJson(raw){
   const i = raw.indexOf('{');
   if(i < 0) return null;
@@ -7805,6 +7808,21 @@ function memExtractJson(raw){
   }
   return null;
 }
+// 数组版解析：批量打标要求输出 JSON 数组（可为空），旧 memExtractJson 只会切出第一个对象，
+// 会把整批结果吞掉只剩一条（甚至触发回退逐条、重新引入流水账）——这里从 [ 起切到匹配的 ]。
+function memExtractJsonArr(raw){
+  const i = raw.indexOf('[');
+  if(i < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for(let j = i; j < raw.length; j++){
+    const c = raw[j];
+    if(inStr){ if(esc) esc = false; else if(c === '\\') esc = true; else if(c === '"') inStr = false; continue; }
+    if(c === '"') inStr = true;
+    else if(c === '[' || c === '{') depth++;
+    else if(c === ']' || c === '}'){ depth--; if(depth <= 0) return raw.slice(i, j+1); }
+  }
+  return null;
+}
 async function memTagOne(cfg, text){
   const prompt = MEM_TAG_PROMPT.replace('{{EMO}}', MEM_EMO_AXES.join(' / ')).replace('{{TOPIC}}', MEM_TOPIC_AXES.join(' / ')) + '\n\n对话记录：\n' + text;
   const r = await aiCall([{role:'system', content:'你是一个记忆整理器。只输出 JSON，不输出任何其他文字。'},{role:'user', content: prompt}], cfg, 1, {noTools:true});
@@ -7814,41 +7832,71 @@ async function memTagOne(cfg, text){
   if(!j) throw new Error('no json');
   const t = JSON.parse(j);
   return {
-    summary: String(t.summary || '').slice(0, 60),
-    keyword: Array.isArray(t.keyword) ? t.keyword.map(String).slice(0, 6) : [],
-    emotion: Array.isArray(t.emotion) ? t.emotion.map(String) : [],
-    topic:   Array.isArray(t.topic) ? t.topic.map(String) : []
+    event:   String(t.event || '').slice(0, 40),
+    status:  (t.status === 'open') ? 'open' : 'done',
+    summary: String(t.summary || '').slice(0, 80),
+    keyword: Array.isArray(t.keyword) ? t.keyword.map(String).slice(0, 3) : [],
+    emotion: Array.isArray(t.emotion) ? t.emotion.map(String).slice(0, 2) : [],
+    topic:   Array.isArray(t.topic) ? t.topic.map(String).slice(0, 2) : []
   };
 }
-// 批量话题段聚合：一次调用把整批消息按话题分段总结（主旨级记忆，召回后无需上下文即可理解）
+// 批量打标：输入 = 库内已有记忆（event 复用/合并依据）+ 本批对话；输出 = 值得记的事件/梗（可为空数组）
 async function memTagBatch(cfg, rows){
+  // 已有记忆：只列有 event 的（旧流水账无 event，不参与合并、自然淘汰），最近 20 条
+  let existLines = '（无）';
+  try{
+    const all = await memGetAll('entries');
+    const ev = all.filter(e=>e && e.active === 1 && e.event && e.summary)
+                  .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 20);
+    if(ev.length) existLines = ev.map(e=>'- ['+e.event+']（'+(e.status==='open'?'推进中':'已完结')+'）'+String(e.summary||'').slice(0, 70)).join('\n');
+  }catch(e){}
   const prompt = MEM_TAG_BATCH_PROMPT.replace('{{EMO}}', MEM_EMO_AXES.join(' / ')).replace('{{TOPIC}}', MEM_TOPIC_AXES.join(' / '));
   const lines = rows.map((r, i)=>{
     const who = (r.role === 'user') ? '用户' : '角色';
     return (i + 1) + '. [' + who + '] ' + String(r.content || '').slice(0, 220);
   }).join('\n');
-  const r = await aiCall([{role:'system', content:'你是记忆整理器。只输出 JSON，不输出任何其他文字。'},{role:'user', content: prompt + '\n\n待整理的对话：\n' + lines}], cfg, 1, {noTools:true});
+  const r = await aiCall([{role:'system', content:'你是记忆整理器。只输出 JSON，不输出任何其他文字。'},{role:'user', content: prompt + '\n\n【已有记忆】\n' + existLines + '\n\n【待整理对话】\n' + lines}], cfg, 1, {noTools:true});
   if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) throw new Error(r.error || 'no choices');
   const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
-  const j = memExtractJson(raw);
+  const j = memExtractJsonArr(raw) || memExtractJson(raw); // 数组优先；模型只回单对象时也兼容
   if(!j) throw new Error('no json');
-  const arr = JSON.parse(j);
-  if(!Array.isArray(arr) || !arr.length) throw new Error('bad segs');
+  let arr = JSON.parse(j);
+  if(!Array.isArray(arr)) arr = [arr];
   return arr.map(t=>({
-    summary: String(t.summary || '').slice(0, 60),
-    keyword: Array.isArray(t.keyword) ? t.keyword.map(String).slice(0, 6) : [],
-    emotion: Array.isArray(t.emotion) ? t.emotion.map(String) : [],
-    topic:   Array.isArray(t.topic) ? t.topic.map(String) : []
+    event:   String(t.event || '').slice(0, 40),
+    status:  (t.status === 'open') ? 'open' : 'done',
+    summary: String(t.summary || '').slice(0, 80),
+    keyword: Array.isArray(t.keyword) ? t.keyword.map(String).slice(0, 3) : [],
+    emotion: Array.isArray(t.emotion) ? t.emotion.map(String).slice(0, 2) : [],
+    topic:   Array.isArray(t.topic) ? t.topic.map(String).slice(0, 2) : []
   })).filter(t=> t.summary || t.keyword.length || t.emotion.length || t.topic.length);
 }
-async function memSaveEntryAndTags(msgId, t){
+async function memSaveEntryAndTags(msgId, t, eid){
   if(!t.summary && !t.keyword.length && !t.emotion.length && !t.topic.length) return;
-  const eid = await memPut('entries', { source_msg_id: msgId, summary: t.summary, detail: '', active: 1, created_at: new Date().toISOString() });
-  if(!eid) return;
+  const now = new Date().toISOString();
+  if(eid){
+    // 事件聚合更新：同一 event 的后续进展 → 覆盖 summary/status、刷新 created_at（保持时近衰减）、重建标签
+    try{
+      const rows = await memGetAll('entries');
+      const cur = rows.find(x=>x && x.id === eid);
+      if(!cur) return;
+      await memPut('entries', Object.assign({}, cur, { summary: t.summary, event: t.event || cur.event || '', status: t.status || cur.status || 'done', created_at: now }));
+      const tags = await memGetAll('tags');
+      for(const tg of tags){ if(tg && tg.entry_id === eid) await memDelete('tags', tg.id).catch(()=>{}); }
+      const nt = [];
+      (t.keyword||[]).forEach(k=>{ if(k && k.trim()) nt.push({entry_id:eid, axis:'keyword', tag:k.trim(), weight:1}); });
+      (t.emotion||[]).forEach(k=>{ if(k && k.trim()) nt.push({entry_id:eid, axis:'emotion', tag:k.trim(), weight:1.3}); });
+      (t.topic||[]).forEach(k=>{ if(k && k.trim()) nt.push({entry_id:eid, axis:'topic', tag:k.trim(), weight:1.1}); });
+      for(const tag of nt){ await memPut('tags', tag).catch(()=>{}); }
+      return;
+    }catch(e){ console.warn('[mem] update entry', e); }
+  }
+  const nid = await memPut('entries', { source_msg_id: msgId, summary: t.summary, event: t.event || '', status: t.status || 'done', detail: '', active: 1, created_at: now });
+  if(!nid) return;
   const tags = [];
-  t.keyword.forEach(k=>{ if(k && k.trim()) tags.push({entry_id:eid, axis:'keyword', tag:k.trim(), weight:1}); });
-  t.emotion.forEach(k=>{ if(k && k.trim()) tags.push({entry_id:eid, axis:'emotion', tag:k.trim(), weight:1.3}); });
-  t.topic.forEach(k=>{ if(k && k.trim()) tags.push({entry_id:eid, axis:'topic', tag:k.trim(), weight:1.1}); });
+  (t.keyword||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'keyword', tag:k.trim(), weight:1}); });
+  (t.emotion||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'emotion', tag:k.trim(), weight:1.3}); });
+  (t.topic||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'topic', tag:k.trim(), weight:1.1}); });
   for(const tag of tags){ await memPut('tags', tag).catch(()=>{}); }
 }
 async function memRunTagger(){
@@ -7864,15 +7912,18 @@ async function memRunTagger(){
     const BATCH_MAX = 40; // 清空后历史重打：一次最多 40 条，剩余留到下次（避免一次性输入超长/超时）
     const batch = rows.slice(0, BATCH_MAX);
     let tagged = 0, skipped = 0;
-    // 批量话题段聚合优先（一条记忆 = 一段同主题对话，主旨级、少而精）；整批失败才回退逐条打标保底
+    // 批量打标优先：只有「值得日后的回忆」才生成条目（可为 0 条）；同 event 的直接合并更新，跨批跨天收敛成一条
     try{
       const segs = await memTagBatch(cfg, batch);
+      const all = await memGetAll('entries');
       for(const t of segs){
-        await memSaveEntryAndTags(batch[0].id, t); // 溯源挂段内第一条消息（entry 独立自增 id，不冲突）
+        let target = null;
+        if(t.event){ target = all.find(e=>e && e.active === 1 && e.event && e.event === t.event); }
+        await memSaveEntryAndTags(batch[0].id, t, target ? target.id : null); // 溯源挂批首消息；更新路径走 eid
         tagged++;
       }
     }catch(e){
-      console.warn('[mem] 批量聚合失败，回退逐条打标', e);
+      console.warn('[mem] 批量打标失败，回退逐条（宁缺毋滥版）', e);
       for(const r of batch){
         try{
           const t = await memTagOne(cfg, r.content);
@@ -7891,7 +7942,7 @@ async function memRunTagger(){
 async function memRelRefresh(cfg){
   try{
     const entries = await memGetAll('entries');
-    const cutoff = Date.now() - 3 * 86400000; // 只看最近 3 天的点滴，避免把旧事写进"最近"
+    const cutoff = Date.now() - 5 * 86400000; // 只看最近 5 天的回忆（打标变精后窗口放宽，否则常没料可写）
     const recent = entries.filter(e=>e.active===1 && e.summary && new Date(e.created_at).getTime() >= cutoff)
                           .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 12);
     if(!recent.length) return;
@@ -8048,8 +8099,10 @@ async function memView(){
     let html = '';
     for(const e of sorted){
       const tgs = tags.filter(t=>t.entry_id === e.id).map(t=>t.tag).join(' / ');
+      const evl = e.event ? ('<div style="font-size:11px;color:var(--green-dark);margin-top:2px;">◇ ' + escHtml(e.event) + (e.status === 'open' ? ' · 推进中' : '') + '</div>') : '';
       html += '<div style="padding:9px 0;border-bottom:1px solid var(--ink-faint);">' +
         '<div style="font-size:13px;line-height:1.55;">' + escHtml(e.summary || '（无摘要）') + '</div>' +
+        evl +
         (tgs ? '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;"># ' + escHtml(tgs) + '</div>' : '') +
         '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">' + (e.created_at || '').slice(0, 16).replace('T', ' ') + '</div>' +
         '<div style="display:flex;gap:8px;margin-top:6px;">' +
@@ -8167,7 +8220,7 @@ async function memItemSave(){
     const entries = await memGetAll('entries');
     const e = entries.find(x => x && x.id === id);
     if(e){
-      await memPut('entries', { id:id, source_msg_id: e.source_msg_id, summary: summary, detail: e.detail || '', active: 1, created_at: e.created_at }).catch(()=>{});
+      await memPut('entries', { id:id, source_msg_id: e.source_msg_id, summary: summary, event: e.event || '', status: e.status || 'done', detail: e.detail || '', active: 1, created_at: e.created_at }).catch(()=>{});
     }
     await memReplaceTags(id, tagList);
     closeMemEdit();
