@@ -10726,7 +10726,7 @@ init();
     constructor(cfg){ this.cfg=cfg||{}; this.ws=null; this.audio=null; this.voiceId=''; this.enabled=false; this.onFinal=null; this.onSub=null; this.onError=null;
       // 长句保护：VAD 可能把一句话拆成多段（句中停顿/主线程卡顿造成假静音），
       // 800ms 内到达的稳定句合并成一条再提交，避免"话没说完 AI 就回复"。
-      this.pendingTxt=''; this.commitTimer=null; this.lastSliceAt=0; this.MERGE_MS=800; }
+      this.pendingTxt=''; this.commitTimer=null; this.lastSliceAt=0; this.MERGE_MS=(cfg&&cfg.mergeMs)?cfg.mergeMs:1500; }
     start(onFinal, onSub, onError){
       this.onFinal=onFinal; this.onSub=onSub; this.onError=onError;
       if(!this.cfg.appId||!this.cfg.secretId||!this.cfg.secretKey){ if(onError) onError('缺腾讯云 AppID/SecretId/SecretKey'); return false; }
