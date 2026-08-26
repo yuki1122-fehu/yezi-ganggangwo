@@ -10848,7 +10848,9 @@ init();
   //  ①speaking 覆盖到音频真正播完（见 compSpeak 的 waitAudioEnd），播放期间识别结果直接丢弃；
   //  ②ECHO_GRACE_MS=AI 说完后的极短消尾窗（400ms，只压播放结束瞬间的残响）——不能长，否则会吃掉用户紧接 AI 说的话；
   //  ③lastAISaidNorm/lastAISaidAt=上一轮 AI 说的内容（归一化）+ 说完时刻，真正的回声主力：3s 内到达且高度重合即丢弃。
-  const ECHO_GRACE_MS = 400, LATE_ECHO_MS = 3000;
+  const ECHO_GRACE_MS = 400, LATE_ECHO_MS = 8000;
+  // LATE_ECHO_MS 曾为 3000：安卓 Web Speech 识别结果常延迟 3~5s，AI 尾巴超窗漏成"用户的话"→ 自说自话。
+  // 放宽到 8000：8s 内到达且与 AI 刚说内容重合（含 2~3 字尾巴）一律判回声丢弃；误杀面=用户 8s 内重复 AI 原话（罕见，可打字/换说法）。
   let echoGraceUntil = 0, lastAISaidNorm = '', lastAISaidAt = 0;
 
   // ---- 优先队列（带优先级插入）----
