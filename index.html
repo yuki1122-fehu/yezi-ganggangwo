@@ -2263,7 +2263,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(145,180,200,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
       <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">💸 用量与缓存命中</div>
       <div id="aiUsageStats" style="font-size:12px;line-height:1.7;"></div>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">缓存命中 = 系统提示词等稳定内容被服务端复用、少收一次输入费（DeepSeek / OpenRouter 支持）。金额按输入 2 元/百万 token 粗估，仅参考。数据只存本机。</p>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">缓存命中 = 系统提示词等稳定内容被服务端复用、少收一次输入费（DeepSeek / OpenRouter 支持）。「最近 N 次平均」反映近期健康度；累计值为长期参考。金额按输入 2 元/百万 token 粗估，仅参考。数据只存本机。</p>
     </div>
 
     <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
@@ -6348,7 +6348,7 @@ function buildSystem(){
     .replace(/\{\{WEATHER\}\}/g, '')
     .replace(/\{\{WARNINGS\}\}/g, '')
     .replace(/\{\{SCHEDULE\}\}/g, '');
-  const memBlocks = buildMemorySyncBlocks(); // 记忆常驻块：关系身份 + 关系摘要 + 动作回执
+  const memBlocks = buildMemorySyncBlocks(); // 记忆常驻块：仅关系身份（关系摘要/动作回执/磁铁召回皆为动态内容，改在发送时注入末尾 user 消息，见 buildLiveContext —— 动态块进 system 会打穿 prefix cache）
   if(memBlocks) sys += '\n\n' + memBlocks;
   const roleProto = buildRoleProtocol(); // 多角色音色协议：强制回复以【角色名】开头（音色切换用）
   if(roleProto) sys += '\n\n' + roleProto;
@@ -6514,24 +6514,33 @@ function trimMessagesForSend(messages){
 // 把"实时上下文"（时间/天气/警告/日程）注入到最后一条 user 消息开头。
 // 关键：这些内容原本拼在 system（prompt 最前前缀），每轮变化会打穿 DeepSeek/OpenRouter 的 prefix cache；
 // 移到 user 开头后，system + 历史消息全部稳定、命中缓存，只有这段"本就该变"的内容不命中，最大化省钱。
+// 关系摘要 / 动作回执 / 磁铁记忆同样是动态内容，一并收拢到这里（原来嵌在 system 中部，每个都会打断前缀缓存）。
+let AI_MAGNET_BLOCK = ''; // 本轮磁铁召回结果，由 injectTimeAnchor 一次性并入发送副本，用后即清
 function buildLiveContext(){
   const ta = nowAnchor();
   const w = getWeatherSummary();
   const wn = getWarningSummary(false);
   const sc = aiScheduleSection();
-  return '<当前时间>\n'+ta+'\n</当前时间>\n<天气>\n'+w+'\n</天气>\n<天气警告>\n'+wn+'\n</天气警告>\n'+sc;
+  let s = '<当前时间>\n'+ta+'\n</当前时间>\n<天气>\n'+w+'\n</天气>\n<天气警告>\n'+wn+'\n</天气警告>\n'+sc;
+  const rel = memRelBlock();   // 动态：每 12 条消息打标后重写，挪到末尾注入（不再嵌 system）
+  if(rel) s += '\n[relationship]\n' + rel;
+  const fb = memFeedbackTail(); // 动态：失败回执，60min TTL 时有时无，同样挪到末尾
+  if(fb) s += '\n' + fb;
+  return s;
 }
 function injectTimeAnchor(result){
   const idx = result.length - 1;
   const last = result[idx];
   if(!last || last.role!=='user') return result;
   const ctx = buildLiveContext();
+  const mb = AI_MAGNET_BLOCK; if(mb) AI_MAGNET_BLOCK = ''; // 磁铁块只随本轮首个请求注入，消费即清
+  const full = ctx + (mb ? ('\n\n' + mb) : '');
   // 浅拷贝消息对象后再改 content，避免污染 aiConv 里的原始消息（否则会随 saveConv 存进历史）
   const copy = Object.assign({}, last);
   if(typeof copy.content === 'string'){
-    copy.content = ctx + '\n' + copy.content;
+    copy.content = full + '\n' + copy.content;
   } else if(Array.isArray(copy.content)){
-    copy.content = [{type:'text', text: ctx}, ...copy.content];
+    copy.content = [{type:'text', text: full}, ...copy.content];
   }
   result[idx] = copy;
   return result;
@@ -7939,15 +7948,11 @@ function memResolveActionFail(name){
 }
 // ---- 分层注入（§4）：常驻块进 buildSystem（同步）；磁铁块按轮注入（异步） ----
 function buildMemorySyncBlocks(){
+  // 缓存友好：system 只放真正静态的 [identity]；关系摘要 / 动作回执这些会变的内容移出 system，
+  // 改由 buildLiveContext 在发送时合并进末尾 user 消息（动态块嵌在 system 中部会打穿 prefix cache，连带历史全 miss）
   if(!memEnabled()) return '';
-  const parts = [];
   const identity = memIdentity();
-  if(identity && identity.trim()) parts.push('[identity]\n' + identity.trim());
-  const rel = memRelBlock();
-  if(rel) parts.push('[relationship]\n' + rel);
-  const fb = memFeedbackTail();
-  if(fb) parts.push(fb);
-  return parts.join('\n\n');
+  return (identity && identity.trim()) ? ('[identity]\n' + identity.trim()) : '';
 }
 function memLastUserText(){
   if(!aiConv) return '';
@@ -7958,7 +7963,7 @@ function memLastUserText(){
   return '';
 }
 async function memInjectMagnet(userText){
-  if(!memEnabled() || !aiConv || !aiConv.length) return;
+  if(!memEnabled()) return;
   try{
     // 记忆召回走本地 IndexedDB，偶尔会因 PWA 多标签页/旧 SW 持有连接导致 open 被阻塞而永久 pending。
     // 用 3 秒超时兜底：召回卡死也绝不阻塞 AI 回复（召回只是锦上添花，跳过不影响核心对话）。
@@ -7967,8 +7972,9 @@ async function memInjectMagnet(userText){
       new Promise(res=>setTimeout(res, 3000))
     ]);
     if(!rec || !rec.length) return; // 空块整块消失，不留占位
-    const block = '[magnet_memory]\n' + rec.join('\n');
-    aiConv[0] = { role:'system', content: aiConv[0].content + '\n\n' + block, id: aiConv[0].id };
+    // 不再 append 到 aiConv[0].content（会使 system 每轮不同、打穿 prefix cache），
+    // 改存模块变量，由 injectTimeAnchor 随发送副本并入末尾 user 消息，消费即清。
+    AI_MAGNET_BLOCK = '[magnet_memory]\n' + rec.join('\n');
   }catch(e){}
 }
 // ---- 设置页 UI ----
@@ -8435,10 +8441,19 @@ function renderUsageStats(){
     return;
   }
   const t=log.total;
+  // 最近 20 次平均命中率（recent 里最新在前，取前 20 条），反映近况；累计值仅作长期参考
+  const rec=(log.recent||[]).slice(0,20);
+  let rh=0, rm=0;
+  for(const r of rec){ rh+=Number(r.hit)||0; rm+=Number(r.miss)||0; }
+  const rRate=(rh+rm)>0?Math.round(rh/(rh+rm)*100):null;
   const hitRate=(t.hit+t.miss)>0?Math.round(t.hit/(t.hit+t.miss)*100):0;
   const money=t.prompt?(t.prompt/1000000*2).toFixed(2):'0'; // 粗估：按输入 2 元/百万 token
-  el.innerHTML='<div>请求 <b>'+t.calls+'</b> 次 · 输入 <b>'+fmtTokens(t.prompt)+'</b> · 输出 <b>'+fmtTokens(t.comp)+'</b></div>'+
-    '<div>缓存命中 <b style="color:var(--green-dark);">'+hitRate+'%</b>（'+fmtTokens(t.hit)+' 复用 / 未命中 '+fmtTokens(t.miss)+'）— 系统提示词等稳定内容被服务端复用，省下的重复输入费 ≈ <b style="color:var(--green-dark);">¥'+money+'</b></div>';
+  let html='<div>请求 <b>'+t.calls+'</b> 次 · 输入 <b>'+fmtTokens(t.prompt)+'</b> · 输出 <b>'+fmtTokens(t.comp)+'</b></div>';
+  if(rRate!=null){
+    html+='<div>最近 <b>'+rec.length+'</b> 次平均缓存命中 <b style="color:var(--green-dark);">'+rRate+'%</b>（'+fmtTokens(rh)+' 复用 / 未命中 '+fmtTokens(rm)+'）</div>';
+  }
+  html+='<div>累计命中 <b style="color:var(--green-dark);">'+hitRate+'%</b> — 系统提示词等稳定内容被服务端复用，省下的重复输入费 ≈ <b style="color:var(--green-dark);">¥'+money+'</b></div>';
+  el.innerHTML=html;
 }
 function fmtTokens(n){
   if(n>=1000000) return (n/1000000).toFixed(1)+'M';
