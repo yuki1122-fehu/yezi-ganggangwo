@@ -11152,6 +11152,18 @@ init();
   }
   function markNeedTapReset(){ recogNeedTap=false; }
   function tcAsrSetup(){
+    // 已启用状态：先问是否关闭（省钱/回 Web Speech）——确定=关闭，取消=继续改配置
+    if(cfg.tcAsr && cfg.tcAsr.on && cfg.tcAsr.appId){
+      if(confirm('☁️ 云识别当前已开启（识别内容走腾讯云，按量计费）。\n\n确定=关闭云识别（回到浏览器自带识别，免费）\n取消=继续修改配置')){
+        cfg.tcAsr.on=false;
+        saveCfg();
+        stopCloudAsr();
+        if(running && micOn && recogAvailable){ if(startRecog()) toast('☁️ 云识别已关闭，已回到浏览器识别'); else toast('☁️ 云识别已关闭'); }
+        else toast('☁️ 云识别已关闭');
+        syncCtrlButtons(); updateStatus();
+        return;
+      }
+    }
     // 简单配置弹窗：填 AppID / SecretId / SecretKey（全角用半角黏贴；存在 localStorage mhm_companion_cfg.tcAsr）
     const t=(cfg.tcAsr && cfg.tcAsr.appId) ? cfg.tcAsr : {appId:'',secretId:'',secretKey:'',on:false,yue:false};
     const appId=prompt('腾讯云 AppID（语音识别控制台可见，如 1259xxxxxxx）', t.appId||'');
@@ -11167,6 +11179,9 @@ init();
       toast('☁️ 云识别已启用'+(cfg.tcAsr.yue?'（粤语）':'（普通话）')+'，重启陪伴生效');
       // 若已在运行：热切换
       if(running && micOn){ stopCloudAsr(); if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; } startCloudAsr(); updateStatus(); }
+    } else {
+      toast('☁️ 云识别已关闭');
+      syncCtrlButtons(); updateStatus();
     }
   }
   function tcAsrStatus(){
