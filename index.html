@@ -2252,6 +2252,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
           <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
           <button class="btn ghost" type="button" onclick="memTagNow()" style="flex:0 0 auto;">⚡ 立即打标</button>
           <button class="btn ghost" type="button" onclick="memRescueNow()" style="flex:0 0 auto;" title="把聊天界面最近 40 轮对话回灌进记忆库（清空记忆后的补丁：不重新聊天也能重新打标）">♻️ 恢复对话记录</button>
+          <button class="btn ghost" type="button" onclick="memViewJournal()" style="flex:0 0 auto;" title="日记→周记→月记的时间分层回忆档案">📓 日记档案</button>
           <button class="btn ghost" type="button" onclick="memClear()" style="flex:0 0 auto;color:#a32d2d;">🗑 清空记忆</button>
         </div>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">
@@ -2289,7 +2290,17 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 </div>
 
 <!-- 记忆单条编辑弹窗 -->
-<div class="mask" id="memEditMask" style="z-index:93;">
+<div class="mask" id="memJournalMask" style="z-index:93;">
+  <div class="sheet glass-strong">
+    <h3>📓 回忆档案（日记 → 周记 → 月记）</h3>
+    <div id="memJournalList" style="max-height:58vh;overflow:auto;font-size:13px;line-height:1.6;"></div>
+    <div class="row" style="margin-top:12px;">
+      <button class="btn ghost" onclick="closeMemJournal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="mask" id="memEditMask" style="z-index:94;">
   <div class="sheet glass-strong">
     <h3>编辑记忆</h3>
     <label style="font-size:12px;color:var(--ink-soft);">摘要（一句话总结，可修正 AI 的总结错误）</label>
@@ -6528,6 +6539,7 @@ function buildLiveContext(){
   if(rel) s += '\n[relationship]\n' + rel;
   const fb = memFeedbackTail(); // 动态：失败回执，60min TTL 时有时无，同样挪到末尾
   if(fb) s += '\n' + fb;
+  if(AI_JOURNAL_CTX) s += '\n\n<近期回忆>\n' + AI_JOURNAL_CTX + '\n</近期回忆>'; // 日记/周记/月记（memJournalRefreshCtx 异步预取）
   return s;
 }
 function injectTimeAnchor(result){
@@ -7643,13 +7655,14 @@ function memOpenDB(){
   _memDB = new Promise((resolve)=>{
     try{
       if(!window.indexedDB){ resolve(null); return; }
-      const req = indexedDB.open(MEM_DB_NAME, 1);
+      const req = indexedDB.open(MEM_DB_NAME, 2);
       req.onupgradeneeded = ()=>{
         const db = req.result;
         if(!db.objectStoreNames.contains('messages')) db.createObjectStore('messages', {keyPath:'id', autoIncrement:true});
         if(!db.objectStoreNames.contains('entries')) db.createObjectStore('entries', {keyPath:'id', autoIncrement:true});
         if(!db.objectStoreNames.contains('tags')) db.createObjectStore('tags', {keyPath:'id', autoIncrement:true});
         if(!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
+        if(!db.objectStoreNames.contains('journal')) db.createObjectStore('journal', {keyPath:'id', autoIncrement:true}); // v2：回忆日记分层（day/week/month）
       };
       req.onsuccess = ()=>resolve(req.result);
       req.onerror = ()=>{ resolve(null); };
@@ -7935,6 +7948,8 @@ async function memRunTagger(){
     await memKvSet('tagger_watermark', batch[batch.length-1].id);
     if(batch.length && tagged === 0) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
     memRelRefresh(cfg).catch(()=>{}); // 打标后顺手刷新关系摘要
+    memJournalMaintain(cfg).catch(()=>{}); // 打标后顺手归档日记分层
+    memJournalRefreshCtx().catch(()=>{}); // 与注入快照同步
     return Math.max(0, rows.length - batch.length); // 剩余待打条数，供"立即打标"提示继续
   }catch(e){ console.warn('[mem] tagger', e); return 0; }
 }
@@ -7961,6 +7976,146 @@ function memRelBlock(){
   }catch(e){}
   return '';
 }
+// ---- 回忆日记分层（L1 日记 / L2 周记 / L3 月记）：时间多尺度压缩归档 ----
+// 对话窗口(最近 N 轮)之外的内容按 日→周→月 逐层压缩；每层生成时同步抽出「值得终生记住的大事/梗」
+// 写回 entries（携 event/keyword）供磁铁索引——时间线为主干、关键词为索引，解决"不提关键词就想不起来"。
+let AI_JOURNAL_CTX = ''; // 最近回忆注入块（同步注入用，由 memJournalRefreshCtx 异步刷新）
+function _memPad2(n){ return n < 10 ? ('0' + n) : String(n); }
+function _memLocalDate(iso){
+  try{ const d = new Date(iso); return d.getFullYear() + '-' + _memPad2(d.getMonth()+1) + '-' + _memPad2(d.getDate()); }catch(e){ return ''; }
+}
+function _memToday(){
+  const d = new Date();
+  return d.getFullYear() + '-' + _memPad2(d.getMonth()+1) + '-' + _memPad2(d.getDate());
+}
+function _memDateOf(s){ return new Date(s + 'T00:00:00'); }
+function _memDateShift(iso, days){
+  const d = _memDateOf(iso); d.setDate(d.getDate() + days);
+  return d.getFullYear() + '-' + _memPad2(d.getMonth()+1) + '-' + _memPad2(d.getDate());
+}
+const MEM_DIARY_PROMPT = '你是「回忆日记」写手。把用户和角色在「{DATE}」的这些对话，写成一则「今日小记」：\n- 100~200 字，像朋友睡前回想今天：今天一起经历了什么、有什么情绪、细节或梗值得记住；禁止流水账罗列、禁止"她说/他说"式转述。\n- 只写有温度的内容；如果今天只是平淡日常，就写一句"今天平平淡淡的，没什么特别的"。\n- 同时判定有没有「值得终生记住的大事或新梗」（最多 2 条）：里程碑、第一次、强烈情绪、专属梗。若有，给出 event 名 + 一句话 summary + keyword（<=3 个）。\n只输出 JSON：{"diary":"...","gems":[{"event":"...","summary":"...","keyword":[...]}]}（gems 可为空数组）。';
+const MEM_JOURNAL_MERGE_PROMPT = '你是回忆档案整理员。把下面 {N} 则「{TYPE}」压缩成 1 则「{OUT}」，像回顾这段时光的主线：\n- {LEN} 字以内；提炼这段时期一起经历了什么、情绪起伏、值得记住的梗/事；平淡的日子合并带过；禁止逐则复述、禁止"她说/他说"式转述。\n只输出 JSON：{"content":"..."}';
+// 分层维护入口：挂在打标/每次对话前，幂等（今天已有日记就跳过）
+async function memJournalMaintain(cfg){
+  if(!memEnabled() || !cfg || !cfg.apiKey) return;
+  try{
+    const today = _memToday();
+    const js = await memGetAll('journal');
+    const days = js.filter(j=>j.type === 'day').sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+    const weeks = js.filter(j=>j.type === 'week').sort((a,b)=>String(a.start).localeCompare(String(a.start)));
+    const months = js.filter(j=>j.type === 'month').sort((a,b)=>String(a.start).localeCompare(String(a.start)));
+    // L1 日记：今天还没有 → 生成（覆盖上一篇日记之后到今天）
+    if(!days.length || days[days.length-1].end < today){
+      const after = days.length ? days[days.length-1].end : '';
+      await memJournalDay(cfg, after, today);
+    }
+    // L2 周记：最新周记之后攒满 7 篇日记 → 合并
+    const lastWeekEnd = weeks.length ? weeks[weeks.length-1].end : '';
+    const afterWeek = js.filter(j=> j.type === 'day' && (!lastWeekEnd || j.start > lastWeekEnd))
+                        .sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+    if(afterWeek.length >= 7) await memJournalMake(cfg, 'week', afterWeek.slice(0, 7));
+    // L3 月记：最新月记之后攒满 4 篇周记 → 合并
+    const lastMonthEnd = months.length ? months[months.length-1].end : '';
+    const afterMonth = js.filter(j=> j.type === 'week' && (!lastMonthEnd || j.start > lastMonthEnd))
+                         .sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+    if(afterMonth.length >= 4) await memJournalMake(cfg, 'month', afterMonth.slice(0, 4));
+  }catch(e){ console.warn('[mem] journal', e); }
+}
+async function memJournalDay(cfg, afterDate, today){
+  try{
+    const msgs = await memGetAll('messages');
+    const rows = msgs.filter(m=>m && m.content && _memLocalDate(m.created_at) > afterDate && _memLocalDate(m.created_at) <= today)
+                     .sort((a,b)=>a.id-b.id)
+                     .slice(0, 60);
+    if(!rows.length) return;
+    const lines = rows.map(m=> (m.role === 'user' ? '(用户) ' : '(角色) ') + String(m.content || '').slice(0, 120)).join('\n');
+    const prompt = MEM_DIARY_PROMPT.replace('{DATE}', today || _memToday());
+    const r = await aiCall([{role:'system', content:'你是回忆日记写手。只输出 JSON，不输出其他文字。'},{role:'user', content: prompt + '\n\n待整理的对话：\n' + lines}], cfg, 1, {noTools:true});
+    if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) return;
+    const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
+    const j = memExtractJson(raw);
+    if(!j) return;
+    const t = JSON.parse(j);
+    const diary = String(t.diary || '').trim();
+    if(diary){
+      await memPut('journal', { type:'day', start: afterDate ? _memDateShift(afterDate, 1) : today, end: today, content: diary.slice(0, 600), created_at: new Date().toISOString() });
+    }
+    // gems → 磁铁索引条目（带 event/keyword，参与事件聚合；同 event 更新）
+    const gems = Array.isArray(t.gems) ? t.gems.slice(0, 2) : [];
+    if(gems.length){
+      const all = await memGetAll('entries');
+      for(const g of gems){
+        const ev = String(g.event || '').trim();
+        const sm = String(g.summary || '').trim();
+        if(!ev && !sm) continue;
+        let target = null;
+        if(ev){ target = all.find(e=>e && e.active === 1 && e.event && e.event === ev); }
+        await memSaveEntryAndTags(0, { event: ev, status:'done', summary: sm.slice(0, 80), keyword: Array.isArray(g.keyword) ? g.keyword.map(String).slice(0, 3) : [], emotion: [], topic: [] }, target ? target.id : null);
+      }
+    }
+  }catch(e){ console.warn('[mem] journal day', e); }
+}
+async function memJournalMake(cfg, type, items){
+  try{
+    const isWeek = type === 'week';
+    const label = isWeek ? '一周回忆' : '一月回忆';
+    const out = isWeek ? '周记' : '月记';
+    const len = isWeek ? '150~250' : '200~300';
+    const bullet = items.map(j=>'【' + (j.start || '') + ' ~ ' + (j.end || '') + '】\n' + String(j.content || '').slice(0, 300)).join('\n\n');
+    const prompt = MEM_JOURNAL_MERGE_PROMPT.replace('{N}', items.length).replace('{TYPE}', label).replace('{OUT}', out).replace('{LEN}', len);
+    const r = await aiCall([{role:'system', content:'你是回忆档案整理员。只输出 JSON，不输出其他文字。'},{role:'user', content: prompt + '\n\n待压缩的回忆：\n' + bullet}], cfg, 1, {noTools:true});
+    if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) return;
+    const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
+    const j = memExtractJson(raw);
+    if(!j) return;
+    const t = JSON.parse(j);
+    const content = String(t.content || '').trim();
+    if(!content) return;
+    await memPut('journal', { type: isWeek ? 'week' : 'month', start: items[0].start, end: items[items.length-1].end, content: content.slice(0, 900), created_at: new Date().toISOString() });
+  }catch(e){ console.warn('[mem] journal merge', e); }
+}
+// 刷新「近期回忆」注入块（buildLiveContext 是同步的，这里异步预取后交给它拼）
+async function memJournalRefreshCtx(){
+  try{
+    const js = await memGetAll('journal');
+    if(!js || !js.length){ AI_JOURNAL_CTX = ''; return; }
+    const days = js.filter(j=>j.type === 'day').sort((a,b)=>String(b.start).localeCompare(String(a.start)));
+    const weeks = js.filter(j=>j.type === 'week').sort((a,b)=>String(b.start).localeCompare(String(a.start)));
+    const months = js.filter(j=>j.type === 'month').sort((a,b)=>String(b.start).localeCompare(String(a.start)));
+    const parts = [];
+    if(days.length) parts.push('【日记】' + (days[0].end||'') + '\n' + String(days[0].content || ''));
+    if(weeks.length) parts.push('【周记】' + (weeks[0].start||'') + '~' + (weeks[0].end||'') + '\n' + String(weeks[0].content || ''));
+    if(months.length) parts.push('【最近一月】' + (months[0].start||'') + '\n' + String(months[0].content || ''));
+    if(months.length > 1){ // 月份档案一行摘要（一年最多 12 行，成本低）
+      const lines = months.slice(0, 12).sort((a,b)=>String(a.start).localeCompare(String(b.start))).map(m=>'· '+(m.start||'').slice(0,7)+'：'+String(m.content||'').slice(0,26)).join('\n');
+      parts.push('【月份档案】\n' + lines);
+    }
+    AI_JOURNAL_CTX = parts.join('\n\n');
+  }catch(e){ AI_JOURNAL_CTX = ''; }
+}
+// 日记档案面板
+async function memViewJournal(){
+  const box = document.getElementById('memJournalList');
+  if(!box) return;
+  openMask(document.getElementById('memJournalMask'));
+  box.innerHTML = '<div class="hint" style="font-size:12px;">读取中…</div>';
+  try{
+    const js = await memGetAll('journal');
+    if(!js || !js.length){ box.innerHTML = '<div class="hint" style="font-size:12px;">还没有日记。聊几天天后，每天会生成一篇「今日小记」，攒满 7 天合并成周记，攒满 4 周合并成月记。</div>'; return; }
+    const sorted = js.slice().sort((a,b)=>String(b.start).localeCompare(String(a.start)));
+    const badge = { day:['📓 日记','#0F6E56'], week:['🗓 周记','#185FA5'], month:['📆 月记','#854F0B'] };
+    let html = '';
+    for(const j of sorted){
+      const b = badge[j.type] || ['📄','#888780'];
+      html += '<div style="padding:10px 0;border-bottom:1px solid var(--ink-faint);">' +
+        '<div style="font-size:11px;color:' + b[1] + ';font-weight:700;margin-bottom:3px;">' + b[0] + ' · ' + escHtml(j.start || '') + (j.end && j.end !== j.start ? ' ~ ' + escHtml(j.end) : '') + '</div>' +
+        '<div style="font-size:12px;line-height:1.6;white-space:pre-wrap;">' + escHtml(j.content || '') + '</div>' +
+        '</div>';
+    }
+    box.innerHTML = html || '<div class="hint">暂无</div>';
+  }catch(e){ box.innerHTML = '<div class="hint">读取失败</div>'; }
+}
+function closeMemJournal(){ closeMask(document.getElementById('memJournalMask')); }
 // ---- 磁铁召回（§3）：触发词命中 → 标签权重 × 时近衰减 → 字符预算裁剪 ----
 function memExtractTriggers(userText, tags){
   const set = new Set();
@@ -8177,7 +8332,7 @@ async function memClear(){
       toast('已清空记忆条目；对话记录已保留，点「立即打标」可按新机制重新提炼');
     }},
     {label:'连对话记录也清', cls:'danger', fn: async ()=>{
-      await Promise.all([memClearStore('entries'), memClearStore('tags'), memClearStore('messages')]).catch(()=>{});
+      await Promise.all([memClearStore('entries'), memClearStore('tags'), memClearStore('messages'), memClearStore('journal')]).catch(()=>{});
       await memKvSet('tagger_watermark', 0).catch(()=>{});
       try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){}
       memRefreshStats();
@@ -8378,6 +8533,8 @@ async function aiRun(){
   try{
     const memUserText = memLastUserText();
     if(memUserText) await memInjectMagnet(memUserText); // 磁铁召回注入：说到什么就召回什么（空块整块消失）
+    memJournalMaintain(cfg).catch(()=>{}); // 回忆分层维护：今天无日记则生成（幂等），后台跑不阻塞主对话；攒满 7 天/4 周自动合并周记/月记
+    await memJournalRefreshCtx().catch(()=>{}); // 刷新「近期回忆」注入块（仅 IndexedDB 读取，毫秒级，等待它保证本轮带上快照）
     let loop = 0;
     let stepEl = null;
     while(loop++ < 6){
