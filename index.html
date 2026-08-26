@@ -599,19 +599,12 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .wd-rain{font-size:10.5px;font-weight:700;color:#b45309;}
 .wd-rain::before{content:"☔ ";}
 [data-theme="dark"] .wd-rain{color:#f5b860;}
-.we-fc{cursor:pointer;transition:transform .16s var(--ease);}
-.we-fc:active{transform:scale(.99);}
+.we-fc{cursor:default;} /* 明日条内容短，一行展示，无需点击展开（2026-08-26 移除展开交互） */
 .we-fc .wf-tag{position:relative;flex-shrink:0;font-size:11px;font-weight:800;color:#fff;
   background:#2f9e6e;padding:2px 8px;border-radius:999px;}
 .we-fc .wf-desc{position:relative;flex:1;min-width:0;font-size:12.5px;font-weight:700;color:var(--ink);
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.we-fc.open .wf-desc{flex-basis:100%;white-space:normal;overflow:visible;text-overflow:clip;margin:2px 0 1px;}
+  white-space:normal;} /* 短内容一行放下、超长自动换行，不再单行省略截断 */
 .we-fc .wf-aux{position:relative;font-size:10.5px;color:var(--ink-soft);white-space:nowrap;}
-.we-fc.open .wf-aux{flex-basis:100%;white-space:normal;padding-left:2px;}
-.we-fc.open{flex-wrap:wrap;align-items:flex-start;}
-.we-fc .wf-caret{position:relative;flex-shrink:0;font-size:11px;color:var(--ink-faint);
-  transition:transform .22s var(--ease);transform:rotate(90deg);margin-left:2px;}
-.we-fc.open .wf-caret{transform:rotate(-90deg);}
 .we-fc .wf-aux b{font-weight:700;color:var(--ink);}
 
 /* ---------- 天气警告条 ---------- */
@@ -1789,7 +1782,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
         <span class="we-caret" id="weFoldCaret">▾</span>
       </div>
       <div class="we-panel" id="wePanel" style="display:none;"></div>
-      <div class="we-fc" id="weFc" onclick="toggleFc()" role="button" aria-expanded="false"></div>
+      <div class="we-fc" id="weFc"></div>
     </div>
   </header>
 
@@ -3739,13 +3732,7 @@ function renderWeather(){
   renderWeatherExt();
 }
 
-/* 明日可预见条：点击展开 / 收起完整天气描述（收起时单行省略，展开时换行完整显示） */
-function toggleFc(){
-  const el=document.getElementById('weFc');
-  if(!el) return;
-  const open=el.classList.toggle('open');
-  el.setAttribute('aria-expanded', open ? 'true' : 'false');
-}
+/* 明日可预见条：内容短、一行展示，无需点击展开（2026-08-26 移除 toggleFc/箭头/open 样式） */
 
 /* 天气扩展区：明日可预见条 + 分区折叠（全部容错，缺数据自动隐藏整区） */
 function renderWeatherExt(){
@@ -3772,8 +3759,7 @@ function renderWeatherExt(){
       const aux = [isToday ? '今日' : '明日', temp, psr].filter(Boolean).join(' · ');
       fcEl.innerHTML = '<span class="wf-tag">' + escHtml(tag) + '</span>'
         + '<span class="wf-desc">' + escHtml(f.weather) + '</span>'
-        + (aux ? '<span class="wf-aux"><b>' + escHtml(aux) + '</b></span>' : '')
-        + '<span class="wf-caret">›</span>';
+        + (aux ? '<span class="wf-aux"><b>' + escHtml(aux) + '</b></span>' : '');
       fcEl.style.display = 'flex';
     }else{
       fcEl.style.display = 'none';
