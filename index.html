@@ -7011,6 +7011,7 @@ function deleteConvMsg(mid){
       if(el2) el2.remove();
       if(aiTtsLast && aiTtsLast.mid===mid) aiTtsClearLast();
       saveConv();
+      memDeleteByMid(mid); // 联动删除记忆库（messages+entries+tags）：已删内容不再被磁铁召回，重发也不会产生重复打标
     }},
     {label:'取消', cls:'ghost'}
   ]);
@@ -7469,6 +7470,20 @@ function memClearStore(store){
     });
   });
 }
+function memDelete(store, id){
+  return memOpenDB().then(db=>{
+    if(!db) return Promise.resolve();
+    return new Promise((res, rej)=>{
+      try{
+        const tx = db.transaction(store, 'readwrite');
+        tx.objectStore(store).delete(id);
+        tx.oncomplete = ()=>res();
+        tx.onerror = ()=>rej(tx.error);
+        tx.onabort = ()=>rej(tx.error);
+      }catch(e){ rej(e); }
+    });
+  });
+}
 function memKvGet(k){
   return memOpenDB().then(db=>{
     if(!db) return Promise.resolve(null);
@@ -7515,8 +7530,34 @@ function memNote(role, content, id){
   if(!memEnabled()) return;
   const text = memTextOf(content);
   if(!text || !text.trim()) return;
-  memPut('messages', { role, content: text.trim(), mid: id || '', created_at: new Date().toISOString() }).catch(()=>{});
-  if(++_memPending >= MEM_TAG_GAP){ _memPending = 0; memRunTagger(); }
+  const doInsert = ()=>{
+    memPut('messages', { role, content: text.trim(), mid: id || '', created_at: new Date().toISOString() }).catch(()=>{});
+    if(++_memPending >= MEM_TAG_GAP){ _memPending = 0; memRunTagger(); }
+  };
+  if(!id){ doInsert(); return; }
+  // 幂等：同一 mid 的记忆行已存在则跳过，避免「删了重发」或重复落库造成打标重复
+  memGetAll('messages').then(rows=>{
+    if(rows && rows.some(m => m && m.mid === id)) return;
+    doInsert();
+  }).catch(()=>{ doInsert(); });
+}
+// ---- 删除单条记忆（对话删除联动）：按 mid 清掉 messages 行 + 衍生 entries/tags ----
+async function memDeleteByMid(mid){
+  if(!mid) return;
+  try{
+    const msgs = await memGetAll('messages');
+    const targets = msgs.filter(m => m && m.mid === mid);
+    if(!targets.length) return;
+    const msgDbIds = targets.map(m => m.id);
+    for(const m of targets){ await memDelete('messages', m.id); }
+    const entries = await memGetAll('entries');
+    const entTargets = entries.filter(e => e && msgDbIds.indexOf(e.source_msg_id) >= 0);
+    const entIds = entTargets.map(e => e.id);
+    for(const e of entTargets){ await memDelete('entries', e.id); }
+    const tags = await memGetAll('tags');
+    const tagTargets = tags.filter(t => t && entIds.indexOf(t.entry_id) >= 0);
+    for(const t of tagTargets){ await memDelete('tags', t.id); }
+  }catch(e){ console.warn('[mem] deleteByMid', e); }
 }
 // ---- 打标管线（§2）：水位线取「上次之后的新记录」，时区免疫；单条失败只跳过 ----
 const MEM_TAG_PROMPT = '你是记忆整理器。对下面这条对话记录：\n1) 用一句话总结(summary，<=40 字)；\n2) 抽取 keyword 标签(专名/名词/梗名，<=6 个)；\n3) 判定 emotion 标签(从这份类目表中选，可多选可为空)：{{EMO}}\n4) 判定 topic 标签(从这份类目表中选)：{{TOPIC}}\n只输出 JSON：{"summary":str,"keyword":[...],"emotion":[...],"topic":[...]}\n不确定就留空数组。禁止发明类目表之外的 emotion/topic。';
@@ -10726,10 +10767,17 @@ init();
     constructor(cfg){ this.cfg=cfg||{}; this.ws=null; this.audio=null; this.voiceId=''; this.enabled=false; this.onFinal=null; this.onSub=null; this.onError=null;
       // 长句保护：VAD 可能把一句话拆成多段（句中停顿/主线程卡顿造成假静音），
       // 800ms 内到达的稳定句合并成一条再提交，避免"话没说完 AI 就回复"。
-      this.pendingTxt=''; this.commitTimer=null; this.lastSliceAt=0; this.MERGE_MS=(cfg&&cfg.mergeMs)?cfg.mergeMs:1500; }
+      this.pendingTxt=''; this.commitTimer=null; this.lastSliceAt=0; this.MERGE_MS=(cfg&&cfg.mergeMs)?cfg.mergeMs:1500;
+      // 断线自动重连：userClosed=主动停止(禁重连)；reconnTry=退避计数；reconnTimer=重连定时器
+      this.userClosed=true; this.reconnTry=0; this.reconnTimer=null; }
     start(onFinal, onSub, onError){
       this.onFinal=onFinal; this.onSub=onSub; this.onError=onError;
       if(!this.cfg.appId||!this.cfg.secretId||!this.cfg.secretKey){ if(onError) onError('缺腾讯云 AppID/SecretId/SecretKey'); return false; }
+      this.userClosed=false; this.reconnTry=0;
+      return this._connect();
+    }
+    _connect(){
+      if(this.userClosed) return false;
       try{
         const {url, voice_id}=buildWsUrl(this.cfg);
         this.voiceId=voice_id;
@@ -10737,6 +10785,7 @@ init();
         this.ws=new WebSocket(url);
         this.ws.binaryType='arraybuffer';
         this.ws.onopen=()=>{
+          this.reconnTry=0; // 重连成功：重置退避计数
           try{
             this.audio=new Pcm16kSource(this.cfg.stream, frame=>{
               if(this.ws && this.ws.readyState===1) this.ws.send(frame.buffer);
@@ -10746,7 +10795,12 @@ init();
         this.ws.onmessage=e=>{
           try{
             const j=JSON.parse(e.data);
-            if(j.code!==0){ if(this.onError) this.onError('ASR:'+(j.message||('code '+j.code))); this.stop(); return; }
+            if(j.code!==0){
+              const m='ASR:'+(j.message||('code '+j.code));
+              this.userClosed=true; this._teardown(); // 服务端明确错误：不重连，交上层回退 Web Speech
+              if(this.onError) this.onError(m);
+              return;
+            }
             const r=j.result;
             if(r && r.slice_type===2 && r.voice_text_str){
               const t=String(r.voice_text_str).trim();
@@ -10761,13 +10815,38 @@ init();
             }
           }catch(e){}
         };
-        this.ws.onerror=()=>{ if(this.onError) this.onError('WS错误'); };
-        this.ws.onclose=()=>{ this.enabled=false; if(this.audio){ this.audio.stop(); this.audio=null; } };
+        // 网络抖动只告警，交给 onclose 自动重连（不回退 Web Speech，避免开着云识别被踢回免费通道）
+        this.ws.onerror=()=>{ console.warn('[tcAsr] ws error，等待 onclose 重连'); };
+        this.ws.onclose=()=>{ this._onClose(); };
         return true;
-      }catch(e){ if(onError) onError('启动:'+e.message); return false; }
+      }catch(e){
+        if(this.reconnTry===0){ if(this.onError) this.onError('启动:'+e.message); return false; }
+        // 重连尝试本身失败：继续退避（直至耗尽回退 Web Speech）
+        if(this.reconnTry>=8){ if(this.onError) this.onError('云识别连接断开'); return false; }
+        const d=Math.min(8000, 1000*Math.pow(2,this.reconnTry)); this.reconnTry++;
+        this.reconnTimer=setTimeout(()=>{ this.reconnTimer=null; this._connect(); }, d);
+        return false;
+      }
+    }
+    _onClose(){
+      this.enabled=false;
+      if(this.audio){ try{ this.audio.stop(); }catch(e){} this.audio=null; }
+      if(this.userClosed) return; // 主动停止（stop/热切换）：不重连
+      // 意外断线：指数退避自动重连（静默，不打扰用户）；连续失败耗尽则回退 Web Speech
+      if(this.reconnTry>=8){ if(this.onError) this.onError('云识别连接断开'); return; }
+      const d=Math.min(8000, 1000*Math.pow(2,this.reconnTry));
+      this.reconnTry++;
+      this.reconnTimer=setTimeout(()=>{ this.reconnTimer=null; this._connect(); }, d);
+    }
+    _teardown(){
+      if(this.reconnTimer){ clearTimeout(this.reconnTimer); this.reconnTimer=null; }
+      if(this.audio){ try{ this.audio.stop(); }catch(e){} this.audio=null; }
+      if(this.commitTimer){ clearTimeout(this.commitTimer); this.commitTimer=null; }
+      if(this.ws){ try{ this.ws.close(); }catch(e){} this.ws=null; }
     }
     stop(){
-      this.enabled=false;
+      this.userClosed=true; // 主动停止：禁止自动重连
+      if(this.reconnTimer){ clearTimeout(this.reconnTimer); this.reconnTimer=null; }
       // 停止前冲刷残句：用户点停止/被打断时，已识别未提交的半句也交出去（不丢失）
       if(this.commitTimer){ clearTimeout(this.commitTimer); this.commitTimer=null; }
       const pending=this.pendingTxt; this.pendingTxt='';
@@ -11027,10 +11106,7 @@ init();
   // （防回声②③ / 2.5s 去重 / 停嘴 / 事件链）
   function handleFinalSpeech(finalText){
     if(!finalText) return;
-    if(speaking) return; // 防回声①
-    // 防回声②：AI 说完瞬间的 400ms 消尾窗
-    if(Date.now() < echoGraceUntil){ setSub(''); return; }
-    // 防回声③：LATE_ECHO_MS 内到达且与 AI 刚说的内容高度重合 = 迟到的回声，丢弃（整段基准 + 逐句基准双保险）
+    // 防回声③（最前）：无论 AI 是否在说话，麦克风漏回的 AI 声音先挡掉，避免被当插话打断自己
     if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(finalText,lastAISaidNorm)){ setSub(''); return; }
     if((Date.now()-lastAISaidAt) < LATE_ECHO_MS && aiSaidSents && aiSaidSents.length){
       const nf=normTxt(finalText);
@@ -11038,14 +11114,24 @@ init();
     }
     // 同一句 2.5s 去重
     if(finalText===lastFinalTxt && Date.now()-lastFinalAtTxt<2500) return;
-    lastFinalTxt=finalText; lastFinalAtTxt=Date.now();
+    // AI 说话期间用户插话：实时打断（compStopMouth 停朗读 + 推进 epoch → speakChain 的 myEpoch 机制自动跳过后续句子）
+    if(speaking){
+      commitUserSpeech(finalText);
+      return;
+    }
+    // 防回声②：AI 说完瞬间的 400ms 消尾窗（仅正常路径）
+    if(Date.now() < echoGraceUntil){ setSub(''); return; }
+    commitUserSpeech(finalText);
+  }
+  // 提交用户话语（停嘴 + 推进 epoch + 入仲裁器）；handleFinalSpeech 的正常路径与"AI 说话插话打断"共用
+  function commitUserSpeech(t){
     setSub('');
-    const key=finalText;
-    compStopMouth(); // 用户开口当场停（不等队列）
+    compStopMouth(); // 用户开口当场停朗读（不等队列）
+    lastFinalTxt=t; lastFinalAtTxt=Date.now();
     const ne=epoch+1;
     post({type:'USER_SPEECH_START',epoch:ne});
-    post({type:'USER_SPEECH',text:finalText,turnKey:key,epoch:ne});
-    showYou(finalText);
+    post({type:'USER_SPEECH',text:t,turnKey:t,epoch:ne});
+    showYou(t);
   }
   let lastFinalTxt='', lastFinalAtTxt=0;
   function startRecog(){
@@ -11058,7 +11144,6 @@ init();
       recog.onresult=function(e){
         lastRecogHit=Date.now(); // 有任何结果（含 interim）= 识别器活着，心跳用
         recogErrSeq=0; // 有识别结果 = 麦克风正常，清空错误计数（避免噪声提示误报）
-        if(speaking) return; // 防回声①：AI 说话期间（含音频播放全程）即便识别器在跑也丢弃结果
         let interim='', finalText='';
         for(let i=e.resultIndex;i<e.results.length;i++){
           const r=e.results[i];
@@ -11132,8 +11217,8 @@ init();
     const client=tcAsrClient || window.__tcAsr.create({appId:t.appId,secretId:t.secretId,secretKey:t.secretKey,yue:t.yue,stream:stream});
     tcAsrClient=client;
     const ok=client.start(
-      (txt)=>{ // onFinal：稳态句 → 走共用管线（等效 Web Speech 的 final）
-        if(!speaking) handleFinalSpeech(txt);
+      (txt)=>{ // onFinal：稳态句 → 走共用管线（等效 Web Speech 的 final；AI 说话时自动打断）
+        handleFinalSpeech(txt);
       },
       (sub)=>{ if(sub && !speaking) setSub(sub); }, // onSub：中间结果 → 字幕
       (err)=>{ // onError：失败回退 Web Speech（不打扰用户，静默回退）
