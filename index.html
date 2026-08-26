@@ -7746,8 +7746,13 @@ function memLastUserText(){
 async function memInjectMagnet(userText){
   if(!memEnabled() || !aiConv || !aiConv.length) return;
   try{
-    const rec = await memMagnetRecall(userText);
-    if(!rec.length) return; // 空块整块消失，不留占位
+    // 记忆召回走本地 IndexedDB，偶尔会因 PWA 多标签页/旧 SW 持有连接导致 open 被阻塞而永久 pending。
+    // 用 3 秒超时兜底：召回卡死也绝不阻塞 AI 回复（召回只是锦上添花，跳过不影响核心对话）。
+    const rec = await Promise.race([
+      memMagnetRecall(userText),
+      new Promise(res=>setTimeout(res, 3000))
+    ]);
+    if(!rec || !rec.length) return; // 空块整块消失，不留占位
     const block = '[magnet_memory]\n' + rec.join('\n');
     aiConv[0] = { role:'system', content: aiConv[0].content + '\n\n' + block, id: aiConv[0].id };
   }catch(e){}
