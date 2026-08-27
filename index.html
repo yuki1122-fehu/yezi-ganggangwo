@@ -1053,6 +1053,16 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .ai-msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--green-deep),var(--green));color:#fff;border-bottom-right-radius:6px;box-shadow:0 6px 18px rgba(130,160,126,.34);}
 .ai-msg.ai{align-self:flex-start;background:var(--glass-strong);color:var(--ink);border-bottom-left-radius:6px;border:1px solid var(--glass-line);box-shadow:var(--shadow-sm);}
 .ai-msg.sys{align-self:center;background:transparent;color:var(--ink-faint);font-size:12px;text-align:center;max-width:92%;font-weight:500;}
+/* 记忆已打标：极淡光晕 = AI 扫过；右上角小星 = 从这里产出过记忆（手动/自动通用，低调不抢眼） */
+.ai-msg.mem-scanned.user{box-shadow:0 6px 18px rgba(130,160,126,.34),0 0 0 1px rgba(255,255,255,.13),0 0 16px rgba(255,224,130,.09);}
+.ai-msg.mem-scanned.ai{box-shadow:var(--shadow-sm),0 0 0 1px var(--glass-line),0 0 16px rgba(255,224,130,.07);}
+.ai-msg.mem-has::after{content:'✦';position:absolute;top:-9px;right:16px;font-size:11px;line-height:1;pointer-events:none;opacity:.38;color:#f0c44f;text-shadow:0 1px 2px rgba(0,0,0,.14);}
+.ai-msg.mem-pick{outline:2px solid rgba(80,170,140,.55);outline-offset:3px;}
+.mem-picking .ai-msg{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}
+/* 手动选气泡打标：底部小工具条 */
+.mem-pick-bar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:var(--radius-pill);box-shadow:0 8px 26px rgba(0,0,0,.18);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
+.mem-pick-bar .cnt{font-size:12px;font-weight:700;color:var(--green-dark);white-space:nowrap;}
+.mem-pick-bar .btn{font-size:12px;padding:6px 12px;}
 .conv-more{align-self:center;margin:2px 0 6px;padding:8px 15px;border-radius:999px;background:var(--glass-strong);color:var(--ink-faint);font-size:12.5px;font-weight:600;border:1px solid var(--glass-line);cursor:pointer;-webkit-tap-highlight-color:transparent;box-shadow:var(--shadow-sm);transition:transform .15s var(--ease),opacity .15s;}
 .conv-more:active{transform:scale(.96);opacity:.8;}
 .ai-msg.ai.typing{display:flex;gap:5px;align-items:center;padding:14px 17px;}
@@ -2235,9 +2245,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
           <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
         </label>
       </div>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
-        助理会把你们的对话自动沉淀成带标签的记忆（关键词 / 情感 / 主题），你聊到某个词时，相关回忆会自动浮上来——陪伴生动感优先，固定代办不占记忆。打标在后台分批跑，不拖慢聊天。
-      </p>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
+        助理会把你们的对话自动沉淀成带标签的记忆（关键词 / 情感 / 主题），你聊到某个词时，相关回忆会自动浮上来——陪伴生动感优先，固定代办不占记忆。打标在后台分批跑，不拖慢聊天。长按任意气泡可手动圈选对话、按你的要求写成一条记忆（总结只进记忆，不影响日记）。
+        </p>
       <div id="memFields" style="transition:opacity .25s;">
         <label>关系身份（常驻块，最值得改）
           <span style="font-size:11px;color:var(--ink-soft)">叶子是谁、我们的关系基调——决定助理「记得什么、以什么身份相处」。可以直接整段粘贴你的 OC 设定（多个人格也行，配合下方「角色音色」自动切换声音）。注意：设定较长时每轮对话都会发给模型，会占 token，建议保留关键人格段即可。</span>
@@ -2318,6 +2328,35 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <button class="btn ghost" onclick="closeMemEdit()">取消</button>
       <button class="btn primary" onclick="memItemSave()">保存</button>
     </div>
+  </div>
+</div>
+
+<!-- 手动选择气泡 → 记忆：底部工具条 -->
+<div id="memPickBar" class="mem-pick-bar" hidden>
+  <span class="cnt" id="memPickBarCount">已选 0 条</span>
+  <button class="btn primary" onclick="openMemPick()">⭐ 记为记忆</button>
+  <button class="btn ghost" onclick="memExitPick()">取消</button>
+</div>
+
+<!-- 手动选择气泡 → 记忆 弹窗 -->
+<div class="mask" id="memPickMask" style="z-index:96;">
+  <div class="sheet glass-strong">
+    <h3>✏️ 手动标记记忆</h3>
+    <p id="memPickCount" style="font-size:12px;color:var(--ink-soft);margin:0 0 10px;"></p>
+    <label style="font-size:12px;color:var(--ink-soft);">补充要求（可选，只会用于这次总结）</label>
+    <textarea id="memPickHint" placeholder="例如：这里面有好几件事，但我只想记住金凤餐厅那一整段，别管领证和八达通。" style="width:100%;min-height:64px;resize:vertical;font-size:13px;line-height:1.5;margin-top:6px;padding:8px 10px;border:1px solid var(--ink-faint);border-radius:10px;background:rgba(255,255,255,.6);font-family:inherit;box-sizing:border-box;"></textarea>
+    <label style="font-size:12px;color:var(--ink-soft);margin-top:12px;display:block;">事件名</label>
+    <input id="memPickEvent" type="text" placeholder="如：金凤真假店风波" style="width:100%;font-size:13px;margin-top:6px;padding:8px 10px;border:1px solid var(--ink-faint);border-radius:10px;background:rgba(255,255,255,.6);box-sizing:border-box;">
+    <label style="font-size:12px;color:var(--ink-soft);margin-top:12px;display:block;">摘要</label>
+    <textarea id="memPickSummary" style="width:100%;min-height:84px;resize:vertical;font-size:13px;line-height:1.5;margin-top:6px;padding:8px 10px;border:1px solid var(--ink-faint);border-radius:10px;background:rgba(255,255,255,.6);font-family:inherit;box-sizing:border-box;"></textarea>
+    <label style="font-size:12px;color:var(--ink-soft);margin-top:12px;display:block;">标签（逗号分隔，用于以后召回）</label>
+    <input id="memPickTags" type="text" placeholder="金凤，牛排，下午茶" style="width:100%;font-size:13px;margin-top:6px;padding:8px 10px;border:1px solid var(--ink-faint);border-radius:10px;background:rgba(255,255,255,.6);box-sizing:border-box;">
+    <div class="row" style="margin-top:14px;">
+      <button class="btn ghost" onclick="closeMemPick()">取消</button>
+      <button class="btn ghost" id="memPickAutoBtn" onclick="memPickAuto()">✨ AI 提炼</button>
+      <button class="btn primary" onclick="memPickSave()">保存为记忆</button>
+    </div>
+    <p class="hint" id="memPickHint2" style="font-size:11px;color:var(--ink-soft);margin-top:10px;line-height:1.5;">先点「AI 提炼」再确认修改；AI 不可用时也可直接填好保存。手动记忆永久优先，后续自动打标不会覆盖它；日记仍会照常全面记录，不受这次总结影响。</p>
   </div>
 </div>
 
@@ -6440,6 +6479,7 @@ function renderConvFromState(){
   if(more>0) frag.insertBefore(convMoreButton(more), frag.firstChild);
   wrap.appendChild(frag);
   wrap.scrollTop = wrap.scrollHeight;
+  memMarkBubbles().catch(()=>{}); // 重进渲染后补气泡状态记号（已打标光晕 + 记忆小星）
 }
 // 单条消息 → 气泡 DOM；不可显示（system/tool/带 tool_calls 的中间消息/空文本）返回 null
 function convBubbleEl(m){
@@ -6506,6 +6546,7 @@ function loadMoreConv(){
   wrap.insertBefore(frag, wrap.firstChild);
   // 更早内容插在顶部后，补偿 scrollTop 差量：视觉上停在当前这一条，不跳动
   wrap.scrollTop = Math.min(wrap.scrollHeight, wrap.scrollTop + (wrap.scrollHeight - oldH));
+  memMarkBubbles().catch(()=>{});
 }
 function convUserText(content){
   if(typeof content==='string'){
@@ -7285,6 +7326,7 @@ function clearAIConv(){
    报错/提示类消息（不存对话历史，只有 DOM 气泡）也能删：直接移除气泡即可。 */
 function deleteConvMsg(mid){
   if(!mid) return;
+  if(memPickState && memPickState.active){ toast('选择模式下不能删除，先点「取消」退出'); return; }
   const el = document.querySelector('#aiMsgs [data-mid="'+mid+'"]');
   if(!el) return;
   // 纯展示消息（报错/解析提示等，不在 aiConv 里）：无需确认，直接移除气泡
@@ -7880,6 +7922,8 @@ const MEM_TAG_PROMPT = '你是记忆整理器。判断这条对话有没有「�
 // 批量版：一批连续对话 → 判断有没有值得记的回忆（宁可 0 条），有则输出事件/梗条目；
 // 同事件后续进展必须复用【已有记忆】里的 event 原名并输出「合并后」完整摘要——跨批、跨天聚合收敛成一条。
 const MEM_TAG_BATCH_PROMPT = '你是记忆整理器。这段对话里，绝大多数内容【不需要】被记住——这份记忆库是用户和角色之间「值得日后回味的回忆」，不是信息档案。\n只有两类值得沉淀成记忆：\nA. 完整或正在推进的「事件链」：有起点、转折、结果、情绪的一次共同经历（想吃→走错店→被迫消费→吃到正版→很满足，算一个完整觅食事件；第一次、里程碑、小成就、委屈心事、两人共同完成的经历都算）。\nB. 新产生的「梗/暗号」：两人之间专属的称呼、笑话、默契。\n铁律（必须全部遵守）：\n- 一条记忆只准描述【一个】事件链或梗；不同独立事件必须拆成不同条目。\n- 如果一条 summary 需要并列多个互不相干的事件/时间点才算完整，说明这条不合格：要么拆开，要么从本批删掉。\n- 普通办事、交通、购物、日常行程（如领证、坐车、半价优惠）没有情绪、转折或里程碑意义时一律不记；只有当用户/角色表现出重视或强烈情绪时才考虑。\n- event 必须是能单独叫出这个事件的名字（如"金凤真假店风波"），禁止用多个事件名拼接（如"领证+金凤+八达通"）；如果命名时忍不住拼接，说明它在偷懒合并多条记忆。\n- 日常流水（无情绪无转折）、寒暄、重复话题、天气闲聊、任务提醒——一律不记。\n- 【已有记忆】中若存在同一事件：必须复用其 event 原名，且输出「合并后」的完整摘要（旧信息+本批新进展），status 同步更新；绝不另开新条。\n- 宁缺毋滥：0 条完全正常；一批最多 2 条，且每条仍是独立完整事件，不是"今天干了 ABC"的合集。\n- summary（<=80 字）：用一句话讲清这一个事件链的起承转合与情绪，日后一看就懂当时发生了什么；禁止"用户说/她说"式转述，禁止流水账罗列。\n- status：done=已完结；open=仍在推进（有新进展继续合并进同一条）。\n- keyword（<=3 个）；emotion（<=2 个，从类目表选）：{{EMO}}；topic（<=2 个，从类目表选）：{{TOPIC}}\n只输出 JSON 数组（可为空）：\n[{"event":str,"status":"done|open","summary":str,"keyword":[...],"emotion":[...],"topic":[...]}]，不要输出其他文字。';
+// 手动圈选气泡 → 强制提炼一条记忆（用户明确要记，必须产出；用户补充要求优先于一切）
+const MEM_TAG_MANUAL_PROMPT = '用户手动圈选了下面的对话，确认要沉淀成一条记忆。\n用户补充要求（可空，但一旦写了必须优先遵从）：\n{{HINT}}\n\n只提炼【一个】用户想记住的核心事件或梗：\n- 用户写了要求就严格按要求来（例如只说"只要金凤餐厅那件事，别管领证和八达通"，就只能提炼金凤，绝不能把多件事揉成一条）；\n- 没写要求时，默认挑选这段对话里最值得日后回味的一个完整事件（有起承转合或情绪）或一个梗；绝不把互不相干的事拼在一起。\n- 这是用户明确要记的内容，必须产出，不要输出空数组；内容再碎也要给出用户最在意的主题作为 event。\n- 【已有记忆】中若存在同一事件：复用其 event 原名，摘要合并本段新信息。\n- summary（<=80 字）：一句话讲清这一个事件，有细节和情绪；禁止流水账、禁止"用户说/她说"式转述。\n- keyword（<=3 个）；emotion（<=2 个，从类目表选）：{{EMO}}；topic（<=2 个，从类目表选）：{{TOPIC}}\n只输出 JSON：{"event":str,"status":"done|open","summary":str,"keyword":[...],"emotion":[...],"topic":[...]}，不要输出其他文字。';
 function memExtractJson(raw){
   const i = raw.indexOf('{');
   if(i < 0) return null;
@@ -8006,17 +8050,34 @@ async function memRunTagger(){
     const msgs = await memGetAll('messages');
     if(!msgs.length) return 0;
     const wm = await memKvGet('tagger_watermark') || 0;
-    const rows = msgs.filter(m=>m.id > wm).sort((a,b)=>a.id-b.id);
+    // 手动已圈选为记忆的对话：自动打标永久跳过，绝不重复加工（手动优先）
+    const manualMids = new Set();
+    const manualDbIds = new Set();
+    try{
+      const allE = await memGetAll('entries');
+      const midToDb = new Map();
+      for(const m of msgs){ if(m && m.mid) midToDb.set(String(m.mid), Number(m.id)); }
+      for(const e of allE){
+        if(!e || e.active !== 1 || e.manual !== 1 || !Array.isArray(e.source_mids)) continue;
+        for(const mm of e.source_mids){
+          if(!mm) continue;
+          manualMids.add(String(mm));
+          const db = midToDb.get(String(mm));
+          if(db != null) manualDbIds.add(db);
+        }
+      }
+    }catch(e){}
+    const rows = msgs.filter(m=>m.id > wm && !manualMids.has(String(m.mid))).sort((a,b)=>a.id-b.id);
     // 墓碑清单（tagger_retag）：删除记忆时登记的批首消息 id → 优先重新打标（用户删了 = 这段默认没打过标）
     let retag = (await memKvGet(MEM_RETAG_KEY)) || [];
     if(!Array.isArray(retag)) retag = [];
     let head = [];
     if(retag.length){
       const retagSet = new Set(retag.map(Number).filter(n=>!isNaN(n)));
-      head = msgs.filter(m=>retagSet.has(Number(m.id))).sort((a,b)=>a.id-b.id);
-      // 墓碑源消息已不存在（对话气泡删了/记录清空）→ 失效墓碑直接清掉
+      head = msgs.filter(m=>retagSet.has(Number(m.id)) && !manualMids.has(String(m.mid))).sort((a,b)=>a.id-b.id);
+      // 墓碑源消息已不存在（对话气泡删了/记录清空）或已手动定稿 → 失效墓碑直接清掉
       const foundIds = new Set(head.map(m=>Number(m.id)));
-      const still = retag.filter(id=>foundIds.has(Number(id)));
+      const still = retag.filter(id=>foundIds.has(Number(id)) && !manualDbIds.has(Number(id)));
       if(still.length !== retag.length) await memKvSet(MEM_RETAG_KEY, still).catch(()=>{});
     }
     const have = new Set(head.map(m=>Number(m.id)));
@@ -8031,8 +8092,12 @@ async function memRunTagger(){
       const segs = await memTagBatch(cfg, batch);
       const all = await memGetAll('entries');
       for(const t of segs){
+        if(t.event && all.some(e=>e && e.active === 1 && e.manual === 1 && e.event && e.event === t.event)){
+          tagged++; // 手动优先：用户已手动定稿这一事件，自动打标不再动它
+          continue;
+        }
         let target = null;
-        if(t.event){ target = all.find(e=>e && e.active === 1 && e.event && e.event === t.event); }
+        if(t.event){ target = all.find(e=>e && e.active === 1 && e.event && e.event === t.event && !e.manual); }
         await memSaveEntryAndTags(batch[0].id, t, target ? target.id : null); // 溯源挂批首消息；更新路径走 eid
         tagged++;
       }
@@ -8058,7 +8123,8 @@ async function memRunTagger(){
     memRelRefresh(cfg).catch(()=>{}); // 打标后顺手刷新关系摘要
     memJournalMaintain(cfg).catch(()=>{}); // 打标后顺手归档日记分层
     memJournalRefreshCtx().catch(()=>{}); // 与注入快照同步
-    return Math.max(0, rows.length - (batch.length - head.length)); // 剩余待打条数（增量口径），供"立即打标"提示继续
+    memMarkBubbles().catch(()=>{}); // 打标后刷新气泡状态记号
+    return rows.filter(m=>!batchIds.has(Number(m.id))).length; // 剩余待打条数：本批已处理（含墓碑重打）的不再计入
   }catch(e){ console.warn('[mem] tagger', e); return 0; }
 }
 // ---- 关系摘要（§5 resident 块之一）：最近点滴 → 2-4 句关系近况，缓存 ----
@@ -8161,12 +8227,14 @@ async function memJournalDay(cfg, afterDate, endDate){
     const gems = Array.isArray(t.gems) ? t.gems.slice(0, 2) : [];
     if(gems.length){
       const all = await memGetAll('entries');
+      const manualEvents = new Set(all.filter(e=>e && e.active === 1 && e.manual === 1 && e.event).map(e=>e.event));
       for(const g of gems){
         const ev = String(g.event || '').trim();
         const sm = String(g.summary || '').trim();
         if(!ev) continue; // MUST：gems 写回磁铁记忆必须带 event；无 event 的只留日记，不进索引
+        if(manualEvents.has(ev)) continue; // 手动优先：用户已手动定稿这一事件，日记 gems 不再重复建自动条目
         let target = null;
-        if(ev){ target = all.find(e=>e && e.active === 1 && e.event && e.event === ev); }
+        if(ev){ target = all.find(e=>e && e.active === 1 && e.event && e.event === ev && !e.manual); }
         await memSaveEntryAndTags(0, { event: ev, status:'done', summary: sm.slice(0, 80), keyword: Array.isArray(g.keyword) ? g.keyword.map(String).slice(0, 3) : [], emotion: [], topic: [] }, target ? target.id : null);
       }
     }
@@ -8200,13 +8268,11 @@ async function memJournalRefreshCtx(){
     const weeks = js.filter(j=>j.type === 'week').sort((a,b)=>String(b.start).localeCompare(String(a.start)));
     const months = js.filter(j=>j.type === 'month').sort((a,b)=>String(b.start).localeCompare(String(a.start)));
     const parts = [];
-    if(days.length) parts.push('【日记】' + (days[0].end||'') + '\n' + String(days[0].content || ''));
-    if(weeks.length) parts.push('【周记】' + (weeks[0].start||'') + '~' + (weeks[0].end||'') + '\n' + String(weeks[0].content || ''));
-    if(months.length) parts.push('【最近一月】' + (months[0].start||'') + '\n' + String(months[0].content || ''));
-    if(months.length > 1){ // 月份档案一行摘要（一年最多 12 行，成本低）
-      const lines = months.slice(0, 12).sort((a,b)=>String(a.start).localeCompare(String(b.start))).map(m=>'· '+(m.start||'').slice(0,7)+'：'+String(m.content||'').slice(0,26)).join('\n');
-      parts.push('【月份档案】\n' + lines);
-    }
+    // 日记原稿只作为周记/月记的原料保留在档案里，不直接发给对话 AI；周记/月记同理只发当前最高一层摘要
+    let ctxItem = null;
+    if(months.length) ctxItem = { label:'【月记】', item: months[0] };
+    else if(weeks.length) ctxItem = { label:'【周记】', item: weeks[0] };
+    if(ctxItem) parts.push(ctxItem.label + (ctxItem.item.start||'') + '~' + (ctxItem.item.end||'') + '\n' + String(ctxItem.item.content || ''));
     AI_JOURNAL_CTX = parts.join('\n\n');
   }catch(e){ AI_JOURNAL_CTX = ''; }
 }
@@ -8440,11 +8506,227 @@ async function memTagNow(){
   const hint = document.getElementById('memTagHint');
   if(hint) hint.textContent = '正在后台打标…';
   const left = await memRunTagger();
+  await memMarkBubbles(); // 打标后即时刷新气泡记号
   await memRefreshStats();
   if(hint) hint.textContent = left>0
     ? ('✅ 本批打标完成，还有 '+left+' 条对话待处理，可再点一次继续。')
     : '✅ 打标完成（失败的单条会跳过，不影响其他）。';
 }
+// ---- 气泡状态标记：极淡光晕=AI已扫过；右上角小星=从这里产出过记忆（手动/自动都可） ----
+async function memMarkBubbles(){
+  if(!memEnabled()) return;
+  try{
+    const [msgs, wm, entries] = await Promise.all([memGetAll('messages'), memKvGet('tagger_watermark'), memGetAll('entries')]);
+    const wmv = Number(wm) || 0;
+    const byMid = new Map(), byDb = new Map();
+    for(const m of msgs){
+      if(m && m.mid){ byMid.set(String(m.mid), m.id); byDb.set(m.id, String(m.mid)); }
+    }
+    const entBySrc = new Map();
+    const manualMids = new Set();
+    for(const e of entries){
+      if(!e || e.active !== 1) continue;
+      if(e.source_msg_id) entBySrc.set(Number(e.source_msg_id), e.manual === 1 ? 'manual' : 'auto');
+      if(Array.isArray(e.source_mids)){ for(const mm of e.source_mids){ if(mm) manualMids.add(String(mm)); } }
+    }
+    document.querySelectorAll('#aiMsgs .ai-msg[data-mid]').forEach(el=>{
+      const mid = el.getAttribute('data-mid');
+      const dbId = byMid.get(mid);
+      el.classList.toggle('mem-scanned', manualMids.has(mid) || (typeof dbId === 'number' && dbId <= wmv));
+      let src = (dbId != null && entBySrc.get(Number(dbId))) || (manualMids.has(mid) ? 'manual' : null);
+      el.classList.toggle('mem-has', !!src);
+      el.classList.toggle('mem-manual', src === 'manual');
+      el.title = src === 'manual' ? '从这里手动记了一条记忆' : (src === 'auto' ? '从这里提炼了一条记忆' : '');
+    });
+  }catch(e){ console.warn('[mem] mark bubbles', e); }
+}
+// ---- 手动选气泡打标：长按进入选择模式 → 圈选对话 → 按用户要求提炼成一条记忆 ----
+const memPickState = { active:false, mids:new Set() };
+let _memPickMeta = null;
+function memEnterPick(mid){
+  memPickState.active = true;
+  const wrap = document.getElementById('aiMsgs');
+  if(wrap) wrap.classList.add('mem-picking');
+  const bar = document.getElementById('memPickBar');
+  if(bar) bar.hidden = false;
+  const c = document.getElementById('memPickBarCount');
+  if(c) c.textContent = '已选 0 条';
+  if(mid) memTogglePick(mid);
+  toast('选择模式：点气泡多选，选完点「⭐ 记为记忆」');
+}
+function memTogglePick(mid){
+  if(!mid) return;
+  const el = document.querySelector('#aiMsgs .ai-msg[data-mid="' + mid + '"]');
+  if(!el) return;
+  if(memPickState.mids.has(mid)){ memPickState.mids.delete(mid); el.classList.remove('mem-pick'); }
+  else { memPickState.mids.add(mid); el.classList.add('mem-pick'); }
+  const c = document.getElementById('memPickBarCount');
+  if(c) c.textContent = '已选 ' + memPickState.mids.size + ' 条';
+}
+function memExitPick(){
+  memPickState.active = false;
+  memPickState.mids.clear();
+  _memPickMeta = null;
+  document.querySelectorAll('#aiMsgs .ai-msg.mem-pick').forEach(el=>el.classList.remove('mem-pick'));
+  const wrap = document.getElementById('aiMsgs');
+  if(wrap) wrap.classList.remove('mem-picking');
+  const bar = document.getElementById('memPickBar');
+  if(bar) bar.hidden = true;
+  closeMemPick();
+}
+function openMemPick(){
+  const n = memPickState.mids.size;
+  if(!n){ toast('还没选气泡'); return; }
+  const c = document.getElementById('memPickCount');
+  if(c) c.textContent = '已选 ' + n + ' 条对话';
+  const h = document.getElementById('memPickHint'); if(h) h.value = '';
+  const ev = document.getElementById('memPickEvent'); if(ev) ev.value = '';
+  const sm = document.getElementById('memPickSummary'); if(sm) sm.value = '';
+  const tg = document.getElementById('memPickTags'); if(tg) tg.value = '';
+  const h2 = document.getElementById('memPickHint2');
+  if(h2) h2.textContent = '先点「AI 提炼」再确认修改；AI 不可用时也可直接填好保存。手动记忆永久优先，后续自动打标不会覆盖它；日记仍会照常全面记录，不受这次总结影响。';
+  _memPickMeta = null;
+  const b = document.getElementById('memPickAutoBtn');
+  if(b){ b.disabled = false; b.textContent = '✨ AI 提炼'; }
+  openMask(document.getElementById('memPickMask'));
+}
+function closeMemPick(){ closeMask(document.getElementById('memPickMask')); }
+async function memPickRows(){
+  const msgs = await memGetAll('messages');
+  const mids = new Set(Array.from(memPickState.mids));
+  return msgs.filter(m=>m && m.mid && mids.has(String(m.mid))).sort((a,b)=>a.id-b.id);
+}
+async function memPickSummarize(cfg, rows, hint){
+  let existLines = '（无）';
+  try{
+    const all = await memGetAll('entries');
+    const ev = all.filter(e=>e && e.active === 1 && e.event && e.summary)
+                  .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 20);
+    if(ev.length) existLines = ev.map(e=>'- ['+e.event+']（'+(e.manual === 1 ? '手动' : '自动')+'）'+String(e.summary||'').slice(0, 70)).join('\n');
+  }catch(e){}
+  const prompt = MEM_TAG_MANUAL_PROMPT.replace('{{HINT}}', String(hint||'').trim()).replace('{{EMO}}', MEM_EMO_AXES.join(' / ')).replace('{{TOPIC}}', MEM_TOPIC_AXES.join(' / '));
+  const lines = rows.map((r,i)=> (i+1) + '. [' + (r.role === 'user' ? '用户' : '角色') + '] ' + String(r.content||'').slice(0, 220)).join('\n');
+  const r = await aiCall([{role:'system', content:'你是记忆整理器。只输出 JSON，不输出任何其他文字。'},{role:'user', content: prompt + '\n\n【已有记忆】\n' + existLines + '\n\n【用户圈选的对话】\n' + lines}], cfg, 1, {noTools:true});
+  if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) throw new Error(r.error || 'no choices');
+  const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
+  const j = memExtractJson(raw);
+  if(!j) throw new Error('no json');
+  const t = JSON.parse(j);
+  return {
+    event: String(t.event || '').slice(0, 40),
+    status: (t.status === 'open') ? 'open' : 'done',
+    summary: String(t.summary || '').slice(0, 80),
+    keyword: Array.isArray(t.keyword) ? t.keyword.map(String).slice(0, 3) : [],
+    emotion: Array.isArray(t.emotion) ? t.emotion.map(String).slice(0, 2) : [],
+    topic: Array.isArray(t.topic) ? t.topic.map(String).slice(0, 2) : []
+  };
+}
+async function memPickAuto(){
+  if(!memPickState.mids.size){ toast('还没选气泡'); return; }
+  const cfg = getAiCfg();
+  if(!cfg.apiKey){ toast('还没配置 API Key，可直接手动填写后保存'); return; }
+  const btn = document.getElementById('memPickAutoBtn');
+  const h2 = document.getElementById('memPickHint2');
+  if(btn){ btn.disabled = true; btn.textContent = '⏳ 提炼中…'; }
+  if(h2) h2.textContent = '正在按你的要求提炼…';
+  try{
+    const rows = await memPickRows();
+    if(!rows.length) throw new Error('所选气泡没有对应的记忆原料');
+    const hint = ((document.getElementById('memPickHint')||{}).value) || '';
+    const t = await memPickSummarize(cfg, rows, hint);
+    if(!t || (!t.summary && !t.event)) throw new Error('AI 没提炼出内容');
+    const ev = document.getElementById('memPickEvent'); if(ev) ev.value = t.event || '';
+    const sm = document.getElementById('memPickSummary'); if(sm) sm.value = t.summary || '';
+    const tg = document.getElementById('memPickTags'); if(tg) tg.value = (t.keyword||[]).join('，');
+    _memPickMeta = { emotion: t.emotion || [], topic: t.topic || [] };
+    if(h2) h2.textContent = '已提炼，确认或修改后点「保存为记忆」。';
+  }catch(e){
+    console.warn('[mem] manual pick', e);
+    if(h2) h2.textContent = 'AI 提炼失败（' + ((e && e.message) || '未知错误') + '），可直接手动填写后保存。';
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '✨ AI 提炼'; }
+  }
+}
+async function memManualSave(rows, t){
+  const now = new Date().toISOString();
+  const src = rows[0] && rows[0].id ? rows[0].id : 0;
+  const all = await memGetAll('entries');
+  let target = null;
+  if(t.event) target = all.find(e=>e && e.active === 1 && e.event && e.event === t.event);
+  let eid = target ? target.id : null;
+  if(target){
+    const srcMids = Array.isArray(target.source_mids) ? target.source_mids : [];
+    const mergedMids = Array.from(new Set(srcMids.concat(t.source_mids || [])));
+    await memPut('entries', Object.assign({}, target, {
+      event: t.event || target.event || '',
+      summary: t.summary || target.summary || '',
+      status: (t.status === 'open') ? 'open' : 'done',
+      manual: 1,
+      source_mids: mergedMids,
+      created_at: now
+    }));
+  }else{
+    eid = await memPut('entries', { source_msg_id: src, summary: t.summary || '', event: t.event || '', status: (t.status === 'open') ? 'open' : 'done', detail: '', active: 1, manual: 1, source_mids: (t.source_mids || []), created_at: now });
+  }
+  if(!eid) return false;
+  const tagsAll = await memGetAll('tags');
+  for(const tg of tagsAll){ if(tg && tg.entry_id === eid) await memDelete('tags', tg.id).catch(()=>{}); }
+  const nt = [];
+  (t.keyword||[]).forEach(k=>{ if(k && String(k).trim()) nt.push({entry_id:eid, axis:'keyword', tag:String(k).trim().slice(0,20), weight:1}); });
+  (t.emotion||[]).forEach(k=>{ if(k && String(k).trim()) nt.push({entry_id:eid, axis:'emotion', tag:String(k).trim().slice(0,20), weight:1.3}); });
+  (t.topic||[]).forEach(k=>{ if(k && String(k).trim()) nt.push({entry_id:eid, axis:'topic', tag:String(k).trim().slice(0,20), weight:1.1}); });
+  for(const tg of nt){ await memPut('tags', tg).catch(()=>{}); }
+  return true;
+}
+async function memPickSave(){
+  const ev = ((document.getElementById('memPickEvent')||{}).value || '').trim();
+  const sm = ((document.getElementById('memPickSummary')||{}).value || '').trim();
+  const tg = ((document.getElementById('memPickTags')||{}).value || '');
+  if(!ev && !sm){ toast('先写事件名或摘要'); return; }
+  if(!memPickState.mids.size){ toast('气泡选择已失效，请重新长按选择'); return; }
+  try{
+    const rows = await memPickRows();
+    if(!rows.length){ toast('所选气泡没有对应的记忆原料'); return; }
+    const keyword = tg.split(/[,，]/).map(s=>s.trim()).filter(Boolean).slice(0, 3);
+    const meta = _memPickMeta || {};
+    const ok = await memManualSave(rows, { event: ev, summary: sm, status: 'done', keyword: keyword, emotion: meta.emotion || [], topic: meta.topic || [], source_mids: Array.from(memPickState.mids) });
+    if(!ok){ toast('保存失败'); return; }
+    memExitPick();
+    memRefreshStats().catch(()=>{});
+    memMarkBubbles().catch(()=>{});
+    memRelRefresh(getAiCfg()).catch(()=>{});
+    toast('已手动记下这条记忆，后续自动打标不会覆盖它');
+  }catch(e){ console.warn('[mem] manual save', e); toast('保存失败'); }
+}
+// 长按任意气泡 → 进入选择模式；选择模式下点气泡切换选中
+(function(){
+  const wrap = document.getElementById('aiMsgs');
+  if(!wrap) return;
+  let down = null;
+  const setPickClass = (on)=>{ wrap.classList.toggle('mem-picking', on); };
+  wrap.addEventListener('pointerdown', e=>{
+    if(e.target && e.target.closest && e.target.closest('.del, .tts-btn')) return;
+    const b = e.target && e.target.closest ? e.target.closest('.ai-msg[data-mid]') : null;
+    if(!b) return;
+    down = { mid: b.getAttribute('data-mid'), x: e.clientX, y: e.clientY, t: Date.now(), moved: false };
+    if(!memPickState.active) setPickClass(true);
+  }, {passive:true});
+  wrap.addEventListener('pointermove', e=>{
+    if(!down) return;
+    if(Math.abs(e.clientX - down.x) > 12 || Math.abs(e.clientY - down.y) > 12) down.moved = true;
+  }, {passive:true});
+  wrap.addEventListener('pointerup', e=>{
+    if(!down) return;
+    const d = down; down = null;
+    if(!memPickState.active) setPickClass(false);
+    if(d.moved) return;
+    const b = e.target && e.target.closest ? e.target.closest('.ai-msg[data-mid]') : null;
+    const mid = b ? b.getAttribute('data-mid') : null;
+    if(memPickState.active){ if(mid) memTogglePick(mid); return; }
+    if(mid && mid === d.mid && Date.now() - d.t >= 550) memEnterPick(mid);
+  }, {passive:true});
+  wrap.addEventListener('pointercancel', ()=>{ down = null; if(!memPickState.active) setPickClass(false); });
+})();
 // 从聊天界面记录(mhm_ai_conv，最多 300 条)回灌对话到记忆库 messages——清空记忆后的补丁：
 // 不需要重新聊天，也能把最近这段对话按新机制（话题段聚合）重新打标。按 mid 幂等，不重复入库。
 async function memRescueFromConv(){
@@ -8496,6 +8778,7 @@ async function memClear(){
       await memKvSet(MEM_RETAG_KEY, []).catch(()=>{}); // 已全量重打，墓碑清单无意义，同步清空
       try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){}
       memRefreshStats();
+      memMarkBubbles().catch(()=>{});
       toast('已清空记忆条目；对话记录已保留，点「立即打标」可按新机制重新提炼');
     }},
     {label:'连对话记录也清', cls:'danger', fn: async ()=>{
@@ -8504,6 +8787,7 @@ async function memClear(){
       await memKvSet(MEM_RETAG_KEY, []).catch(()=>{}); // 原料都清了，墓碑同步清空
       try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){}
       memRefreshStats();
+      memMarkBubbles().catch(()=>{});
       toast('已全部清空（含对话记录，删除后不可恢复）');
     }}
   ]);
@@ -8543,7 +8827,9 @@ async function memItemSave(){
     const entries = await memGetAll('entries');
     const e = entries.find(x => x && x.id === id);
     if(e){
-      await memPut('entries', { id:id, source_msg_id: e.source_msg_id, summary: summary, event: e.event || '', status: e.status || 'done', detail: e.detail || '', active: 1, created_at: e.created_at }).catch(()=>{});
+      const upd = { id:id, source_msg_id: e.source_msg_id, summary: summary, event: e.event || '', status: e.status || 'done', detail: e.detail || '', active: 1, created_at: e.created_at };
+      if(e.manual === 1 || Array.isArray(e.source_mids)){ upd.manual = e.manual === 1 ? 1 : e.manual; upd.source_mids = Array.isArray(e.source_mids) ? e.source_mids : []; }
+      await memPut('entries', upd).catch(()=>{});
     }
     await memReplaceTags(id, tagList);
     closeMemEdit();
@@ -8561,18 +8847,25 @@ function memItemDelete(id){
 }
 async function memDeleteEntry(id){
   try{
-    // 墓碑登记：记住这条记忆的「原料批首消息 id」→ 下次打标（自动/手动）自动重新提炼这段对话
+    // 墓碑登记：记住这条记忆的「原料消息 id」→ 下次打标（自动/手动）自动重新提炼这段对话
     try{
       const rows = await memGetAll('entries');
       const cur = rows.find(x=>x && x.id === id);
-      if(cur && cur.source_msg_id){
+      if(cur){
         let retag = (await memKvGet(MEM_RETAG_KEY)) || [];
         if(!Array.isArray(retag)) retag = [];
-        const sid = Number(cur.source_msg_id);
-        if(!isNaN(sid) && retag.indexOf(sid) < 0){
-          retag.push(sid);
-          await memKvSet(MEM_RETAG_KEY, retag.slice(-MEM_RETAG_MAX)).catch(()=>{});
+        const allMsgs = await memGetAll('messages');
+        const midToDb = new Map();
+        for(const m of allMsgs){ if(m && m.mid) midToDb.set(String(m.mid), Number(m.id)); }
+        const src = Array.isArray(cur.source_mids) && cur.source_mids.length
+          ? cur.source_mids
+          : (cur.source_msg_id != null ? [cur.source_msg_id] : []);
+        for(const raw of src){
+          let sid = Number(raw);
+          if(isNaN(sid) && midToDb.has(String(raw))) sid = midToDb.get(String(raw));
+          if(!isNaN(sid) && retag.indexOf(sid) < 0) retag.push(sid);
         }
+        if(src.length) await memKvSet(MEM_RETAG_KEY, retag.slice(-MEM_RETAG_MAX)).catch(()=>{});
       }
     }catch(e){ console.warn('[mem] tomb register', e); }
     await memDelete('entries', id);
