@@ -11723,6 +11723,7 @@ init();
     if(restartTimer){ clearTimeout(restartTimer); restartTimer=null; }
     stopCloudAsr(); // 云识别长连接：先停（发 end 帧 + 关 WS + 停采集）
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+    wsSeenFinal=null; // [08-27 三轮] 会话结束清掉分段索引
     if(stream){ stream.getTracks().forEach(t=>{try{t.stop();}catch(e){}}); stream=null; }
     if(videoEl){ try{ videoEl.srcObject=null; }catch(e){} videoEl=null; }
     [localTimer,captureTimer,observeTimer,lockTimer,heartbeatTimer].forEach(t=>{ if(t) clearInterval(t); });
@@ -11902,20 +11903,27 @@ init();
   // [08-27 二轮] 已强制提交过的 interim 归一化文本集合：安卓引擎会话老化时可能"卡死"反复回传同一句旧 interim
   //（往往是 AI 上一句的回声）——若每次稳定 2.5s 都提交 → 周期性自言自语（用户实测"第四轮开始"）。同文只提交一次。
   const wsForcedLog=new Set();
+  let wsSeenFinal=null; // [08-27 三轮] 全量扫描 e.results 的"该索引 final 已提交"去重表（防每段重复提交）
   function startRecog(){
     try{
       const RR=window.SpeechRecognition||window.webkitSpeechRecognition;
       if(!RR) return false;
       recog=new RR();
       recog.lang='zh-CN'; recog.continuous=true; recog.interimResults=true;
+      wsSeenFinal={}; // [08-27 三轮] 新会话重置分段索引（旧会话的 final 去重记录作废）
       lastRecogHit=Date.now(); // 心跳：证明识别器刚启动/还活着
       recog.onresult=function(e){
         lastRecogHit=Date.now(); // 有任何结果（含 interim）= 识别器活着，心跳用
         recogErrSeq=0; // 有识别结果 = 麦克风正常，清空错误计数（避免噪声提示误报）
         let interim='', finalText='';
-        for(let i=e.resultIndex;i<e.results.length;i++){
+        // [08-27 三轮] 全量扫描 e.results：安卓 continuous 常把某段 final 的标注推迟到 resultIndex 越过该段之后，
+        // 旧代码只扫 resultIndex 起的新结果 → 已 final 的段永远不被处理 → 用户长句丢失、只剩最后一段
+        //（"只识别最后几个字"，如"测试页面"只剩"测试"）。全量扫 + wsSeenFinal 按索引去重，每段 final 必达一次。
+        for(let i=0;i<e.results.length;i++){
           const r=e.results[i];
-          if(r.isFinal) finalText+=r[0].transcript; else interim+=r[0].transcript;
+          if(r.isFinal){
+            if(!wsSeenFinal || !wsSeenFinal[i]){ if(wsSeenFinal) wsSeenFinal[i]=true; finalText+=r[0].transcript; }
+          } else interim+=r[0].transcript;
         }
         if(interim){
           setSub(interim); // 中间结果：仅字幕，绝不进 prompt / 落库
