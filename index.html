@@ -11719,6 +11719,7 @@ init();
     post({type:'SESSION_CLOSE'});
     clearTimeout(listenGuardTimer);
     cancelPendingInterrupt(); // 清掉待确认的插话暂存
+    cancelWsPending();        // 清掉未冲刷的 Web Speech 片段聚合
     if(restartTimer){ clearTimeout(restartTimer); restartTimer=null; }
     stopCloudAsr(); // 云识别长连接：先停（发 end 帧 + 关 WS + 停采集）
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
@@ -11803,34 +11804,64 @@ init();
   // ── 耳朵（Web Speech；无识别能力降级文字输入）──
   // 共用"最终识别文本"处理管线：Web Speech 的 final 与腾讯云 ASR 的稳态句都走这里
   // （防回声②③ / 2.5s 去重 / 停嘴 / 事件链）
+  // Web Speech 片段聚合（对齐云识别 MERGE_MS）：安卓 continuous 会把一句话按停顿拆成多个 final
+  // （"我下午要去" + "图书馆"），若每个单独提交 → 前半句就触发 AI 抢答 = "听不全"；
+  // AI 长句的回声同样会被拆成短片段（"先这样吧"），拼成整句后 isEchoLike 整句/子序列才命中。
+  // 仅"AI 没在说话时"聚合（用户安静说话的片段）；AI 说话中不聚合（回声由子序列判定挡、插话走延迟确认）。
+  let wsPending='', wsPendingAt=0, wsPendingTimer=null;
+  function flushWsPending(){
+    const t=wsPending; wsPending='';
+    if(wsPendingTimer){ clearTimeout(wsPendingTimer); wsPendingTimer=null; }
+    if(t) _handleFinalSpeech(t);
+  }
+  function cancelWsPending(){ if(wsPendingTimer){ clearTimeout(wsPendingTimer); wsPendingTimer=null; } wsPending=''; }
+  // 入口：云识别已自带 MERGE_MS 合并 → 不重复聚合直接处理；
+  //       Web Speech：AI 说话中/打断意图词直接处理（插话优先），否则做 2s 片段聚合。
   function handleFinalSpeech(finalText){
     if(!finalText) return;
-    // 防回声③（最前）：无论 AI 是否在说话，麦克风漏回的 AI 声音先挡掉，避免被当插话打断自己
-    if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(finalText,lastAISaidNorm)){ setSub(''); return; }
-    if((Date.now()-lastAISaidAt) < LATE_ECHO_MS && aiSaidSents && aiSaidSents.length){
-      const nf=normTxt(finalText);
-      if(nf && aiSaidSents.some(s=>s && isEchoLike(nf,s))){ setSub(''); return; } // 云/WebSpeech 把 AI 某一单句回声回来（自说自话）
+    if(tcAsrActive || speaking || INTERRUPT_HINT.test(finalText)){ _handleFinalSpeech(finalText); return; }
+    const now=Date.now();
+    const ending=/[。！？!?；;…]+$/.test(finalText); // 本条以句末标点结尾 = 完整句
+    if(wsPending && (now-wsPendingAt) < 2000){
+      wsPending += finalText;
+      if(/[。！？!?；;…]+$/.test(wsPending)) flushWsPending(); // 拼成完整句 → 立即提交
+      else { if(wsPendingTimer) clearTimeout(wsPendingTimer); wsPendingTimer=setTimeout(flushWsPending,2000); }
+      return;
     }
+    // 窗口超时（≥2s）：旧片段定时器应已冲刷（或即将触发），先 flush 旧片段再开新聚合，防覆盖丢失
+    if(wsPending){ flushWsPending(); }
+    wsPending=finalText; wsPendingAt=now;
+    if(wsPendingTimer) clearTimeout(wsPendingTimer);
+    if(ending) _handleFinalSpeech(finalText);                    // 完整句：直接提交
+    else wsPendingTimer=setTimeout(flushWsPending, 2000);        // 片段：等 2s 内的后续拼接
+  }  // 核心处理：回声过滤 → 两阶段打断 → 提交
+  function _handleFinalSpeech(finalText){
+    if(!finalText) return;
+    // 防回声③（最前）：无论 AI 是否在说话，麦克风漏回的 AI 声音先挡掉，避免被当插话打断自己
+    if(isFinalEchoLike(finalText)){ setSub(''); return; }
     // 同一句 2.5s 去重
     if(finalText===lastFinalTxt && Date.now()-lastFinalAtTxt<2500) return;
     // AI 说话期间：两阶段打断（Cove 14 节 barge-in：先确认再打断，防"漏网回声自打断→自言自语"）
     //   ①打断意图词：无条件立即打断（"等一下/别说了"等明确插话，绝不可能是回声）
-    //   ②其他疑似插话：先暂存 600ms 延迟确认——AI 还在说才打断；已说完则重走正常路径
-    //     （云识别把 AI 的克隆音色转写回来常有丢字/添字/同音差异，isEchoLike 连续包含判定会漏网，
-    //       漏网回声若立即打断 = AI 自己打断自己 = 一直自言自语；延迟确认让真插话不丢、假回声自然消退）
+    //   ②其他疑似插话：先暂存延迟确认——AI 还在说才打断；已说完则重走正常路径。
+    //     确认时长按识别器区分：云识别结果快(600ms)；Web Speech 回声 final 延迟 3~5s，给 1200ms
+    //     等 AI 说完/复查命中，避免把"迟到片段回声"误判成插话（关云识别后复发的自言自语主因）
     if(speaking){
       if(INTERRUPT_HINT.test(finalText)){ cancelPendingInterrupt(); commitUserSpeech(finalText); return; }
       if(!pendingInterrupt){
         pendingInterrupt={text:finalText, at:Date.now()};
+        const confirmMs = tcAsrActive ? 600 : 1200;
         pendingInterruptTimer=setTimeout(()=>{
           pendingInterruptTimer=null;
           const pi=pendingInterrupt; pendingInterrupt=null;
           if(!pi || !running) return;
-          if(speaking) commitUserSpeech(pi.text); // AI 仍在说 → 确认为真插话，打断
-          else handleFinalSpeech(pi.text);        // AI 已说完 → 重走正常路径（8s 窗口 isEchoLike 再兜底一次）
-        }, 600);
+          if(speaking){
+            if(isFinalEchoLike(pi.text)) return; // 复查：AI 此间又说了新句子，该 final 与 AI 内容重合 = 迟到回声，丢弃
+            commitUserSpeech(pi.text);           // AI 仍在说且非回声 → 确认真插话，打断
+          } else _handleFinalSpeech(pi.text);    // AI 已说完 → 走核心路径（8s 窗口 isEchoLike 再兜底一次）
+        }, confirmMs);
       } else {
-        cancelPendingInterrupt(); // 600ms 内连续第二个不同 final = 用户连续说话 → 立即打断
+        cancelPendingInterrupt(); // 确认窗口内连续第二个不同 final = 用户连续说话 → 立即打断
         commitUserSpeech(finalText);
       }
       return;
@@ -11839,9 +11870,19 @@ init();
     if(Date.now() < echoGraceUntil){ setSub(''); return; }
     commitUserSpeech(finalText);
   }
+  // 统一回声比对（8s 窗口）：整段基准 + 逐句基准（handleFinalSpeech 入口与 pendingInterrupt 复查共用）
+  function isFinalEchoLike(t){
+    if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(t,lastAISaidNorm)) return true;
+    if((Date.now()-lastAISaidAt) < LATE_ECHO_MS && aiSaidSents && aiSaidSents.length){
+      const nf=normTxt(t);
+      if(nf && aiSaidSents.some(s=>s && isEchoLike(nf,s))) return true;
+    }
+    return false;
+  }
   // 提交用户话语（停嘴 + 推进 epoch + 入仲裁器）；handleFinalSpeech 的正常路径与"AI 说话插话打断"共用
   function commitUserSpeech(t){
     cancelPendingInterrupt(); // 已确认打断：清掉暂存（若有）
+    cancelWsPending();        // 新话语已提交：作废未冲刷的旧聚合片段（防重复提交一轮）
     setSub('');
     compStopMouth(); // 用户开口当场停朗读（不等队列）
     lastFinalTxt=t; lastFinalAtTxt=Date.now();
@@ -12522,6 +12563,16 @@ init();
     }
     return prev[m];
   }
+  // 子序列判定（允许跳跃）：short 的每个字符按序出现在 long 中（不要求连续）。
+  // Web Speech 把 AI 长句的回声拆成短片段（"先这样吧" vs 整句），60% 长度门槛会放行 → 漏网自打断；
+  // 片段回声的本质 = 原文的按序子序列（丢字/拆段都在内），用子序列判定兜住。
+  function isSubseq(short,long){
+    let j=0;
+    for(let i=0;i<long.length && j<short.length;i++){
+      if(long.charCodeAt(i)===short.charCodeAt(j)) j++;
+    }
+    return j===short.length;
+  }
   // 防回声内容去重工具：归一化（去空白标点）+ 重叠度判断（识别结果与 AI 刚说的内容高度重合 = 迟到回声）。
   // 收窄条件：短句必须 ≥ 长句 60%（用户顺着 AI 的话简短确认如"休息一下"，不算回声）；重叠 ≥85% 才丢（内容去重只是兜底，主力靠宽限窗）
   function normTxt(t){ return String(t||'').toLowerCase().replace(/[\s，。！？!?、,.：:；;·'"“”‘’…~～\-—()（）]/g,''); }
@@ -12536,8 +12587,10 @@ init();
     // ② 完整包含（≥4 字）：AI 说过的一句话被原样识别回来 → 回声。
     //    仍先过 60% 门槛：保护用户顺着 AI 的话做简短确认（如"休息一下"），不误杀。
     if(short.length>=4 && long.indexOf(short)>=0 && short.length>=long.length*0.6) return true;
-    // ③ 别误杀用户顺着 AI 的话做简短确认（如"休息一下"）：长度差过大不算回声
-    if(short.length < long.length*0.6) return false;
+    // ③ 子序列包含（≥3 字，允许跳跃）：Web Speech 片段化回声（AI 长句被拆成"先这样吧"等短段）
+    //    会被 60% 长度门槛放行（短段 < 原句 60%）→ 漏网自打断。子序列判定把这些片段全兜住；
+    //    用户真话极少恰好是 AI 句子的按序子序列（换说法/新话题都不命中），误杀面很小。
+    if(short.length>=3 && isSubseq(short,long)) return true;
     // ④ 变体回声（本次修复核心）：ASR 转写与原文常有丢字/添字/同音差异，连续包含会漏网
     //    （实测：丢字"那你先休息下"vs"嗯那你先休息一下吧"连续判定漏网 → 自说自话）。
     //    改用真 LCS（允许跳跃）+ 阈值 0.75：丢字/添字后仍 ≥75% 字符按序重合 = 回声。
