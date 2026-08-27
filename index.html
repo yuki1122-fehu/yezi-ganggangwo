@@ -11723,6 +11723,7 @@ init();
     if(restartTimer){ clearTimeout(restartTimer); restartTimer=null; }
     stopCloudAsr(); // 云识别长连接：先停（发 end 帧 + 关 WS + 停采集）
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+    recogPaused=false; // [08-27 四轮] 会话结束清暂停标记
     wsSeenFinal=null; // [08-27 三轮] 会话结束清掉分段索引
     if(stream){ stream.getTracks().forEach(t=>{try{t.stop();}catch(e){}}); stream=null; }
     if(videoEl){ try{ videoEl.srcObject=null; }catch(e){} videoEl=null; }
@@ -11911,6 +11912,7 @@ init();
       recog=new RR();
       recog.lang='zh-CN'; recog.continuous=true; recog.interimResults=true;
       wsSeenFinal={}; // [08-27 三轮] 新会话重置分段索引（旧会话的 final 去重记录作废）
+      recogPaused=false; // [08-27 四轮] 新建/重建实例后视为未暂停
       lastRecogHit=Date.now(); // 心跳：证明识别器刚启动/还活着
       recog.onresult=function(e){
         lastRecogHit=Date.now(); // 有任何结果（含 interim）= 识别器活着，心跳用
@@ -11992,14 +11994,21 @@ init();
     micOn=false;
     stopCloudAsr();
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+    recogPaused=false; // [08-27 四轮] 关麦时清暂停标记
     if(stream){ stream.getAudioTracks().forEach(t=>{try{t.enabled=false;}catch(e){}}); }
     const bar=document.getElementById('compInputBar'); if(bar) bar.style.display='flex';
     const b=document.getElementById('compMicBtn'); if(b) b.classList.remove('on');
     updateStatus();
   }
   // 说话期间临时停麦：只停识别器（不动 micOn / 不关音频轨道），说完再恢复；用于消灭回声
+  // [08-27 四轮] 保留实例引用（recogPaused=true）而不再置 null：恢复时同对象 start()——
+  // 安卓对"新建实例"要重新 warmup（首结果慢 1~3s、开头被吞→"没立刻反应/要说好几遍/只识别后段"），
+  // 而同对象重启最稳且引擎会话已热，AI 说完用户能立刻接话。stop 失败才销毁（startRecog 会重建）。
+  let recogPaused=false;
   function stopRecogKeepFlag(){
-    if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
+    if(!recog) return;
+    try{ recog.onend=null; recog.stop(); recogPaused=true; }
+    catch(e){ try{ recog.onend=null; recog.stop(); }catch(_){} recog=null; recogPaused=false; }
   }
 
   // ── 腾讯云 ASR（云识别）──
@@ -12465,6 +12474,21 @@ init();
         //   ①回声双份输入（自言自语概率翻倍）②两个识别器抢麦克风互相干扰（听不到用户）。
         //   云识别靠 WS 长连接 + onclose 指数退避重连自己续命，不需要这里接管。
         if(tcAsrActive) return;
+        // [08-27 四轮] 若识别器是 AI 说话前被我们暂停的同对象实例 → 直接同对象 start()（引擎已热，首结果快、
+        // 不开头被吞），避免"新建实例 warmup"造成的"没立刻反应/要说好几遍/只识别后段"。start 失败才退避重建。
+        if(recogPaused && recog){
+          recogPaused=false;
+          try{
+            recog.start();
+            // [08-27 四轮] 重置重启风暴窗口：正常恢复不算"失败风暴"——避免短回合多次恢复把 restartCount 累积到
+            // 5 次上限触发 markNeedTap 判死（安卓引擎恢复后偶发立刻 onend 会自动走 scheduleRestart，仍安全）。
+            restartWindowStart=Date.now(); restartCount=0;
+            updateStatus(); return;
+          }catch(e){
+            try{ recog.onend=null; recog.stop(); }catch(_e){}
+            recog=null;
+          }
+        }
         if(recog){
           const st=recog.state;
           if(!st || st==='inactive' || st==='idle') scheduleRestart(0);
@@ -12472,7 +12496,7 @@ init();
           return;
         }
         if(!recog && !startRecog()) scheduleRestart(1000);
-      }, 400);
+      }, 300);
     }
   }
 
