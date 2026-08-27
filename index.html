@@ -7711,6 +7711,8 @@ const MEM_IDENTITY_KEY = 'mhm_mem_identity';
 const MEM_REL_KEY = 'mhm_mem_rel';
 const MEM_FB_KEY = 'mhm_mem_feedback';
 const MEM_TAG_GAP = 24;      // 每累积 24 条新消息跑一次打标（回忆精而少，不必频繁）
+const MEM_RETAG_KEY = 'tagger_retag'; // 墓碑清单：删除记忆时登记的「原料批首消息 id」，下次打标自动重新提炼
+const MEM_RETAG_MAX = 5;      // 墓碑清单上限（最多同时排队 5 段重打，防堆积）
 const MEM_BUDGET = 1200;     // 召回注入字符预算：记忆是配菜不是主食
 const MEM_RECALL_K = 8;
 const DEFAULT_MEM_IDENTITY = '你是叶子：25 岁中医执业医师，现居香港，正在读浸会大学中医健康管理硕士，日常维护「港港窝」这个小家。\n我是你的 AI 伙伴：既是工具助手，也是朋友+合作者。\n关系基调：轻松、可以互相吐槽也能互相托底；记得彼此的小事，像真朋友一样相处。';
@@ -7990,9 +7992,24 @@ async function memRunTagger(){
     if(!msgs.length) return 0;
     const wm = await memKvGet('tagger_watermark') || 0;
     const rows = msgs.filter(m=>m.id > wm).sort((a,b)=>a.id-b.id);
-    if(!rows.length) return 0;
+    // 墓碑清单（tagger_retag）：删除记忆时登记的批首消息 id → 优先重新打标（用户删了 = 这段默认没打过标）
+    let retag = (await memKvGet(MEM_RETAG_KEY)) || [];
+    if(!Array.isArray(retag)) retag = [];
+    let head = [];
+    if(retag.length){
+      const retagSet = new Set(retag.map(Number).filter(n=>!isNaN(n)));
+      head = msgs.filter(m=>retagSet.has(Number(m.id))).sort((a,b)=>a.id-b.id);
+      // 墓碑源消息已不存在（对话气泡删了/记录清空）→ 失效墓碑直接清掉
+      const foundIds = new Set(head.map(m=>Number(m.id)));
+      const still = retag.filter(id=>foundIds.has(Number(id)));
+      if(still.length !== retag.length) await memKvSet(MEM_RETAG_KEY, still).catch(()=>{});
+    }
+    const have = new Set(head.map(m=>Number(m.id)));
     const BATCH_MAX = 40; // 清空后历史重打：一次最多 40 条，剩余留到下次（避免一次性输入超长/超时）
-    const batch = rows.slice(0, BATCH_MAX);
+    const tail = rows.filter(m=>!have.has(Number(m.id)));
+    // batch = 墓碑源（按时间序）+ 增量补足：保证被删的那段一定进本批
+    const batch = [...head, ...tail].slice(0, BATCH_MAX);
+    if(!batch.length) return 0;
     let tagged = 0, skipped = 0;
     // 批量打标优先：只有「值得日后的回忆」才生成条目（可为 0 条）；同 event 的直接合并更新，跨批跨天收敛成一条
     try{
@@ -8014,12 +8031,19 @@ async function memRunTagger(){
         }catch(e2){ skipped++; } // MUST：单条失败隔离，不连累同批
       }
     }
-    await memKvSet('tagger_watermark', batch[batch.length-1].id);
+    // 水位线只进不退（墓碑源的 id 可能早于当前水位，回退会破坏"已消费"语义）
+    const lastId = Number(batch[batch.length-1].id) || 0;
+    await memKvSet('tagger_watermark', Math.max(Number(wm)||0, lastId));
+    // 本批已处理的墓碑源出队（无论是否产出——AI 判无价值也尊重，避免无限重试）
+    const batchIds = new Set(batch.map(m=>Number(m.id)));
+    const retag2 = (await memKvGet(MEM_RETAG_KEY)) || [];
+    const nextRetag = (Array.isArray(retag2) ? retag2 : []).filter(id=>!batchIds.has(Number(id)));
+    await memKvSet(MEM_RETAG_KEY, nextRetag);
     if(batch.length && tagged === 0) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
     memRelRefresh(cfg).catch(()=>{}); // 打标后顺手刷新关系摘要
     memJournalMaintain(cfg).catch(()=>{}); // 打标后顺手归档日记分层
     memJournalRefreshCtx().catch(()=>{}); // 与注入快照同步
-    return Math.max(0, rows.length - batch.length); // 剩余待打条数，供"立即打标"提示继续
+    return Math.max(0, rows.length - (batch.length - head.length)); // 剩余待打条数（增量口径），供"立即打标"提示继续
   }catch(e){ console.warn('[mem] tagger', e); return 0; }
 }
 // ---- 关系摘要（§5 resident 块之一）：最近点滴 → 2-4 句关系近况，缓存 ----
@@ -8454,6 +8478,7 @@ async function memClear(){
     {label:'清空记忆条目', cls:'', fn: async ()=>{
       await Promise.all([memClearStore('entries'), memClearStore('tags')]).catch(()=>{});
       await memKvSet('tagger_watermark', 0).catch(()=>{}); // 水位归零：历史对话可重新打标
+      await memKvSet(MEM_RETAG_KEY, []).catch(()=>{}); // 已全量重打，墓碑清单无意义，同步清空
       try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){}
       memRefreshStats();
       toast('已清空记忆条目；对话记录已保留，点「立即打标」可按新机制重新提炼');
@@ -8461,6 +8486,7 @@ async function memClear(){
     {label:'连对话记录也清', cls:'danger', fn: async ()=>{
       await Promise.all([memClearStore('entries'), memClearStore('tags'), memClearStore('messages'), memClearStore('journal')]).catch(()=>{});
       await memKvSet('tagger_watermark', 0).catch(()=>{});
+      await memKvSet(MEM_RETAG_KEY, []).catch(()=>{}); // 原料都清了，墓碑同步清空
       try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){}
       memRefreshStats();
       toast('已全部清空（含对话记录，删除后不可恢复）');
@@ -8513,13 +8539,27 @@ async function memItemSave(){
   }catch(e){ toast('保存失败'); }
 }
 function memItemDelete(id){
-  showDialog('删除这条记忆？', '只删这一条记忆（含其标签），不影响其他记忆，也不删你们的对话气泡。删除后 AI 不会再召回它。', [
+  showDialog('删除这条记忆？', '只删这一条记忆（含其标签），不影响其他记忆，也不删你们的对话气泡。删除后 AI 不会再召回它；下次自动/手动打标时会重新提炼这段对话。', [
     {label:'取消', cls:'ghost'},
     {label:'删除这条', cls:'danger', fn: ()=>{ memDeleteEntry(id); }}
   ]);
 }
 async function memDeleteEntry(id){
   try{
+    // 墓碑登记：记住这条记忆的「原料批首消息 id」→ 下次打标（自动/手动）自动重新提炼这段对话
+    try{
+      const rows = await memGetAll('entries');
+      const cur = rows.find(x=>x && x.id === id);
+      if(cur && cur.source_msg_id){
+        let retag = (await memKvGet(MEM_RETAG_KEY)) || [];
+        if(!Array.isArray(retag)) retag = [];
+        const sid = Number(cur.source_msg_id);
+        if(!isNaN(sid) && retag.indexOf(sid) < 0){
+          retag.push(sid);
+          await memKvSet(MEM_RETAG_KEY, retag.slice(-MEM_RETAG_MAX)).catch(()=>{});
+        }
+      }
+    }catch(e){ console.warn('[mem] tomb register', e); }
     await memDelete('entries', id);
     const tags = await memGetAll('tags');
     const old = tags.filter(t => t && t.entry_id === id);
@@ -8527,7 +8567,7 @@ async function memDeleteEntry(id){
     memRelRefresh(getAiCfg()).catch(()=>{});
     await memRefreshStats();
     memView();
-    toast('已删除这条记忆');
+    toast('已删除这条记忆；下次打标时会自动重新提炼这段对话');
   }catch(e){ toast('删除失败'); }
 }
 if(window.addEventListener){ window.addEventListener('pagehide', ()=>{ if(_memPending > 0) memRunTagger(); }); }
