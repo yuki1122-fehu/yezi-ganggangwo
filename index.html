@@ -11618,6 +11618,17 @@ init();
   // LATE_ECHO_MS 曾为 3000：安卓 Web Speech 识别结果常延迟 3~5s，AI 尾巴超窗漏成"用户的话"→ 自说自话。
   // 放宽到 8000：8s 内到达且与 AI 刚说内容重合（含 2~3 字尾巴）一律判回声丢弃；误杀面=用户 8s 内重复 AI 原话（罕见，可打字/换说法）。
   let echoGraceUntil = 0, lastAISaidNorm = '', lastAISaidAt = 0;
+  // 说话期间"疑似插话"延迟确认（Cove 两阶段打断：先确认再打断）：
+  //   AI 说话时识别到的 final 不立即打断（漏网回声会自打断→自言自语），先暂存 600ms：
+  //   ①AI 还在说 → 确认为真插话，立即打断；②AI 已说完 → 重走正常路径（8s 窗口 isEchoLike 再兜底）；
+  //   ③600ms 内又来第二个不同 final（用户连续说话）→ 立即打断。
+  //   ④命中打断意图词（等一下/别说了…）→ 无条件立即打断。
+  let pendingInterrupt=null, pendingInterruptTimer=null;
+  const INTERRUPT_HINT=/等一下|别说了|先停|停一下|停停|打住|你听我说|听我说|我说了|我说过|闭嘴/;
+  function cancelPendingInterrupt(){
+    if(pendingInterruptTimer){ clearTimeout(pendingInterruptTimer); pendingInterruptTimer=null; }
+    pendingInterrupt=null;
+  }
 
   // ---- 优先队列（带优先级插入）----
   function post(type,data){
@@ -11707,6 +11718,7 @@ init();
     running=false;
     post({type:'SESSION_CLOSE'});
     clearTimeout(listenGuardTimer);
+    cancelPendingInterrupt(); // 清掉待确认的插话暂存
     if(restartTimer){ clearTimeout(restartTimer); restartTimer=null; }
     stopCloudAsr(); // 云识别长连接：先停（发 end 帧 + 关 WS + 停采集）
     if(recog){ try{ recog.onend=null; recog.stop(); }catch(e){} recog=null; }
@@ -11801,9 +11813,26 @@ init();
     }
     // 同一句 2.5s 去重
     if(finalText===lastFinalTxt && Date.now()-lastFinalAtTxt<2500) return;
-    // AI 说话期间用户插话：实时打断（compStopMouth 停朗读 + 推进 epoch → speakChain 的 myEpoch 机制自动跳过后续句子）
+    // AI 说话期间：两阶段打断（Cove 14 节 barge-in：先确认再打断，防"漏网回声自打断→自言自语"）
+    //   ①打断意图词：无条件立即打断（"等一下/别说了"等明确插话，绝不可能是回声）
+    //   ②其他疑似插话：先暂存 600ms 延迟确认——AI 还在说才打断；已说完则重走正常路径
+    //     （云识别把 AI 的克隆音色转写回来常有丢字/添字/同音差异，isEchoLike 连续包含判定会漏网，
+    //       漏网回声若立即打断 = AI 自己打断自己 = 一直自言自语；延迟确认让真插话不丢、假回声自然消退）
     if(speaking){
-      commitUserSpeech(finalText);
+      if(INTERRUPT_HINT.test(finalText)){ cancelPendingInterrupt(); commitUserSpeech(finalText); return; }
+      if(!pendingInterrupt){
+        pendingInterrupt={text:finalText, at:Date.now()};
+        pendingInterruptTimer=setTimeout(()=>{
+          pendingInterruptTimer=null;
+          const pi=pendingInterrupt; pendingInterrupt=null;
+          if(!pi || !running) return;
+          if(speaking) commitUserSpeech(pi.text); // AI 仍在说 → 确认为真插话，打断
+          else handleFinalSpeech(pi.text);        // AI 已说完 → 重走正常路径（8s 窗口 isEchoLike 再兜底一次）
+        }, 600);
+      } else {
+        cancelPendingInterrupt(); // 600ms 内连续第二个不同 final = 用户连续说话 → 立即打断
+        commitUserSpeech(finalText);
+      }
       return;
     }
     // 防回声②：AI 说完瞬间的 400ms 消尾窗（仅正常路径）
@@ -11812,6 +11841,7 @@ init();
   }
   // 提交用户话语（停嘴 + 推进 epoch + 入仲裁器）；handleFinalSpeech 的正常路径与"AI 说话插话打断"共用
   function commitUserSpeech(t){
+    cancelPendingInterrupt(); // 已确认打断：清掉暂存（若有）
     setSub('');
     compStopMouth(); // 用户开口当场停朗读（不等队列）
     lastFinalTxt=t; lastFinalAtTxt=Date.now();
@@ -12212,6 +12242,7 @@ init();
 
   // 一次发言 = 一个发言流；句子串行；无论哪个出口离开，finally 必发 TURN_DONE
   async function speakTurn(userText,trigger,myEpoch,tid){
+    cancelPendingInterrupt(); // 新发言流开始：清掉待确认的插话暂存
     let spoke=false, spokeText='';
     const lat={t0:Date.now(),t1:null,t2:null,t3:null,trig:trigger};
     try{
@@ -12337,6 +12368,11 @@ init();
       // ③对象为空 → startRecog 新建兜底，仍失败交给 scheduleRestart 退避重试
       setTimeout(()=>{
         if(!micOn || !recogAvailable) return;
+        // ★ 关键修复（双识别器 bug）：云识别（腾讯 ASR 长连接）在跑时绝不拉起 Web Speech。
+        //   否则每次 AI 说完话这里都会 startRecog() 新建一个 Web Speech 识别器，与云识别并行：
+        //   ①回声双份输入（自言自语概率翻倍）②两个识别器抢麦克风互相干扰（听不到用户）。
+        //   云识别靠 WS 长连接 + onclose 指数退避重连自己续命，不需要这里接管。
+        if(tcAsrActive) return;
         if(recog){
           const st=recog.state;
           if(!st || st==='inactive' || st==='idle') scheduleRestart(0);
@@ -12470,6 +12506,22 @@ init();
     const parts=t.split(/(?<=[。！？!?；;\n])/).map(s=>s.trim()).filter(Boolean);
     return parts.length?parts:[t.trim()].filter(Boolean);
   }
+  // 最长公共子序列长度（允许跳跃）：ASR 把 AI 的克隆音色转写回来时常有丢字/添字/同音差异，
+  // 连续子串包含会漏网 → 用 LCS 比对"按序重合度"挡变体回声（自说自话的元凶）。
+  function lcsLen(A,B){
+    const n=A.length, m=B.length;
+    if(!n||!m) return 0;
+    const prev=new Int16Array(m+1), cur=new Int16Array(m+1);
+    for(let i=1;i<=n;i++){
+      const ca=A.charCodeAt(i-1);
+      for(let j=1;j<=m;j++){
+        if(ca===B.charCodeAt(j-1)) cur[j]=prev[j-1]+1;
+        else cur[j]=Math.max(prev[j],cur[j-1]);
+      }
+      for(let j=0;j<=m;j++) prev[j]=cur[j];
+    }
+    return prev[m];
+  }
   // 防回声内容去重工具：归一化（去空白标点）+ 重叠度判断（识别结果与 AI 刚说的内容高度重合 = 迟到回声）。
   // 收窄条件：短句必须 ≥ 长句 60%（用户顺着 AI 的话简短确认如"休息一下"，不算回声）；重叠 ≥85% 才丢（内容去重只是兜底，主力靠宽限窗）
   function normTxt(t){ return String(t||'').toLowerCase().replace(/[\s，。！？!?、,.：:；;·'"“”‘’…~～\-—()（）]/g,''); }
@@ -12486,16 +12538,13 @@ init();
     if(short.length>=4 && long.indexOf(short)>=0 && short.length>=long.length*0.6) return true;
     // ③ 别误杀用户顺着 AI 的话做简短确认（如"休息一下"）：长度差过大不算回声
     if(short.length < long.length*0.6) return false;
-    // ④ 边界：短句本身是 AI 原话的一个片段但没被完整包含（部分字被吞），用最长公共子串兜底
+    // ④ 变体回声（本次修复核心）：ASR 转写与原文常有丢字/添字/同音差异，连续包含会漏网
+    //    （实测：丢字"那你先休息下"vs"嗯那你先休息一下吧"连续判定漏网 → 自说自话）。
+    //    改用真 LCS（允许跳跃）+ 阈值 0.75：丢字/添字后仍 ≥75% 字符按序重合 = 回声。
+    //    顺带覆盖同音字（"休息一下吧"vs"休息一下把" LCS=80%）。1~2 字不进来（前面已处理）。
     if(short.length>=3){
-      let best=0;
-      const step=Math.min(short.length,20);
-      for(let i=0;i<=short.length-step;i++){
-        let k=0;
-        while(i+k<short.length && long.indexOf(short.slice(i,i+k+1))>=0) k++;
-        if(k>best) best=k;
-      }
-      return best>=Math.min(4,short.length) && (best/short.length)>=0.85; // 最长公共子串占短句≥85%
+      const best=lcsLen(short,long);
+      return best>=Math.min(4,short.length) && (best/short.length)>=0.75;
     }
     return false;
   }
