@@ -7713,6 +7713,7 @@ const MEM_FB_KEY = 'mhm_mem_feedback';
 const MEM_TAG_GAP = 24;      // 每累积 24 条新消息跑一次打标（回忆精而少，不必频繁）
 const MEM_RETAG_KEY = 'tagger_retag'; // 墓碑清单：删除记忆时登记的「原料批首消息 id」，下次打标自动重新提炼
 const MEM_RETAG_MAX = 5;      // 墓碑清单上限（最多同时排队 5 段重打，防堆积）
+const MEM_PRUNE_DAYS = 30;    // 无 event 且超过此时长的旧流水账：打标时自然淘汰（不登记重打墓碑）
 const MEM_BUDGET = 1200;     // 召回注入字符预算：记忆是配菜不是主食
 const MEM_RECALL_K = 8;
 const DEFAULT_MEM_IDENTITY = '你是叶子：25 岁中医执业医师，现居香港，正在读浸会大学中医健康管理硕士，日常维护「港港窝」这个小家。\n我是你的 AI 伙伴：既是工具助手，也是朋友+合作者。\n关系基调：轻松、可以互相吐槽也能互相托底；记得彼此的小事，像真朋友一样相处。';
@@ -7875,10 +7876,10 @@ async function memDeleteByMid(mid){
 // 记忆定位：情感层「值得日后回味的回忆」，不是信息档案。
 // 只有①完整/推进中的事件（有情绪/转折）②新产生的梗/暗号 才值得记；日常流水/寒暄/任务提醒一律不记。
 // 逐条兜底版（批量聚合失败时用）：宁缺毋滥，没价值输出空对象 = 不入库。
-const MEM_TAG_PROMPT = '你是记忆整理器。判断这条对话有没有「值得日后回味的记忆价值」：\n只有①完整或推进中的事件（有情绪或转折）②新产生的梗/暗号 才记；日常流水、寒暄、重复话题、天气闲聊、任务提醒一律不记。\n没价值就输出空对象：{}（不记）。有价值则：\n1) summary（<=60 字）典藏级概述：有细节有情绪，日后一看就懂；禁止"她说/他说"转述、禁止流水账；\n2) event（事件/梗的名字，用于跨批聚合）；\n3) status（done=完结 | open=推进中）；\n4) keyword（<=3 个）；\n5) emotion（从类目表选，可空）：{{EMO}}\n6) topic（从类目表选，可空）：{{TOPIC}}\n只输出 JSON：{"event":str,"status":"done|open","summary":str,"keyword":[...],"emotion":[...],"topic":[...]}';
+const MEM_TAG_PROMPT = '你是记忆整理器。判断这条对话有没有「值得日后回味的记忆价值」：\n只有聊的是【一个】完整或推进中的事件链（有情绪或转折）或新梗/暗号 才记；普通办事、交通、购物、日常行程（如领证、坐车、半价优惠）除非有明显情绪或转折，否则不记；日常流水、寒暄、重复话题、天气闲聊、任务提醒一律不记。\n没价值就输出空对象：{}（不记）。有价值则：\n1) summary（<=60 字）典藏级概述：只讲这一个事件链，有细节有情绪，日后一看就懂；禁止把多个事件揉进一条，禁止"她说/他说"转述、禁止流水账；\n2) event（事件/梗的名字，用于跨批聚合；必须是能单独命名的名字，禁止多个事件名拼接，如"领证+金凤+八达通"）；\n3) status（done=完结 | open=推进中）；\n4) keyword（<=3 个）；\n5) emotion（从类目表选，可空）：{{EMO}}\n6) topic（从类目表选，可空）：{{TOPIC}}\n只输出 JSON：{"event":str,"status":"done|open","summary":str,"keyword":[...],"emotion":[...],"topic":[...]}';
 // 批量版：一批连续对话 → 判断有没有值得记的回忆（宁可 0 条），有则输出事件/梗条目；
 // 同事件后续进展必须复用【已有记忆】里的 event 原名并输出「合并后」完整摘要——跨批、跨天聚合收敛成一条。
-const MEM_TAG_BATCH_PROMPT = '你是记忆整理器。这段对话里，绝大多数内容【不需要】被记住——这份记忆库是用户和角色之间「值得日后回味的回忆」，不是信息档案。\n只有两类值得沉淀成记忆：\nA. 完整或正在推进的「事件」：有起点、过程、情绪或转折的经历（想吃→去吃→遇意外→事后感言，算一个完整觅食事件；第一次、里程碑、小成就、委屈心事、两人共同完成的经历都算）。\nB. 新产生的「梗/暗号」：两人之间专属的称呼、笑话、默契。\n判断规则：\n- 日常流水（无情绪无转折）、寒暄、重复话题、天气闲聊、任务提醒——一律不记。\n- 【已有记忆】中若存在同一事件：必须复用其 event 原名，且输出「合并后」的完整摘要（旧信息+本批新进展），status 同步更新；绝不另开新条。\n- 宁缺毋滥：与其记 10 条琐碎，不如只记 3 条值得的。通常一批 0~2 条。\n- summary（<=80 字）：典藏级完整概述，有细节有情绪，日后一看就懂当时发生了什么；禁止"用户说/她说"式转述，禁止流水账。\n- event：事件/梗的名字（用于跨批、跨天聚合）。\n- status：done=已完结；open=仍在推进（有新进展继续合并进同一条）。\n- keyword（<=3 个）；emotion（<=2 个，从类目表选）：{{EMO}}；topic（<=2 个，从类目表选）：{{TOPIC}}\n只输出 JSON 数组（可为空）：\n[{"event":str,"status":"done|open","summary":str,"keyword":[...],"emotion":[...],"topic":[...]}]，不要输出其他文字。';
+const MEM_TAG_BATCH_PROMPT = '你是记忆整理器。这段对话里，绝大多数内容【不需要】被记住——这份记忆库是用户和角色之间「值得日后回味的回忆」，不是信息档案。\n只有两类值得沉淀成记忆：\nA. 完整或正在推进的「事件链」：有起点、转折、结果、情绪的一次共同经历（想吃→走错店→被迫消费→吃到正版→很满足，算一个完整觅食事件；第一次、里程碑、小成就、委屈心事、两人共同完成的经历都算）。\nB. 新产生的「梗/暗号」：两人之间专属的称呼、笑话、默契。\n铁律（必须全部遵守）：\n- 一条记忆只准描述【一个】事件链或梗；不同独立事件必须拆成不同条目。\n- 如果一条 summary 需要并列多个互不相干的事件/时间点才算完整，说明这条不合格：要么拆开，要么从本批删掉。\n- 普通办事、交通、购物、日常行程（如领证、坐车、半价优惠）没有情绪、转折或里程碑意义时一律不记；只有当用户/角色表现出重视或强烈情绪时才考虑。\n- event 必须是能单独叫出这个事件的名字（如"金凤真假店风波"），禁止用多个事件名拼接（如"领证+金凤+八达通"）；如果命名时忍不住拼接，说明它在偷懒合并多条记忆。\n- 日常流水（无情绪无转折）、寒暄、重复话题、天气闲聊、任务提醒——一律不记。\n- 【已有记忆】中若存在同一事件：必须复用其 event 原名，且输出「合并后」的完整摘要（旧信息+本批新进展），status 同步更新；绝不另开新条。\n- 宁缺毋滥：0 条完全正常；一批最多 2 条，且每条仍是独立完整事件，不是"今天干了 ABC"的合集。\n- summary（<=80 字）：用一句话讲清这一个事件链的起承转合与情绪，日后一看就懂当时发生了什么；禁止"用户说/她说"式转述，禁止流水账罗列。\n- status：done=已完结；open=仍在推进（有新进展继续合并进同一条）。\n- keyword（<=3 个）；emotion（<=2 个，从类目表选）：{{EMO}}；topic（<=2 个，从类目表选）：{{TOPIC}}\n只输出 JSON 数组（可为空）：\n[{"event":str,"status":"done|open","summary":str,"keyword":[...],"emotion":[...],"topic":[...]}]，不要输出其他文字。';
 function memExtractJson(raw){
   const i = raw.indexOf('{');
   if(i < 0) return null;
@@ -7983,11 +7984,25 @@ async function memSaveEntryAndTags(msgId, t, eid){
   (t.topic||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'topic', tag:k.trim(), weight:1.1}); });
   for(const tag of tags){ await memPut('tags', tag).catch(()=>{}); }
 }
+// 自然淘汰：无 event 的旧流水账（超过 MEM_PRUNE_DAYS）不参与召回且直接删除；最近的无 event 条目仍允许存在，但召回会过滤
+async function memPruneNoEvent(){
+  try{
+    const all = await memGetAll('entries');
+    const now = Date.now();
+    const stale = all.filter(e=> e && e.active === 1 && !e.event && e.created_at && (now - new Date(e.created_at).getTime()) > MEM_PRUNE_DAYS * 86400000);
+    if(!stale.length) return;
+    const ids = new Set(stale.map(e=>e.id));
+    for(const e of stale){ await memDelete('entries', e.id); }
+    const tags = await memGetAll('tags');
+    for(const tg of tags){ if(tg && ids.has(tg.entry_id)) await memDelete('tags', tg.id); }
+  }catch(e){ console.warn('[mem] prune', e); }
+}
 async function memRunTagger(){
   if(!memEnabled()) return 0;
   const cfg = getAiCfg();
   if(!cfg.apiKey) return 0;
   try{
+    await memPruneNoEvent(); // 先清理老流水账，避免继续参与后续召回
     const msgs = await memGetAll('messages');
     if(!msgs.length) return 0;
     const wm = await memKvGet('tagger_watermark') || 0;
@@ -8086,7 +8101,7 @@ function _memDateShift(iso, days){
   const d = _memDateOf(iso); d.setDate(d.getDate() + days);
   return d.getFullYear() + '-' + _memPad2(d.getMonth()+1) + '-' + _memPad2(d.getDate());
 }
-const MEM_DIARY_PROMPT = '你是「回忆日记」写手。把用户和角色在「{DATE}」的这些对话，写成一则「今日小记」：\n- 100~200 字，像朋友睡前回想今天：今天一起经历了什么、有什么情绪、细节或梗值得记住；禁止流水账罗列、禁止"她说/他说"式转述。\n- 只写有温度的内容；如果今天只是平淡日常，就写一句"今天平平淡淡的，没什么特别的"。\n- 同时判定有没有「值得终生记住的大事或新梗」（最多 2 条）：里程碑、第一次、强烈情绪、专属梗。若有，给出 event 名 + 一句话 summary + keyword（<=3 个）。\n只输出 JSON：{"diary":"...","gems":[{"event":"...","summary":"...","keyword":[...]}]}（gems 可为空数组）。';
+const MEM_DIARY_PROMPT = '你是「回忆日记」写手。把用户和角色在「{DATE}」的这些对话，写成一则「今日小记」：\n- 100~200 字，像朋友睡前回想今天：今天一起经历了什么、有什么情绪、细节或梗值得记住；禁止流水账罗列、禁止"她说/他说"式转述。\n- 只写有温度的内容；如果今天只是平淡日常，就写一句"今天平平淡淡的，没什么特别的"。\n- 同时判定有没有「值得终生记住的大事或新梗」（最多 2 条，宁缺毋滥，0 条完全正常）：里程碑、第一次、强烈情绪、专属梗。gems 也只准是【一个】完整事件或梗：event 必须能单独命名（如"金凤真假店风波"），summary 用一句话说清这一件事；普通办事、交通、半价优惠等日常行程不进 gems，除非有明显情绪转折。event 缺失则说明这条不够格，不要放进 gems。若有，给出 event 名 + 一句话 summary + keyword（<=3 个）。\n只输出 JSON：{"diary":"...","gems":[{"event":"...","summary":"...","keyword":[...]}]}（gems 可为空数组）。';
 const MEM_JOURNAL_MERGE_PROMPT = '你是回忆档案整理员。把下面 {N} 则「{TYPE}」压缩成 1 则「{OUT}」，像回顾这段时光的主线：\n- {LEN} 字以内；提炼这段时期一起经历了什么、情绪起伏、值得记住的梗/事；平淡的日子合并带过；禁止逐则复述、禁止"她说/他说"式转述。\n只输出 JSON：{"content":"..."}';
 // 分层维护入口：挂在打标/每次对话前，幂等（昨天已归档就跳过）
 // 日记只在「一天结束时」补记：当天聊天时不动，第二天早上首次对话把昨天完整归档成一篇
@@ -8149,7 +8164,7 @@ async function memJournalDay(cfg, afterDate, endDate){
       for(const g of gems){
         const ev = String(g.event || '').trim();
         const sm = String(g.summary || '').trim();
-        if(!ev && !sm) continue;
+        if(!ev) continue; // MUST：gems 写回磁铁记忆必须带 event；无 event 的只留日记，不进索引
         let target = null;
         if(ev){ target = all.find(e=>e && e.active === 1 && e.event && e.event === ev); }
         await memSaveEntryAndTags(0, { event: ev, status:'done', summary: sm.slice(0, 80), keyword: Array.isArray(g.keyword) ? g.keyword.map(String).slice(0, 3) : [], emotion: [], topic: [] }, target ? target.id : null);
@@ -8287,7 +8302,7 @@ async function memMagnetRecall(userText, k, budget){
   try{
     const tags = await memGetAll('tags');
     const entries = await memGetAll('entries');
-    const active = entries.filter(e=>e.active === 1);
+    const active = entries.filter(e=>e.active === 1 && e.event && e.summary); // 无 event 的旧流水账不进磁铁召回
     if(!tags.length || !active.length) return [];
     const idMap = {}; active.forEach(e=>idMap[e.id] = e);
     const triggers = memExtractTriggers(userText, tags);
