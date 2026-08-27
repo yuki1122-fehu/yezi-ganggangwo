@@ -2293,6 +2293,18 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   </div>
 </div>
 
+<!-- 日记/周记/月记 编辑弹窗 -->
+<div class="mask" id="memJournalEditMask" style="z-index:95;">
+  <div class="sheet glass-strong">
+    <h3 id="memJournalEditTitle">编辑回忆</h3>
+    <textarea id="memJournalEditText" style="width:100%;min-height:150px;resize:vertical;font-size:13px;line-height:1.7;margin-top:8px;padding:10px 12px;border:1px solid var(--ink-faint);border-radius:10px;background:rgba(255,255,255,.6);font-family:inherit;box-sizing:border-box;white-space:pre-wrap;"></textarea>
+    <div class="row" style="margin-top:12px;gap:8px;">
+      <button class="btn ghost" onclick="closeJournalEdit()">取消</button>
+      <button class="btn primary" onclick="memJournalSave()">保存</button>
+    </div>
+  </div>
+</div>
+
 <div class="mask" id="memEditMask" style="z-index:94;">
   <div class="sheet glass-strong">
     <h3>编辑记忆</h3>
@@ -8108,12 +8120,61 @@ async function memViewJournal(){
       html += '<div style="padding:10px 0;border-bottom:1px solid var(--ink-faint);">' +
         '<div style="font-size:11px;color:' + b[1] + ';font-weight:700;margin-bottom:3px;">' + b[0] + ' · ' + escHtml(j.start || '') + (j.end && j.end !== j.start ? ' ~ ' + escHtml(j.end) : '') + '</div>' +
         '<div style="font-size:12px;line-height:1.6;white-space:pre-wrap;">' + escHtml(j.content || '') + '</div>' +
+        '<div style="display:flex;gap:8px;margin-top:6px;">' +
+          '<button class="btn ghost" type="button" onclick="memJournalEdit(' + j.id + ')" style="font-size:11px;padding:3px 10px;">✏️ 改</button>' +
+          '<button class="btn ghost" type="button" onclick="memJournalDelete(' + j.id + ')" style="font-size:11px;padding:3px 10px;color:#a32d2d;">🗑 删</button>' +
+        '</div>' +
         '</div>';
     }
     box.innerHTML = html || '<div class="hint">暂无</div>';
   }catch(e){ box.innerHTML = '<div class="hint">读取失败</div>'; }
 }
 function closeMemJournal(){ closeMask(document.getElementById('memJournalMask')); }
+// 日记/周记/月记：手动编辑 / 删除（AI 写的回忆不满意可直接改或清掉）
+let _journalEditId = null;
+async function memJournalEdit(id){
+  try{
+    const js = await memGetAll('journal');
+    const j = js.find(x=>x && x.id === id);
+    if(!j){ toast('找不到这条回忆'); return; }
+    _journalEditId = id;
+    const title = document.getElementById('memJournalEditTitle');
+    const ta = document.getElementById('memJournalEditText');
+    if(title) title.textContent = (j.type === 'day' ? '📓 日记' : (j.type === 'week' ? '🗓 周记' : '📆 月记')) + ' · ' + (j.start || '') + (j.end && j.end !== j.start ? ' ~ ' + j.end : '');
+    if(ta) ta.value = j.content || '';
+    openMask(document.getElementById('memJournalEditMask'));
+  }catch(e){ toast('读取失败'); }
+}
+async function memJournalSave(){
+  if(_journalEditId == null) return;
+  const ta = document.getElementById('memJournalEditText');
+  const content = ta ? ta.value.trim() : '';
+  if(!content){ toast('内容不能为空'); return; }
+  try{
+    const js = await memGetAll('journal');
+    const j = js.find(x=>x && x.id === _journalEditId);
+    if(j){
+      await memPut('journal', Object.assign({}, j, { content: content }));
+    }
+    _journalEditId = null;
+    closeJournalEdit();
+    await memViewJournal(); // 重新渲染列表
+    await memJournalRefreshCtx().catch(()=>{}); // 同步注入快照
+    toast('已保存');
+  }catch(e){ toast('保存失败'); }
+}
+function memJournalDelete(id){
+  showDialog('删除这条回忆？', '只删这一条（日记/周记/月记），不影响其他内容；删除后不可恢复。', [
+    {label:'取消', cls:'ghost'},
+    {label:'删除', cls:'danger', fn: async ()=>{
+      await memDelete('journal', id).catch(()=>{});
+      await memViewJournal();
+      await memJournalRefreshCtx().catch(()=>{});
+      toast('已删除');
+    }}
+  ]);
+}
+function closeJournalEdit(){ closeMask(document.getElementById('memJournalEditMask')); }
 // ---- 磁铁召回（§3）：触发词命中 → 标签权重 × 时近衰减 → 字符预算裁剪 ----
 function memExtractTriggers(userText, tags){
   const set = new Set();
