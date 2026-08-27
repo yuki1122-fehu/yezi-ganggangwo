@@ -7984,19 +7984,27 @@ function _memDateShift(iso, days){
 }
 const MEM_DIARY_PROMPT = '你是「回忆日记」写手。把用户和角色在「{DATE}」的这些对话，写成一则「今日小记」：\n- 100~200 字，像朋友睡前回想今天：今天一起经历了什么、有什么情绪、细节或梗值得记住；禁止流水账罗列、禁止"她说/他说"式转述。\n- 只写有温度的内容；如果今天只是平淡日常，就写一句"今天平平淡淡的，没什么特别的"。\n- 同时判定有没有「值得终生记住的大事或新梗」（最多 2 条）：里程碑、第一次、强烈情绪、专属梗。若有，给出 event 名 + 一句话 summary + keyword（<=3 个）。\n只输出 JSON：{"diary":"...","gems":[{"event":"...","summary":"...","keyword":[...]}]}（gems 可为空数组）。';
 const MEM_JOURNAL_MERGE_PROMPT = '你是回忆档案整理员。把下面 {N} 则「{TYPE}」压缩成 1 则「{OUT}」，像回顾这段时光的主线：\n- {LEN} 字以内；提炼这段时期一起经历了什么、情绪起伏、值得记住的梗/事；平淡的日子合并带过；禁止逐则复述、禁止"她说/他说"式转述。\n只输出 JSON：{"content":"..."}';
-// 分层维护入口：挂在打标/每次对话前，幂等（今天已有日记就跳过）
+// 分层维护入口：挂在打标/每次对话前，幂等（昨天已归档就跳过）
+// 日记只在「一天结束时」补记：当天聊天时不动，第二天早上首次对话把昨天完整归档成一篇
 async function memJournalMaintain(cfg){
   if(!memEnabled() || !cfg || !cfg.apiKey) return;
   try{
     const today = _memToday();
-    const js = await memGetAll('journal');
+    const yesterday = _memDateShift(today, -1); // 只归档已结束的昨天，今天未结束不写
+    let js = await memGetAll('journal');
+    // 清理早产日记：老版本可能在当天误生成 end>=今天 的日记（内容只含几句、还会锁死今天的归档），删掉，明早重新补记
+    const premature = js.filter(j => j.type === 'day' && j.end >= today);
+    if(premature.length){
+      for(const d of premature){ await memDelete('journal', d.id).catch(()=>{}); }
+      js = await memGetAll('journal');
+    }
     const days = js.filter(j=>j.type === 'day').sort((a,b)=>String(a.start).localeCompare(String(b.start)));
-    const weeks = js.filter(j=>j.type === 'week').sort((a,b)=>String(a.start).localeCompare(String(a.start)));
-    const months = js.filter(j=>j.type === 'month').sort((a,b)=>String(a.start).localeCompare(String(a.start)));
-    // L1 日记：今天还没有 → 生成（覆盖上一篇日记之后到今天）
-    if(!days.length || days[days.length-1].end < today){
+    const weeks = js.filter(j=>j.type === 'week').sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+    const months = js.filter(j=>j.type === 'month').sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+    // L1 日记：最后归档日 < 昨天 → 补记「昨天」（覆盖 最后归档次日 ~ 昨天 的全部对话）
+    if(!days.length || days[days.length-1].end < yesterday){
       const after = days.length ? days[days.length-1].end : '';
-      await memJournalDay(cfg, after, today);
+      await memJournalDay(cfg, after, yesterday);
     }
     // L2 周记：最新周记之后攒满 7 篇日记 → 合并
     const lastWeekEnd = weeks.length ? weeks[weeks.length-1].end : '';
@@ -8010,15 +8018,15 @@ async function memJournalMaintain(cfg){
     if(afterMonth.length >= 4) await memJournalMake(cfg, 'month', afterMonth.slice(0, 4));
   }catch(e){ console.warn('[mem] journal', e); }
 }
-async function memJournalDay(cfg, afterDate, today){
+async function memJournalDay(cfg, afterDate, endDate){
   try{
     const msgs = await memGetAll('messages');
-    const rows = msgs.filter(m=>m && m.content && _memLocalDate(m.created_at) > afterDate && _memLocalDate(m.created_at) <= today)
+    const rows = msgs.filter(m=>m && m.content && _memLocalDate(m.created_at) > afterDate && _memLocalDate(m.created_at) <= endDate)
                      .sort((a,b)=>a.id-b.id)
                      .slice(0, 60);
     if(!rows.length) return;
     const lines = rows.map(m=> (m.role === 'user' ? '(用户) ' : '(角色) ') + String(m.content || '').slice(0, 120)).join('\n');
-    const prompt = MEM_DIARY_PROMPT.replace('{DATE}', today || _memToday());
+    const prompt = MEM_DIARY_PROMPT.replace('{DATE}', endDate || _memToday());
     const r = await aiCall([{role:'system', content:'你是回忆日记写手。只输出 JSON，不输出其他文字。'},{role:'user', content: prompt + '\n\n待整理的对话：\n' + lines}], cfg, 1, {noTools:true});
     if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) return;
     const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
@@ -8027,7 +8035,8 @@ async function memJournalDay(cfg, afterDate, today){
     const t = JSON.parse(j);
     const diary = String(t.diary || '').trim();
     if(diary){
-      await memPut('journal', { type:'day', start: afterDate ? _memDateShift(afterDate, 1) : today, end: today, content: diary.slice(0, 600), created_at: new Date().toISOString() });
+      const start = afterDate ? _memDateShift(afterDate, 1) : endDate;
+      await memPut('journal', { type:'day', start: start, end: endDate, content: diary.slice(0, 600), created_at: new Date().toISOString() });
     }
     // gems → 磁铁索引条目（带 event/keyword，参与事件聚合；同 event 更新）
     const gems = Array.isArray(t.gems) ? t.gems.slice(0, 2) : [];
