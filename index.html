@@ -11837,8 +11837,12 @@ init();
   }  // 核心处理：回声过滤 → 两阶段打断 → 提交
   function _handleFinalSpeech(finalText){
     if(!finalText) return;
+    // [08-27 追加] interim 稳定兜底提交后，引擎若再补同文 final（20s 内）直接丢，防双提交
+    if(wsForcedTxt && finalText===wsForcedTxt && Date.now()-wsForcedAt<20000) return;
     // 防回声③（最前）：无论 AI 是否在说话，麦克风漏回的 AI 声音先挡掉，避免被当插话打断自己
-    if(isFinalEchoLike(finalText)){ setSub(''); return; }
+    // speaking 期用"严判定"（子序列+LCS全开，宁可吞插话不可漏回声）；AI 说完后用户自由说话期
+    // 只保留"完整包含/2~3字尾巴"强命中——避免把用户顺着 AI 话题接的话（如"点外卖吧"）误杀成回声
+    if(isFinalEchoLike(finalText, speaking)){ setSub(''); return; }
     // 同一句 2.5s 去重
     if(finalText===lastFinalTxt && Date.now()-lastFinalAtTxt<2500) return;
     // AI 说话期间：两阶段打断（Cove 14 节 barge-in：先确认再打断，防"漏网回声自打断→自言自语"）
@@ -11856,7 +11860,7 @@ init();
           const pi=pendingInterrupt; pendingInterrupt=null;
           if(!pi || !running) return;
           if(speaking){
-            if(isFinalEchoLike(pi.text)) return; // 复查：AI 此间又说了新句子，该 final 与 AI 内容重合 = 迟到回声，丢弃
+            if(isFinalEchoLike(pi.text, true)) return; // 复查：AI 此间又说了新句子，该 final 与 AI 内容重合 = 迟到回声，丢弃（复查时 AI 仍在说 → 严判定）
             commitUserSpeech(pi.text);           // AI 仍在说且非回声 → 确认真插话，打断
           } else _handleFinalSpeech(pi.text);    // AI 已说完 → 走核心路径（8s 窗口 isEchoLike 再兜底一次）
         }, confirmMs);
@@ -11871,11 +11875,11 @@ init();
     commitUserSpeech(finalText);
   }
   // 统一回声比对（8s 窗口）：整段基准 + 逐句基准（handleFinalSpeech 入口与 pendingInterrupt 复查共用）
-  function isFinalEchoLike(t){
-    if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(t,lastAISaidNorm)) return true;
+  function isFinalEchoLike(t, tight){
+    if(lastAISaidNorm && (Date.now()-lastAISaidAt) < LATE_ECHO_MS && isEchoLike(t,lastAISaidNorm,tight)) return true;
     if((Date.now()-lastAISaidAt) < LATE_ECHO_MS && aiSaidSents && aiSaidSents.length){
       const nf=normTxt(t);
-      if(nf && aiSaidSents.some(s=>s && isEchoLike(nf,s))) return true;
+      if(nf && aiSaidSents.some(s=>s && isEchoLike(nf,s,tight))) return true;
     }
     return false;
   }
@@ -11892,6 +11896,9 @@ init();
     showYou(t);
   }
   let lastFinalTxt='', lastFinalAtTxt=0;
+  // [08-27 追加] Web Speech"只出 interim 不出 final"兜底：同一 interim 稳定 2.5s 且≥2 字 → 当最终提交，
+  // 防安卓引擎长时间不出 final 时用户的话永远进不了系统（"识别不出/识别不全"）；wsForced* 防引擎补发同文 final 造成双提交。
+  let lastInterimSame='', lastInterimSameAt=0, wsForcedTxt='', wsForcedAt=0;
   function startRecog(){
     try{
       const RR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -11907,7 +11914,27 @@ init();
           const r=e.results[i];
           if(r.isFinal) finalText+=r[0].transcript; else interim+=r[0].transcript;
         }
-        if(interim) setSub(interim); // 中间结果：仅字幕，绝不进 prompt / 落库
+        if(interim){
+          setSub(interim); // 中间结果：仅字幕，绝不进 prompt / 落库
+          // [08-27 追加] 说话期间"打断意图词"interim 兜底：Web Speech 常只出 interim 不出 final，
+          // 用户 AI 说话时喊"等一下/别说了"若等 final 可能永远不来 → 打断失效。意图词命中直接进管线：
+          // 去重由 _handleFinalSpeech 的 lastFinalTxt 2.5s 挡（同文连续批次只提交一次）。
+          if(speaking && INTERRUPT_HINT.test(interim) && normTxt(interim).length>=2){ handleFinalSpeech(interim); }
+          // [08-27 追加] 中间结果稳定兜底：AI 没在说话、同一 interim 连续 2.5s 无变化且≥2 字 →
+          // 当最终结果提交（安卓引擎只出 interim 不出 final 时用户的话才不会丢 = 治"识别不出/识别不全"）。
+          // 防误触：speaking 期间不兜底（回声/插话期间 interim 变化多）；4s 冷却防同句重复提交；
+          // 引擎随后补发的同文 final 由 _handleFinalSpeech 的 wsForced 20s 去重拦截。
+          const now=Date.now();
+          if(!speaking && normTxt(interim).length>=2 && now-wsForcedAt>4000){
+            if(interim===lastInterimSame){
+              if(lastInterimSameAt===0) lastInterimSameAt=now;
+              else if(now-lastInterimSameAt>=2500){
+                wsForcedTxt=interim; wsForcedAt=now; lastInterimSame=''; lastInterimSameAt=0;
+                handleFinalSpeech(interim);
+              }
+            } else { lastInterimSame=interim; lastInterimSameAt=now; }
+          }
+        }
         handleFinalSpeech(finalText);
       };
       recog.onerror=function(e){
@@ -12584,7 +12611,7 @@ init();
   // 防回声内容去重工具：归一化（去空白标点）+ 重叠度判断（识别结果与 AI 刚说的内容高度重合 = 迟到回声）。
   // 收窄条件：短句必须 ≥ 长句 60%（用户顺着 AI 的话简短确认如"休息一下"，不算回声）；重叠 ≥85% 才丢（内容去重只是兜底，主力靠宽限窗）
   function normTxt(t){ return String(t||'').toLowerCase().replace(/[\s，。！？!?、,.：:；;·'"“”‘’…~～\-—()（）]/g,''); }
-  function isEchoLike(a,b){
+  function isEchoLike(a,b,tight){
     const A=normTxt(a), B=normTxt(b);
     if(A.length<1||B.length<1) return false;
     const short=A.length<=B.length?A:B, long=A.length<=B.length?B:A;
@@ -12595,6 +12622,10 @@ init();
     // ② 完整包含（≥4 字）：AI 说过的一句话被原样识别回来 → 回声。
     //    仍先过 60% 门槛：保护用户顺着 AI 的话做简短确认（如"休息一下"），不误杀。
     if(short.length>=4 && long.indexOf(short)>=0 && short.length>=long.length*0.6) return true;
+    // [08-27 追加] tight=false = AI 已说完、用户自由说话期：③④ 不启用。
+    //   子序列/LCS 会把用户顺着 AI 话题接的话（AI 说"我们要不要点外卖"→ 用户 8s 内说"点外卖吧"）
+    //   误判成回声丢弃 = "我说的话 AI 听不见"。自由说话期只留①(2~3字尾巴)②(原样整句)强命中。
+    if(!tight) return false;
     // ③ 子序列包含（≥3 字，允许跳跃）：Web Speech 片段化回声（AI 长句被拆成"先这样吧"等短段）
     //    会被 60% 长度门槛放行（短段 < 原句 60%）→ 漏网自打断。子序列判定把这些片段全兜住；
     //    用户真话极少恰好是 AI 句子的按序子序列（换说法/新话题都不命中），误杀面很小。
