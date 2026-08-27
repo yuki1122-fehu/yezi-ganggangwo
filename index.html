@@ -1053,6 +1053,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .ai-msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--green-deep),var(--green));color:#fff;border-bottom-right-radius:6px;box-shadow:0 6px 18px rgba(130,160,126,.34);}
 .ai-msg.ai{align-self:flex-start;background:var(--glass-strong);color:var(--ink);border-bottom-left-radius:6px;border:1px solid var(--glass-line);box-shadow:var(--shadow-sm);}
 .ai-msg.sys{align-self:center;background:transparent;color:var(--ink-faint);font-size:12px;text-align:center;max-width:92%;font-weight:500;}
+.conv-more{align-self:center;margin:2px 0 6px;padding:8px 15px;border-radius:999px;background:var(--glass-strong);color:var(--ink-faint);font-size:12.5px;font-weight:600;border:1px solid var(--glass-line);cursor:pointer;-webkit-tap-highlight-color:transparent;box-shadow:var(--shadow-sm);transition:transform .15s var(--ease),opacity .15s;}
+.conv-more:active{transform:scale(.96);opacity:.8;}
 .ai-msg.ai.typing{display:flex;gap:5px;align-items:center;padding:14px 17px;}
 .ai-msg.ai.typing .dot{width:7px;height:7px;border-radius:50%;background:var(--green-deep);opacity:.4;animation:tp 1.2s infinite ease-in-out;}
 .ai-msg.ai.typing .dot:nth-child(2){animation-delay:.18s;}
@@ -6380,12 +6382,13 @@ function aiReset(){ aiConv = [{role:'system', content: buildSystem()}]; }
 
 // ---- 对话持久化：刷新/重开不丢 ----
 const CONV_KEY = 'mhm_ai_conv';
+const CONV_KEEP = 300; // 本地最多保留最近 300 条（不含 system）：历史翻得更远；首屏+分批渲染，不拖慢加载
 function saveConv(){
   try{
     if(!aiConv || aiConv.length<=1){ localStorage.removeItem(CONV_KEY); return; }
     const sys = aiConv[0];
     const rest = aiConv.slice(1);
-    const KEEP = Math.min(rest.length, 40); // 最多保留最近 40 条（不含 system），避免 localStorage 膨胀
+    const KEEP = Math.min(rest.length, CONV_KEEP); // 最多保留最近 300 条（不含 system），图片已占位化，localStorage 无压力
     const tail = rest.slice(rest.length - KEEP);
     const cleaned = tail.map(stripConvImages);
     localStorage.setItem(CONV_KEY, JSON.stringify([sys, ...cleaned]));
@@ -6416,28 +6419,93 @@ function loadConv(){
     return true;
   }catch(e){ return false; }
 }
+// 渲染窗口：本地存档可达 300 条，但首屏只渲染最近 40 条（与原体验一致、加载不卡），
+// 要看更早的对话点顶部「查看更早」按钮，每批再加载 60 条；滚动位置保持不跳动。
+let convShown = 40;               // 当前已渲染的「最近 N 条」消息数（不含 system）
+const CONV_RENDER_INIT = 40;      // 首屏渲染最近 40 条
+const CONV_RENDER_PAGE = 60;      // 每次「查看更早」再加载 60 条
 function renderConvFromState(){
   const wrap = document.getElementById('aiMsgs');
   if(!wrap) return;
   wrap.innerHTML='';
+  convShown = CONV_RENDER_INIT;
   if(!aiConv || aiConv.length<=1) return;
-  for(let i=1;i<aiConv.length;i++){
-    const m = aiConv[i];
-    if(m.role==='user'){
-      // 优先用发送时记录的"用户视角文本"（指令+[图片]/[文件] 标记）；
-      // 老消息没有 userText 时回退 convUserText（历史图片 base64 仍不展示）
-      const txt = m.userText ? stripInjectedAnchor(m.userText) : convUserText(m.content);
-      if(txt) addAIMsg('user', txt, m.id);
-    } else if(m.role==='assistant'){
-      // agent 循环里带 tool_calls 的中间"思考+调工具"消息：运行时本来就不 addAIMsg（只有最终纯文本回复才显示），
-      // 重进后渲染时也要跳过——它们是模型内部过程，不该当用户回复气泡出现（避免重进后多出一条重复内容、也避免给 TTS 误朗读制造 token 浪费）
-      if(typeof m.content==='string' && m.content.trim() && !(m.tool_calls && m.tool_calls.length)){
-        const vr = aiResolveVoice(m.content); // 历史回复可能带【角色名】标记，重进时同样剥掉再显示
-        addAIMsg('ai', vr.clean, m.id);
-      }
-    }
-    // system / tool / 内部 agent 消息不在气泡区显示
+  const start = Math.max(1, aiConv.length - convShown);
+  const frag = document.createDocumentFragment();
+  for(let i=start;i<aiConv.length;i++){
+    const el = convBubbleEl(aiConv[i]);
+    if(el) frag.appendChild(el);
   }
+  const more = start - 1; // 更早还有多少条原始消息未显示
+  if(more>0) frag.insertBefore(convMoreButton(more), frag.firstChild);
+  wrap.appendChild(frag);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+// 单条消息 → 气泡 DOM；不可显示（system/tool/带 tool_calls 的中间消息/空文本）返回 null
+function convBubbleEl(m){
+  if(!m) return null;
+  if(m.role==='user'){
+    // 优先用发送时记录的"用户视角文本"（指令+[图片]/[文件] 标记）；
+    // 老消息没有 userText 时回退 convUserText（历史图片 base64 仍不展示）
+    const txt = m.userText ? stripInjectedAnchor(m.userText) : convUserText(m.content);
+    if(!txt) return null;
+    const d = document.createElement('div');
+    d.className = 'ai-msg user';
+    d.textContent = txt;
+    attachDelBtn(d, m.id);
+    return d;
+  }
+  if(m.role==='assistant'){
+    // agent 循环里带 tool_calls 的中间"思考+调工具"消息：运行时本来就不 addAIMsg（只有最终纯文本回复才显示），
+    // 重进后渲染时也要跳过——它们是模型内部过程，不该当用户回复气泡出现（避免重进后多出一条重复内容、也避免给 TTS 误朗读制造 token 浪费）
+    if(typeof m.content==='string' && m.content.trim() && !(m.tool_calls && m.tool_calls.length)){
+      const vr = aiResolveVoice(m.content); // 历史回复可能带【角色名】标记，重进时同样剥掉再显示
+      const d = document.createElement('div');
+      d.className = 'ai-msg ai';
+      d.textContent = vr.clean;
+      attachDelBtn(d, m.id);
+      return d;
+    }
+  }
+  // system / tool / 内部 agent 消息不在气泡区显示
+  return null;
+}
+function attachDelBtn(d, mid){
+  if(!mid) return;
+  d.dataset.mid = mid;
+  const x = document.createElement('span');
+  x.className = 'del';
+  x.textContent = '×';
+  x.title = '删除这条消息';
+  x.setAttribute('onclick', "deleteConvMsg('"+mid+"')");
+  d.appendChild(x);
+}
+function convMoreButton(more){
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'conv-more';
+  b.id = 'convMoreBtn';
+  b.textContent = '☝ 查看更早的对话（还有 '+more+' 条）';
+  b.onclick = loadMoreConv;
+  return b;
+}
+function loadMoreConv(){
+  const wrap = document.getElementById('aiMsgs');
+  if(!wrap || !aiConv || aiConv.length<=1) return;
+  const oldH = wrap.scrollHeight;
+  const end = Math.max(1, aiConv.length - convShown);  // 当前最早已显示消息的下标（不含）
+  const start = Math.max(1, end - CONV_RENDER_PAGE);
+  convShown += CONV_RENDER_PAGE;
+  const frag = document.createDocumentFragment();
+  for(let i=start;i<end;i++){
+    const el = convBubbleEl(aiConv[i]);
+    if(el) frag.appendChild(el);
+  }
+  const more = start - 1;
+  if(more>0) frag.insertBefore(convMoreButton(more), frag.firstChild);
+  wrap.insertBefore(frag, wrap.firstChild);
+  // 更早内容插在顶部后，补偿 scrollTop 差量：视觉上停在当前这一条，不跳动
+  wrap.scrollTop = Math.min(wrap.scrollHeight, wrap.scrollTop + (wrap.scrollHeight - oldH));
 }
 function convUserText(content){
   if(typeof content==='string'){
@@ -8338,7 +8406,7 @@ async function memTagNow(){
     ? ('✅ 本批打标完成，还有 '+left+' 条对话待处理，可再点一次继续。')
     : '✅ 打标完成（失败的单条会跳过，不影响其他）。';
 }
-// 从聊天界面记录(mhm_ai_conv，最多 40 条)回灌对话到记忆库 messages——清空记忆后的补丁：
+// 从聊天界面记录(mhm_ai_conv，最多 300 条)回灌对话到记忆库 messages——清空记忆后的补丁：
 // 不需要重新聊天，也能把最近这段对话按新机制（话题段聚合）重新打标。按 mid 幂等，不重复入库。
 async function memRescueFromConv(){
   if(!memEnabled()) return 0;
