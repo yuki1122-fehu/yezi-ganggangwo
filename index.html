@@ -12313,6 +12313,13 @@ init();
         if((!isVision || spokeCount===0) && ss){
           spokeCount++;
           aiSaidSents.push(normTxt(ss)); if(aiSaidSents.length>12) aiSaidSents.shift(); // 逐句回声基准
+          // ★ 关键修复（长回复自言自语）：逐句基准必须随说话推进刷新时间窗。
+          //   lastAISaidAt 原来只在 speakTurn finally 更新——AI 长回复（3+ 句、播放 10s+）期间，
+          //   第一句的回声（Web Speech 延迟 3~5s）到达时 AI 还在说，此时 lastAISaidAt 还是 0/上一轮的过期值，
+          //   isFinalEchoLike 的 8s 窗口判断 (now-lastAISaidAt)<8000 直接短路 → 逐句基准全部失效 → 回声漏网 → 自打断。
+          //   这里每句都刷新 lastAISaidAt 并同步累积整段基准，说话期间回声基准始终新鲜。
+          lastAISaidAt=Date.now();
+          if(spokeText){ lastAISaidNorm=normTxt(spokeText); }
           // 同步置 speaking=true：enqueueSpeak 内部是微任务才置 true，若在此刻有识别 final 到达会漏网（回声窗口）。
           speaking=true; updateStatus();
           enqueueSpeak(ss,myEpoch,tid,voice,()=>{ if(lat.t2===null) lat.t2=Date.now(); });
@@ -12367,7 +12374,8 @@ init();
           post({type:'TURN_SPEAKING',turnId:tid,epoch:myEpoch});
           showBubble(cleanForShow(s));
           const ss=cleanForSpeak(s); spokeText+=' '+ss;
-          aiSaidSents.push(normTxt(ss)); if(aiSaidSents.length>12) aiSaidSents.shift();
+          aiSaidSents.push(normTxt(ss)); if(aiSaidSents.length>12) aiSaidSents.shift(); // 逐句回声基准
+          lastAISaidAt=Date.now(); if(spokeText){ lastAISaidNorm=normTxt(spokeText); } // 同 speakCut：逐句刷新时间窗
           await compSpeak(ss,myEpoch,tid,rv.voice); // compSpeak 现在等音频真正播完才 resolve（见 compSpeak 防回声说明）
         }
         speaking=false; updateStatus();
