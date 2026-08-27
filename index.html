@@ -11899,6 +11899,9 @@ init();
   // [08-27 追加] Web Speech"只出 interim 不出 final"兜底：同一 interim 稳定 2.5s 且≥2 字 → 当最终提交，
   // 防安卓引擎长时间不出 final 时用户的话永远进不了系统（"识别不出/识别不全"）；wsForced* 防引擎补发同文 final 造成双提交。
   let lastInterimSame='', lastInterimSameAt=0, wsForcedTxt='', wsForcedAt=0;
+  // [08-27 二轮] 已强制提交过的 interim 归一化文本集合：安卓引擎会话老化时可能"卡死"反复回传同一句旧 interim
+  //（往往是 AI 上一句的回声）——若每次稳定 2.5s 都提交 → 周期性自言自语（用户实测"第四轮开始"）。同文只提交一次。
+  const wsForcedLog=new Set();
   function startRecog(){
     try{
       const RR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -11925,11 +11928,13 @@ init();
           // 防误触：speaking 期间不兜底（回声/插话期间 interim 变化多）；4s 冷却防同句重复提交；
           // 引擎随后补发的同文 final 由 _handleFinalSpeech 的 wsForced 20s 去重拦截。
           const now=Date.now();
-          if(!speaking && normTxt(interim).length>=2 && now-wsForcedAt>4000){
+          const _ifn=normTxt(interim);
+          if(!speaking && _ifn.length>=2 && now-wsForcedAt>4000 && !wsForcedLog.has(_ifn)){
             if(interim===lastInterimSame){
               if(lastInterimSameAt===0) lastInterimSameAt=now;
               else if(now-lastInterimSameAt>=2500){
                 wsForcedTxt=interim; wsForcedAt=now; lastInterimSame=''; lastInterimSameAt=0;
+                wsForcedLog.add(_ifn); if(wsForcedLog.size>40) wsForcedLog.clear(); // 同文不再重复兜底提交；防集合无限增长
                 handleFinalSpeech(interim);
               }
             } else { lastInterimSame=interim; lastInterimSameAt=now; }
@@ -12185,6 +12190,8 @@ init();
         try{ if(typeof speechSynthesis!=='undefined') speechSynthesis.cancel(); }catch(e){}
         cueActive=false; if(cueFinish){ const f=cueFinish; cueFinish=null; f(); }
       }
+      if(!tcAsrActive && recog) stopRecogKeepFlag(); // [08-27 二轮] AI 开口即停 Web Speech：不再让引擎在喇叭声里持续识别
+      //（正是它导致"会话老化→识别不全/要重复说"+"旧回声 interim 卡死→自言自语"）；说完由 speakTurn finally 恢复。云识别长连接不受影响。
       speaking=true; updateStatus();
       post({type:'TURN_SPEAKING',turnId:tid,epoch:myEpoch});
       showBubble(cleanForShow(s)); setSub('');
@@ -12397,6 +12404,7 @@ init();
         // 不主动停识别器：靠 onresult 的 if(speaking) return 双保险挡回声，避免 stop/start 循环导致耳朵起不来（Android 上异步重启不可靠）
         for(const s of list){
           if(myEpoch!==epoch) return; // 打断：当场弃
+          if(!tcAsrActive && recog) stopRecogKeepFlag(); // [08-27 二轮] 同流式：非流式回退路径也在开口前停 Web Speech
           spoke=true; speaking=true; updateStatus();
           post({type:'TURN_SPEAKING',turnId:tid,epoch:myEpoch});
           showBubble(cleanForShow(s));
