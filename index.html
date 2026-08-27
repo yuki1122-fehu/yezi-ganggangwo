@@ -1053,17 +1053,21 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .ai-msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--green-deep),var(--green));color:#fff;border-bottom-right-radius:6px;box-shadow:0 6px 18px rgba(130,160,126,.34);}
 .ai-msg.ai{align-self:flex-start;background:var(--glass-strong);color:var(--ink);border-bottom-left-radius:6px;border:1px solid var(--glass-line);box-shadow:var(--shadow-sm);}
 .ai-msg.sys{align-self:center;background:transparent;color:var(--ink-faint);font-size:12px;text-align:center;max-width:92%;font-weight:500;}
-/* 记忆已打标：极淡光晕 = AI 扫过；右上角小星 = 从这里产出过记忆（手动/自动通用，低调不抢眼） */
-.ai-msg.mem-scanned.user{box-shadow:0 6px 18px rgba(130,160,126,.34),0 0 0 1px rgba(255,255,255,.13),0 0 16px rgba(255,224,130,.09);}
-.ai-msg.mem-scanned.ai{box-shadow:var(--shadow-sm),0 0 0 1px var(--glass-line),0 0 16px rgba(255,224,130,.07);}
+/* 记忆已打标：淡金描边 = AI 扫过；右上角小星 = 从这里产出过记忆（手动/自动通用，低调不抢眼） */
+.ai-msg.mem-scanned{outline:2px solid rgba(240,196,79,.38);outline-offset:2px;}
+.ai-msg.mem-scanned.user{box-shadow:0 6px 18px rgba(130,160,126,.34),0 0 0 1px rgba(255,255,255,.13),0 0 14px rgba(240,196,79,.16);}
+.ai-msg.mem-scanned.ai{box-shadow:var(--shadow-sm),0 0 0 1px var(--glass-line),0 0 14px rgba(240,196,79,.12);}
+.ai-msg.mem-scanned.mem-pick{outline:2px solid rgba(80,170,140,.55);outline-offset:3px;}
 .ai-msg.mem-has::after{content:'✦';position:absolute;top:-9px;right:16px;font-size:11px;line-height:1;pointer-events:none;opacity:.38;color:#f0c44f;text-shadow:0 1px 2px rgba(0,0,0,.14);}
 .ai-msg.mem-pick{outline:2px solid rgba(80,170,140,.55);outline-offset:3px;}
 .mem-picking .ai-msg{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}
 /* 手动选气泡打标：底部小工具条 */
 .mem-pick-bar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:80;display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:var(--radius-pill);box-shadow:0 8px 26px rgba(0,0,0,.18);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);}
 .mem-pick-bar[hidden]{display:none !important;}
-.mem-pick-bar .cnt{font-size:12px;font-weight:700;color:var(--green-dark);white-space:nowrap;}
-.mem-pick-bar .btn{font-size:12px;padding:6px 12px;}
+.mem-pick-bar .cnt{flex:0 0 auto;font-size:12px;font-weight:700;color:var(--green-dark);white-space:nowrap;padding:0 4px;}
+.mem-pick-bar .btn{flex:0 0 auto;white-space:nowrap;font-size:12px;padding:8px 14px;border-radius:999px;letter-spacing:.1px;}
+.mem-pick-bar .btn.primary{padding:8px 16px;}
+.mem-pick-bar .btn.ic{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;font-size:13px;}
 .conv-more{align-self:center;margin:2px 0 6px;padding:8px 15px;border-radius:999px;background:var(--glass-strong);color:var(--ink-faint);font-size:12.5px;font-weight:600;border:1px solid var(--glass-line);cursor:pointer;-webkit-tap-highlight-color:transparent;box-shadow:var(--shadow-sm);transition:transform .15s var(--ease),opacity .15s;}
 .conv-more:active{transform:scale(.96);opacity:.8;}
 .ai-msg.ai.typing{display:flex;gap:5px;align-items:center;padding:14px 17px;}
@@ -2334,9 +2338,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 
 <!-- 手动选择气泡 → 记忆：底部工具条 -->
 <div id="memPickBar" class="mem-pick-bar" hidden>
+  <button class="btn ghost ic" title="取消" onclick="memExitPick()">✕</button>
   <span class="cnt" id="memPickBarCount">已选 0 条</span>
   <button class="btn primary" onclick="openMemPick()">⭐ 记为记忆</button>
-  <button class="btn ghost" onclick="memExitPick()">取消</button>
 </div>
 
 <!-- 手动选择气泡 → 记忆 弹窗 -->
@@ -7756,6 +7760,8 @@ const MEM_FB_KEY = 'mhm_mem_feedback';
 const MEM_TAG_GAP = 24;      // 每累积 24 条新消息跑一次打标（回忆精而少，不必频繁）
 const MEM_RETAG_KEY = 'tagger_retag'; // 墓碑清单：删除记忆时登记的「原料批首消息 id」，下次打标自动重新提炼
 const MEM_RETAG_MAX = 5;      // 墓碑清单上限（最多同时排队 5 段重打，防堆积）
+const MEM_KEEP_SCANNED_KEY = 'tagger_keep_scanned'; // 保留已扫清单：删除记忆但不想重扫时登记的原料消息 db id
+const MEM_KEEP_SCANNED_MAX = 50;
 const MEM_PRUNE_DAYS = 30;    // 无 event 且超过此时长的旧流水账：打标时自然淘汰（不登记重打墓碑）
 const MEM_BUDGET = 1200;     // 召回注入字符预算：记忆是配菜不是主食
 const MEM_RECALL_K = 8;
@@ -8068,17 +8074,23 @@ async function memRunTagger(){
         }
       }
     }catch(e){}
-    const rows = msgs.filter(m=>m.id > wm && !manualMids.has(String(m.mid))).sort((a,b)=>a.id-b.id);
+    // 删除记忆且选了「保留已扫」的原料消息：既不再召回，也不进入以后的打标队列
+    const keepDbIds = new Set();
+    try{
+      const keepRaw = await memKvGet(MEM_KEEP_SCANNED_KEY) || [];
+      if(Array.isArray(keepRaw)){ for(const k of keepRaw){ const n = Number(k); if(!isNaN(n)) keepDbIds.add(n); } }
+    }catch(e){}
+    const rows = msgs.filter(m=>m.id > wm && !manualMids.has(String(m.mid)) && !keepDbIds.has(Number(m.id))).sort((a,b)=>a.id-b.id);
     // 墓碑清单（tagger_retag）：删除记忆时登记的批首消息 id → 优先重新打标（用户删了 = 这段默认没打过标）
     let retag = (await memKvGet(MEM_RETAG_KEY)) || [];
     if(!Array.isArray(retag)) retag = [];
     let head = [];
     if(retag.length){
       const retagSet = new Set(retag.map(Number).filter(n=>!isNaN(n)));
-      head = msgs.filter(m=>retagSet.has(Number(m.id)) && !manualMids.has(String(m.mid))).sort((a,b)=>a.id-b.id);
-      // 墓碑源消息已不存在（对话气泡删了/记录清空）或已手动定稿 → 失效墓碑直接清掉
+      head = msgs.filter(m=>retagSet.has(Number(m.id)) && !manualMids.has(String(m.mid)) && !keepDbIds.has(Number(m.id))).sort((a,b)=>a.id-b.id);
+      // 墓碑源消息已不存在（对话气泡删了/记录清空）、已手动定稿或已保留已扫 → 失效墓碑直接清掉
       const foundIds = new Set(head.map(m=>Number(m.id)));
-      const still = retag.filter(id=>foundIds.has(Number(id)) && !manualDbIds.has(Number(id)));
+      const still = retag.filter(id=>foundIds.has(Number(id)) && !manualDbIds.has(Number(id)) && !keepDbIds.has(Number(id)));
       if(still.length !== retag.length) await memKvSet(MEM_RETAG_KEY, still).catch(()=>{});
     }
     const have = new Set(head.map(m=>Number(m.id)));
@@ -8517,8 +8529,9 @@ async function memTagNow(){
 async function memMarkBubbles(){
   if(!memEnabled()) return;
   try{
-    const [msgs, wm, entries] = await Promise.all([memGetAll('messages'), memKvGet('tagger_watermark'), memGetAll('entries')]);
+    const [msgs, wm, entries, keepRaw] = await Promise.all([memGetAll('messages'), memKvGet('tagger_watermark'), memGetAll('entries'), memKvGet(MEM_KEEP_SCANNED_KEY)]);
     const wmv = Number(wm) || 0;
+    const keepDbIds = new Set((Array.isArray(keepRaw) ? keepRaw : []).map(Number).filter(n=>!isNaN(n)));
     const byMid = new Map(), byDb = new Map();
     for(const m of msgs){
       if(m && m.mid){ byMid.set(String(m.mid), m.id); byDb.set(m.id, String(m.mid)); }
@@ -8533,7 +8546,7 @@ async function memMarkBubbles(){
     document.querySelectorAll('#aiMsgs .ai-msg[data-mid]').forEach(el=>{
       const mid = el.getAttribute('data-mid');
       const dbId = byMid.get(mid);
-      el.classList.toggle('mem-scanned', manualMids.has(mid) || (typeof dbId === 'number' && dbId <= wmv));
+      el.classList.toggle('mem-scanned', manualMids.has(mid) || (typeof dbId === 'number' && (keepDbIds.has(dbId) || dbId <= wmv)));
       let src = (dbId != null && entBySrc.get(Number(dbId))) || (manualMids.has(mid) ? 'manual' : null);
       el.classList.toggle('mem-has', !!src);
       el.classList.toggle('mem-manual', src === 'manual');
@@ -8777,6 +8790,7 @@ async function memClear(){
       await Promise.all([memClearStore('entries'), memClearStore('tags')]).catch(()=>{});
       await memKvSet('tagger_watermark', 0).catch(()=>{}); // 水位归零：历史对话可重新打标
       await memKvSet(MEM_RETAG_KEY, []).catch(()=>{}); // 已全量重打，墓碑清单无意义，同步清空
+      await memKvSet(MEM_KEEP_SCANNED_KEY, []).catch(()=>{}); // 已全量重扫，保留已扫清单同步清空
       try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){}
       memRefreshStats();
       memMarkBubbles().catch(()=>{});
@@ -8786,6 +8800,7 @@ async function memClear(){
       await Promise.all([memClearStore('entries'), memClearStore('tags'), memClearStore('messages'), memClearStore('journal')]).catch(()=>{});
       await memKvSet('tagger_watermark', 0).catch(()=>{});
       await memKvSet(MEM_RETAG_KEY, []).catch(()=>{}); // 原料都清了，墓碑同步清空
+      await memKvSet(MEM_KEEP_SCANNED_KEY, []).catch(()=>{}); // 原料都清了，保留已扫清单同步清空
       try{ localStorage.removeItem(MEM_REL_KEY); }catch(e){}
       memRefreshStats();
       memMarkBubbles().catch(()=>{});
@@ -8841,34 +8856,53 @@ async function memItemSave(){
   }catch(e){ toast('保存失败'); }
 }
 function memItemDelete(id){
-  showDialog('删除这条记忆？', '只删这一条记忆（含其标签），不影响其他记忆，也不删你们的对话气泡。删除后 AI 不会再召回它；下次自动/手动打标时会重新提炼这段对话。', [
+  showDialog('删除这条记忆？',
+    '只删这一条记忆（含其标签），不影响其他记忆，也不删你们的对话气泡；删除后 AI 不会再召回它。\n\n「仅删除（保留已扫）」：这段对话保持“已扫过”状态，下次自动打标不会重扫。「删除并重扫」：下次自动打标会重新提炼这段对话。', [
     {label:'取消', cls:'ghost'},
-    {label:'删除这条', cls:'danger', fn: ()=>{ memDeleteEntry(id); }}
+    {label:'仅删除（保留已扫）', cls:'primary', fn: ()=>{ memDeleteEntry(id, true); }},
+    {label:'删除并重扫', cls:'danger', fn: ()=>{ memDeleteEntry(id, false); }}
   ]);
 }
-async function memDeleteEntry(id){
+async function memDeleteEntry(id, keepScanned){
   try{
-    // 墓碑登记：记住这条记忆的「原料消息 id」→ 下次打标（自动/手动）自动重新提炼这段对话
-    try{
-      const rows = await memGetAll('entries');
-      const cur = rows.find(x=>x && x.id === id);
-      if(cur){
-        let retag = (await memKvGet(MEM_RETAG_KEY)) || [];
-        if(!Array.isArray(retag)) retag = [];
-        const allMsgs = await memGetAll('messages');
-        const midToDb = new Map();
-        for(const m of allMsgs){ if(m && m.mid) midToDb.set(String(m.mid), Number(m.id)); }
-        const src = Array.isArray(cur.source_mids) && cur.source_mids.length
-          ? cur.source_mids
-          : (cur.source_msg_id != null ? [cur.source_msg_id] : []);
-        for(const raw of src){
-          let sid = Number(raw);
-          if(isNaN(sid) && midToDb.has(String(raw))) sid = midToDb.get(String(raw));
-          if(!isNaN(sid) && retag.indexOf(sid) < 0) retag.push(sid);
-        }
-        if(src.length) await memKvSet(MEM_RETAG_KEY, retag.slice(-MEM_RETAG_MAX)).catch(()=>{});
+    const cur = (await memGetAll('entries')).find(x=>x && x.id === id);
+    if(cur){
+      const allMsgs = await memGetAll('messages');
+      const midToDb = new Map();
+      for(const m of allMsgs){ if(m && m.mid) midToDb.set(String(m.mid), Number(m.id)); }
+      const src = Array.isArray(cur.source_mids) && cur.source_mids.length
+        ? cur.source_mids
+        : (cur.source_msg_id != null ? [cur.source_msg_id] : []);
+      const srcIds = [];
+      for(const raw of src){
+        const dbByMid = midToDb.get(String(raw));
+        const sid = dbByMid != null ? dbByMid : Number(raw);
+        if(!isNaN(sid) && srcIds.indexOf(sid) < 0) srcIds.push(sid);
       }
-    }catch(e){ console.warn('[mem] tomb register', e); }
+      if(keepScanned){
+        // 只删记忆：原料消息进「保留已扫」清单，不进墓碑队列，下次自动打标不再重扫
+        if(srcIds.length){
+          let keep = (await memKvGet(MEM_KEEP_SCANNED_KEY)) || [];
+          if(!Array.isArray(keep)) keep = [];
+          const next = Array.from(new Set(keep.map(Number).filter(n=>!isNaN(n)).concat(srcIds))).slice(-MEM_KEEP_SCANNED_MAX);
+          await memKvSet(MEM_KEEP_SCANNED_KEY, next).catch(()=>{});
+        }
+      }else{
+        // 墓碑登记：记住这条记忆的「原料消息 id」→ 下次打标（自动/手动）自动重新提炼这段对话
+        if(srcIds.length){
+          let retag = (await memKvGet(MEM_RETAG_KEY)) || [];
+          if(!Array.isArray(retag)) retag = [];
+          for(const sid of srcIds){ if(retag.indexOf(sid) < 0) retag.push(sid); }
+          // 明确允许重扫时，同时撤销这条原料曾经的「保留已扫」
+          const keepRaw = (await memKvGet(MEM_KEEP_SCANNED_KEY)) || [];
+          if(Array.isArray(keepRaw)){
+            const keep = keepRaw.map(Number).filter(n=>!isNaN(n) && srcIds.indexOf(n) < 0);
+            await memKvSet(MEM_KEEP_SCANNED_KEY, keep).catch(()=>{});
+          }
+          await memKvSet(MEM_RETAG_KEY, retag.slice(-MEM_RETAG_MAX)).catch(()=>{});
+        }
+      }
+    }
     await memDelete('entries', id);
     const tags = await memGetAll('tags');
     const old = tags.filter(t => t && t.entry_id === id);
@@ -8876,7 +8910,7 @@ async function memDeleteEntry(id){
     memRelRefresh(getAiCfg()).catch(()=>{});
     await memRefreshStats();
     memView();
-    toast('已删除这条记忆；下次打标时会自动重新提炼这段对话');
+    toast(keepScanned ? '已删除这条记忆；这段对话保留“已扫过”状态，下次不会重扫' : '已删除这条记忆；下次打标时会自动重新提炼这段对话');
   }catch(e){ toast('删除失败'); }
 }
 if(window.addEventListener){ window.addEventListener('pagehide', ()=>{ if(_memPending > 0) memRunTagger(); }); }
