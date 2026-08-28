@@ -6466,7 +6466,7 @@ function nowAnchor(){
   const mm = String(d.getMinutes()).padStart(2,'0');
   const H = d.getHours();
   const phase = H<6 ? '凌晨' : H<12 ? '上午' : H<14 ? '中午' : H<18 ? '下午' : '晚上';
-  return `今天是 ${todayStr()}（${wd}），现在是${phase} ${hh}:${mm}——即"当下就是${phase}"。判断现在几点、白天还是晚上、今天是几号，一律以本标签为准，严禁用对话历史里更早的消息或你自己的直觉去推断！`;
+  return `${todayStr()} ${wd} ${phase} ${hh}:${mm}（此刻时刻以此为准，勿用历史或直觉推断）`;
 }
 // 给一个 YYYY-MM-DD 加/减天数，返回新的 YYYY-MM-DD。用 local T00:00:00 解析，避免时区偏移。
 // aiGetCourses 按"开学第几周"算日期范围时依赖此函数。
@@ -6870,12 +6870,23 @@ function trimMessagesForSend(messages){
   const sys = messages[0];
   const rest = messages.slice(1);
   const rounds = Math.max(0, parseInt((getAiCfg().roundsConv),10) || 0);
-  const KEEP = rounds * 2; // 最近 N 轮（每轮 2 条）
+  const KEEP = rounds * 2; // 最近 N 轮（每轮 2 条）；08-28 起窗口在 [KEEP, 2*KEEP] 之间浮动，见下方对齐逻辑
   if(KEEP<=0){
     const single = [sys, messages[messages.length-1]]; // 0 轮历史：仍保留最新一条（当前用户消息）
     return injectTimeAnchor(single);
   }
-  let tail = rest.length > KEEP ? rest.slice(rest.length - KEEP) : rest.slice();
+  let start = 0;
+  if(rest.length > KEEP){
+    // ★ 缓存友好（08-28）：窗口起点对齐 KEEP 整数倍边界，代替旧逻辑的「每轮滑动 2 条」。
+    //   旧逻辑：每次请求都从尾部砍掉最旧 2 条 → 窗口头部永远在变 → 新请求前缀在 system 之后立刻
+    //   与旧请求错位（第二个消息就不同）→ DeepSeek 前缀缓存只能命中 system，历史几乎全 miss（实测 ~30%）。
+    //   新逻辑：窗口在 [KEEP, 2*KEEP) 间浮动，每满 KEEP 条才整体裁剪一次；相邻请求前缀几乎完全重叠，
+    //   命中率可提到 70%+。缓存命中单价约为未命中的 1/10，多带一点旧消息反而总价更低。
+    const mod = rest.length % KEEP;
+    start = rest.length - mod - KEEP;
+    if(start < 0) start = 0;
+  }
+  let tail = rest.slice(start);
   // DeepSeek V4 严格校验工具序列（OpenAI/Anthropic 容忍、V4 直接 400）：切窗不能从 assistant(tool_calls) 与其 tool 回复之间切断。
   // 窗口开头若是孤立 tool 消息（配对的 assistant 被切掉）→ 前移起点把配对 assistant 带回来（最多回退 6 条）；找不到就丢弃孤立 tool。
   if(tail.length && tail[0].role==='tool'){
@@ -6912,7 +6923,11 @@ function buildLiveContext(){
   if(rel) s += '\n[relationship]\n' + rel;
   const fb = memFeedbackTail(); // 动态：失败回执，60min TTL 时有时无，同样挪到末尾
   if(fb) s += '\n' + fb;
-  if(AI_JOURNAL_CTX) s += '\n\n<近期回忆>\n' + AI_JOURNAL_CTX + '\n</近期回忆>'; // 日记/周记/月记（memJournalRefreshCtx 异步预取）
+  if(AI_JOURNAL_CTX){ // 日记/周记/月记（memJournalRefreshCtx 异步预取）；限长防注入块膨胀（越长 miss 越多，拉低缓存命中率）
+    let jc = String(AI_JOURNAL_CTX);
+    if(jc.length>400) jc = jc.slice(0,400)+'…(截断)';
+    s += '\n\n<近期回忆>\n' + jc + '\n</近期回忆>';
+  }
   return s;
 }
 function injectTimeAnchor(result){
@@ -6934,9 +6949,10 @@ function injectTimeAnchor(result){
   return result;
 }
 // 清理历史消息里误存的时间锚点前缀（旧版本 bug 曾把注入内容写进存档；显示时剥掉，兼容已污染数据）
+// 同时兼容两种格式：旧长格式（"今天是 …严禁…推断！"）与新精简格式（"YYYY-MM-DD 周X 时段 HH:MM（此刻…）"）
 function stripInjectedAnchor(text){
   if(typeof text !== 'string') return text;
-  const m = text.match(/^今天是 \d{4}-\d{2}-\d{2}（周[日一二三四五六]），现在是(凌晨|上午|中午|下午|晚上) \d{2}:\d{2}——即"当下就是(凌晨|上午|中午|下午|晚上)"。判断现在几点、白天还是晚上、今天是几号，一律以本标签为准，严禁用对话历史里更早的消息或你自己的直觉去推断！\n?/);
+  const m = text.match(/^(?:今天是 \d{4}-\d{2}-\d{2}（周[日一二三四五六]），现在是(凌晨|上午|中午|下午|晚上) \d{2}:\d{2}——即"当下就是(凌晨|上午|中午|下午|晚上)"。判断现在几点、白天还是晚上、今天是几号，一律以本标签为准，严禁用对话历史里更早的消息或你自己的直觉去推断！|\d{4}-\d{2}-\d{2}（周[日一二三四五六]）(凌晨|上午|中午|下午|晚上) \d{2}:\d{2}（此刻时刻以此为准，勿用历史或直觉推断）)\n?/);
   return m ? text.slice(m[0].length) : text;
 }
 // 粗略判断模型是否支持图片输入（多模态）
@@ -8804,7 +8820,9 @@ async function memInjectMagnet(userText){
     if(!rec || !rec.length) return; // 空块整块消失，不留占位
     // 不再 append 到 aiConv[0].content（会使 system 每轮不同、打穿 prefix cache），
     // 改存模块变量，由 injectTimeAnchor 随发送副本并入末尾 user 消息，消费即清。
-    AI_MAGNET_BLOCK = '[magnet_memory]\n' + rec.join('\n');
+    // 限条限长：召回块是每轮必变的 miss 部分，越大越拉低缓存命中率；5 条 × 80 字足够给 AI 提示，不用全量。
+    const cap = rec.slice(0,5).map(x=>{ const t=String(x||''); return t.length>80 ? t.slice(0,80)+'…' : t; });
+    AI_MAGNET_BLOCK = '[magnet_memory]\n' + cap.join('\n');
   }catch(e){}
 }
 // ---- 设置页 UI ----
@@ -9602,6 +9620,17 @@ function renderUsageStats(){
   let html='<div>请求 <b>'+t.calls+'</b> 次 · 输入 <b>'+fmtTokens(t.prompt)+'</b> · 输出 <b>'+fmtTokens(t.comp)+'</b></div>';
   if(rRate!=null){
     html+='<div>最近 <b>'+rec.length+'</b> 次平均缓存命中 <b style="color:var(--green-dark);">'+rRate+'%</b>（'+fmtTokens(rh)+' 复用 / 未命中 '+fmtTokens(rm)+'）</div>';
+  }
+  // 最近 10 次逐条命中率明细：0% 的请求多半是「新会话/清空后的第一请求」或「该次前缀变了」，一眼定位根因
+  if(log.recent && log.recent.length){
+    const rows=log.recent.slice(0,10).map(rr=>{
+      const rh2=Number(rr.hit)||0, rm2=Number(rr.miss)||0;
+      const pct=(rh2+rm2)>0?Math.round(rh2/(rh2+rm2)*100):0;
+      const d2=new Date(rr.t), hm=String(d2.getHours()).padStart(2,'0')+':'+String(d2.getMinutes()).padStart(2,'0');
+      const col=pct<40?'#c0392b':(pct<70?'#b8860b':'#27ae60');
+      return '<div style="font-size:11px;margin:1px 0;color:'+col+'">'+hm+' · 命中 '+pct+'% · hit '+fmtTokens(rh2)+' / miss '+fmtTokens(rm2)+'</div>';
+    }).join('');
+    html+='<div style="margin-top:6px;font-size:11px;color:var(--ink-soft);">最近 10 次明细（红=低命中）：</div>'+rows;
   }
   html+='<div>累计命中 <b style="color:var(--green-dark);">'+hitRate+'%</b> — 系统提示词等稳定内容被服务端复用，省下的重复输入费 ≈ <b style="color:var(--green-dark);">¥'+money+'</b></div>';
   el.innerHTML=html;
