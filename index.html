@@ -202,16 +202,6 @@ body::after{
   color:#b6c4b3;
   box-shadow:var(--shadow-inset);
 }
-[data-theme="dark"] .backup-banner{
-  background:rgba(160,140,120,.08);
-  border-color:rgba(255,255,255,.06);
-}
-[data-theme="dark"] .backup-banner .txt{color:var(--ink-soft);}
-[data-theme="dark"] .backup-banner button{
-  color:var(--ink-faint);
-  border-color:rgba(255,255,255,.12);
-}
-[data-theme="dark"] .backup-banner button:active{background:rgba(255,255,255,.05);}
 [data-theme="dark"] .list-toolbar .chip-toggle.active{
   background:rgba(130,160,126,.14);
   border-color:rgba(130,160,126,.24);
@@ -857,6 +847,200 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .cal-detail{margin-top:12px;}
 .cal-detail .when{font-size:12.5px;color:var(--ink-soft);margin-bottom:6px;padding:0 4px;font-weight:600;}
 
+/* ---------- 回忆档案：主页模块 + 日历当日小记 ---------- */
+.journal-module{
+  margin:0 16px 15px;padding:16px 16px 13px;border-radius:22px;cursor:pointer;
+  background:linear-gradient(150deg,var(--warm-soft) 0%,var(--green-soft) 52%,var(--glass-strong) 100%);
+  border:1px solid var(--glass-line);
+  box-shadow:var(--shadow-sm),var(--shadow-inset);
+  backdrop-filter:blur(32px) saturate(180%);-webkit-backdrop-filter:blur(32px) saturate(180%);
+  position:relative;overflow:hidden;
+  animation:journalIn .55s var(--ease) .06s both;
+  transition:transform .18s var(--ease),box-shadow .28s var(--ease);
+}
+.journal-module:active{transform:scale(.985);box-shadow:var(--shadow),var(--shadow-inset);}
+.journal-module::after{
+  content:"";position:absolute;top:-48%;left:-32%;width:56%;height:200%;
+  background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.48),transparent 62%);
+  transform:rotate(12deg) translateX(-150%);pointer-events:none;
+  animation:journalSheen 5.8s ease-in-out 1.2s infinite;
+}
+[data-theme="dark"] .journal-module::after{background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.13),transparent 62%);}
+@keyframes journalSheen{0%,58%{transform:rotate(12deg) translateX(-160%);}88%,100%{transform:rotate(12deg) translateX(360%);}}
+@keyframes journalIn{from{opacity:0;transform:translateY(10px) scale(.985);}to{opacity:1;transform:none;}}
+.jm-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.jm-title{display:flex;align-items:center;gap:9px;min-width:0;}
+.jm-ic{
+  width:30px;height:30px;flex:0 0 auto;border-radius:10px;
+  background:linear-gradient(135deg,var(--warm-deep),var(--warm));color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:14px;
+  box-shadow:0 6px 14px rgba(224,170,112,.35),var(--shadow-inset);
+}
+.jm-title b{display:block;font-size:15px;font-weight:800;color:var(--ink);letter-spacing:.4px;white-space:nowrap;}
+.jm-title small{display:block;font-size:10px;color:var(--ink-faint);font-weight:700;letter-spacing:.4px;margin-top:2px;}
+.jm-go{
+  flex:0 0 auto;font-size:11px;font-weight:800;color:var(--green-dark);
+  background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:var(--radius-pill);
+  padding:6px 12px;box-shadow:var(--shadow-inset);transition:transform .18s var(--ease),background .18s;
+}
+.journal-module:active .jm-go{transform:translateX(2px);background:var(--green-soft);}
+.jm-excerpt{
+  margin:13px 0 0;padding:11px 13px;border-radius:14px;
+  background:var(--glass-strong);border:1px solid var(--glass-line);
+  border-left:3px solid var(--warm-deep);box-shadow:var(--shadow-inset);
+}
+.jm-excerpt .jm-kind{font-size:10px;font-weight:800;color:var(--warm-deep);letter-spacing:.5px;display:flex;align-items:center;gap:8px;}
+.jm-excerpt .jm-kind::after{content:"";flex:1;height:1px;background:var(--line);}
+.jm-excerpt .jm-text{
+  font-size:12.5px;line-height:1.65;color:var(--ink);margin-top:8px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  white-space:pre-wrap;word-break:break-word;
+}
+.jm-excerpt .jm-text.empty{color:var(--ink-soft);}
+.jm-excerpt .jm-date{font-size:10px;color:var(--ink-faint);margin-top:6px;font-variant-numeric:tabular-nums;letter-spacing:.3px;}
+.jm-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;}
+.jm-count{
+  display:flex;align-items:baseline;justify-content:center;gap:5px;font-size:11px;
+  color:var(--ink-soft);font-weight:700;padding:7px 4px;border-radius:12px;
+  background:var(--green-soft);border:1px solid var(--green-mid);box-shadow:var(--shadow-inset);
+}
+.jm-count b{font-size:15px;color:var(--green-deep);font-variant-numeric:tabular-nums;animation:jmCountIn .42s var(--ease) both;}
+.jm-count.wk{background:rgba(120,165,190,.12);border-color:rgba(120,165,190,.26);}
+.jm-count.wk b{color:var(--cool);}
+.jm-count.mo{background:var(--warm-soft);border-color:rgba(224,170,112,.30);}
+.jm-count.mo b{color:var(--warm-deep);}
+@keyframes jmCountIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+
+.cal-journal-slot{display:block;}
+.cal-journal{
+  margin-top:10px;padding:13px 14px 12px;border-radius:var(--radius-sm);
+  background:linear-gradient(150deg,var(--warm-soft),var(--green-soft) 58%,var(--glass-strong));
+  border:1px solid var(--glass-line);box-shadow:var(--shadow-inset),var(--shadow-xs);
+  animation:calJournalIn .34s var(--ease) both;
+}
+@keyframes calJournalIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+.cal-journal.loading{color:var(--ink-faint);font-size:12px;text-align:center;padding:16px;background:var(--glass-strong);}
+.cal-journal-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.cal-journal-title{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:800;color:var(--green-dark);letter-spacing:.4px;}
+.cal-journal-title span{
+  width:21px;height:21px;border-radius:7px;background:linear-gradient(135deg,var(--warm-deep),var(--warm));
+  color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;
+  box-shadow:0 4px 10px rgba(224,170,112,.32);
+}
+.cal-journal-edit{
+  flex:0 0 auto;font-size:10.5px;font-weight:800;color:var(--warm-deep);
+  background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:99px;
+  padding:4px 10px;cursor:pointer;box-shadow:var(--shadow-inset);transition:transform .15s var(--ease);
+}
+.cal-journal-edit:active{transform:scale(.92);}
+.cal-journal-body{
+  font-size:12.5px;line-height:1.7;color:var(--ink);white-space:pre-wrap;word-break:break-word;
+  display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;
+}
+.cal-journal.open .cal-journal-body{display:block;-webkit-line-clamp:unset;}
+.cal-journal-more{
+  display:inline-flex;align-items:center;gap:4px;margin-top:9px;font-size:10.5px;font-weight:800;
+  color:var(--green-dark);cursor:pointer;padding:4px 10px;border-radius:99px;
+  background:var(--green-soft);border:1px solid var(--green-mid);transition:transform .15s var(--ease);
+}
+.cal-journal-more:active{transform:scale(.94);}
+.cal-journal.empty{display:flex;align-items:center;gap:10px;justify-content:space-between;}
+.cal-journal.empty .txt{flex:1;min-width:0;font-size:11.5px;color:var(--ink-soft);line-height:1.55;}
+.cal-journal.empty .txt b{display:block;color:var(--ink);font-size:12.5px;margin-bottom:2px;}
+
+/* ---------- 回忆档案独立全屏页 ---------- */
+.mj-page-mask{
+  position:fixed;inset:0;z-index:93;display:none;justify-content:center;overflow:hidden;
+  background:var(--bg);
+  background-image:
+    radial-gradient(60% 45% at 12% -8%, rgba(165,192,162,.30), transparent 62%),
+    radial-gradient(45% 38% at 90% 10%, rgba(224,170,112,.14), transparent 58%),
+    radial-gradient(75% 55% at 50% 112%, rgba(165,192,162,.24), transparent 66%);
+}
+.mj-page-mask.show{display:flex;animation:pageIn .44s var(--ease) both;}
+.mj-page-mask.closing{display:flex;animation:pageOut .24s var(--ease) both;}
+.mj-page{
+  width:100%;max-width:520px;height:100vh;height:100dvh;max-height:none;border-radius:0;
+  display:flex;flex-direction:column;padding:calc(14px + var(--safe-t)) 16px calc(14px + var(--safe-b));
+  background:transparent;box-shadow:none;border:none;animation:none;
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+.mj-top{display:flex;align-items:center;gap:11px;flex:0 0 auto;padding:4px 2px 16px;}
+.mj-back{
+  flex:0 0 auto;width:38px;height:38px;border-radius:50%;border:1px solid var(--glass-line);
+  background:var(--glass-strong);color:var(--green-dark);font-size:20px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  box-shadow:var(--shadow-sm),var(--shadow-inset);transition:transform .16s var(--ease);
+}
+.mj-back:active{transform:scale(.88);}
+.mj-title{flex:1;min-width:0;}
+.mj-title b{
+  display:block;font-size:20px;font-weight:800;color:var(--ink);letter-spacing:.6px;line-height:1.2;
+  background:linear-gradient(120deg,var(--green-dark),var(--green-deep) 60%,var(--warm-deep));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+[data-theme="dark"] .mj-title b{background:linear-gradient(120deg,#d5e4d2,#a6c0a2 60%,#e8b27e);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
+.mj-title small{display:block;font-size:9.5px;color:var(--ink-faint);font-weight:700;letter-spacing:.8px;margin-top:4px;}
+.mj-total{
+  flex:0 0 auto;font-size:11px;font-weight:800;color:var(--green-dark);
+  background:var(--green-soft);border:1px solid var(--green-mid);padding:7px 13px;
+  border-radius:99px;box-shadow:var(--shadow-inset);white-space:nowrap;
+}
+.mj-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;flex:0 0 auto;margin-bottom:13px;}
+.mj-stat{
+  padding:11px 12px 10px;border-radius:15px;cursor:pointer;text-align:left;font-family:var(--font);
+  background:var(--glass-strong);border:1px solid var(--glass-line);
+  box-shadow:var(--shadow-inset),var(--shadow-xs);
+  transition:transform .16s var(--ease),box-shadow .2s;
+}
+.mj-stat:active{transform:scale(.95);}
+.mj-stat b{display:block;font-size:25px;font-weight:800;color:var(--green-deep);line-height:1.1;font-variant-numeric:tabular-nums;letter-spacing:.4px;}
+.mj-stat span{display:block;font-size:10.5px;color:var(--ink-soft);font-weight:800;margin-top:3px;letter-spacing:.3px;}
+.mj-stat em{display:block;font-size:9.5px;font-style:normal;color:var(--ink-faint);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mj-stat.k-week b{color:var(--cool);}
+.mj-stat.k-month b{color:var(--warm-deep);}
+.mj-filters{display:flex;gap:8px;flex:0 0 auto;margin-bottom:13px;}
+.mj-chip{
+  flex:1;border:1px solid var(--line);border-radius:99px;padding:8px 6px;font-size:11.5px;
+  font-weight:800;color:var(--ink-soft);background:var(--glass);cursor:pointer;font-family:var(--font);
+  letter-spacing:.4px;transition:transform .16s var(--ease),background .2s,color .2s,border-color .2s,box-shadow .2s;
+}
+.mj-chip:active{transform:scale(.94);}
+.mj-chip.active{background:linear-gradient(135deg,var(--green-deep),var(--green));color:#fff;border-color:transparent;box-shadow:0 6px 16px rgba(130,160,126,.30);}
+.mj-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:1px 2px 16px;}
+.mj-loading,.mj-empty{text-align:center;color:var(--ink-faint);font-size:12.5px;line-height:1.8;padding:46px 20px;font-weight:600;}
+.mj-empty .big{font-size:30px;display:block;margin-bottom:10px;}
+.mj-item{
+  position:relative;margin-bottom:12px;padding:14px 15px 12px;border-radius:18px;
+  background:var(--glass-strong);border:1px solid var(--glass-line);
+  box-shadow:var(--shadow-sm),var(--shadow-inset);
+  animation:mjItemIn .4s var(--ease) both;
+}
+@keyframes mjItemIn{from{opacity:0;transform:translateY(10px) scale(.985);}to{opacity:1;transform:none;}}
+.mj-item::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:4px;border-radius:0 4px 4px 0;}
+.mj-item.k-day::before{background:var(--green-deep);}
+.mj-item.k-week::before{background:var(--cool);}
+.mj-item.k-month::before{background:var(--warm-deep);}
+.mj-item-head{display:flex;align-items:center;gap:9px;margin-bottom:8px;}
+.mj-kind{flex:0 0 auto;font-size:10.5px;font-weight:800;letter-spacing:.4px;padding:3px 10px;border-radius:99px;color:#fff;box-shadow:var(--shadow-xs);}
+.mj-kind.k-day{background:linear-gradient(135deg,#5b8f6b,#7fb28a);}
+.mj-kind.k-week{background:linear-gradient(135deg,#4f7fa3,#80a9c2);}
+.mj-kind.k-month{background:linear-gradient(135deg,#b48651,#d3a36b);}
+.mj-item-date{flex:1;min-width:0;text-align:right;font-size:10.5px;color:var(--ink-faint);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.mj-item-body{font-size:13px;line-height:1.75;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
+.mj-item-actions{display:flex;gap:8px;margin-top:11px;padding-top:10px;border-top:1px dashed var(--line);}
+.mj-item-btn{
+  flex:0 0 auto;font-size:11px;font-weight:800;padding:6px 13px;border-radius:99px;cursor:pointer;
+  background:var(--green-soft);color:var(--green-dark);border:1px solid var(--green-mid);
+  box-shadow:var(--shadow-inset);transition:transform .15s var(--ease);font-family:var(--font);
+}
+.mj-item-btn:active{transform:scale(.93);}
+.mj-item-btn.del{background:rgba(217,138,138,.12);color:var(--danger);border-color:rgba(217,138,138,.26);}
+.mj-foot{flex:0 0 auto;padding:6px 4px 2px;text-align:center;font-size:10.5px;color:var(--ink-faint);line-height:1.6;}
+@media (prefers-reduced-motion:reduce){
+  .journal-module,.journal-module::after,.jm-count b,.cal-journal,.mj-item,.mj-page-mask{animation:none !important;transition:none !important;}
+}
+
 /* ---------- 记账卡 ---------- */
 .expense-card{border-radius:var(--radius);padding:18px 18px 14px;margin-bottom:15px;background:var(--glass-strong);
   backdrop-filter:blur(40px) saturate(200%);-webkit-backdrop-filter:blur(40px) saturate(200%);
@@ -1113,23 +1297,16 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 }
 .ai-chips button:active{transform:scale(.94);background:var(--green-soft);color:var(--green-dark);border-color:var(--green-mid);}
 
-/* ---------- 备份提醒横幅 ---------- */
-.backup-banner{
-  display:flex;align-items:center;justify-content:space-between;gap:10px;
-  margin:8px 16px 0;padding:9px 14px;border-radius:var(--radius-sm);
-  background:var(--warm-soft);
-  border:1px solid rgba(224,170,112,.18);
-  animation:fade .36s var(--ease);
+/* ---------- 顶部胶囊：备份小按钮 ---------- */
+.mini-backup{
+  flex:0 0 auto;line-height:1.3;font-size:10.5px;font-weight:700;
+  padding:3px 9px;border-radius:var(--radius-pill);
+  border:1px solid var(--glass-line);background:var(--glass);
+  color:var(--ink-soft);cursor:pointer;box-shadow:var(--shadow-inset);
+  transition:transform .16s var(--ease),background .2s,color .2s,border-color .2s;
 }
-.backup-banner .txt{font-size:12.5px;font-weight:600;color:var(--ink);line-height:1.4;}
-.backup-banner .txt small{display:block;font-size:10.5px;color:var(--ink-soft);margin-top:1px;font-weight:500;}
-.backup-banner button{
-  flex:0 0 auto;
-  background:transparent;color:var(--warm);border:1px solid rgba(224,170,112,.5);border-radius:var(--radius-pill);
-  padding:6px 13px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;
-  line-height:1.2;transition:background .16s var(--ease),transform .16s var(--ease);
-}
-.backup-banner button:active{background:rgba(224,170,112,.12);transform:scale(.96);}
+.mini-backup:active{transform:scale(.92);background:var(--green-soft);color:var(--green-dark);border-color:var(--green-mid);}
+.mini-backup.needs{color:var(--warm);border-color:rgba(224,170,112,.55);background:var(--warm-soft);}
 
 /* ---------- 桌面端微调 ---------- */
 @media (min-width:520px){
@@ -1726,6 +1903,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <div style="display:flex;align-items:center;gap:8px;">
       <div class="sync-dot" id="topSyncDot"></div>
       <span class="title" id="userLabel">本机 · 已就绪</span>
+      <button class="mini-backup" id="topBackupBtn" onclick="exportData()" type="button" title="备份数据" aria-label="备份数据">备份</button>
     </div>
     <div class="top-actions">
       <button onclick="openExpenseAdd()" title="记一笔">¥</button>
@@ -1812,9 +1990,24 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     </div>
   </div>
 
-  <div class="backup-banner" id="backupBanner" style="display:none;">
-    <div class="txt">数据只存在本机<small>定期备份，换机/清缓存都不怕丢</small></div>
-    <button onclick="exportData();hideBackupBanner();">立即备份</button>
+  <div class="journal-module" id="journalModule" onclick="memViewJournal()" role="button" aria-label="打开回忆档案">
+    <div class="jm-top">
+      <div class="jm-title">
+        <span class="jm-ic">📓</span>
+        <span><b>回忆档案</b><small>日记 · 周记 · 月记</small></span>
+      </div>
+      <span class="jm-go">翻看 ›</span>
+    </div>
+    <div class="jm-excerpt">
+      <div class="jm-kind" id="journalExcerptKind">正在翻阅…</div>
+      <div class="jm-text" id="journalExcerptText">回忆会在这里慢慢长出来。</div>
+      <div class="jm-date" id="journalExcerptDate"></div>
+    </div>
+    <div class="jm-counts">
+      <span class="jm-count"><b id="jcDay">0</b>日记</span>
+      <span class="jm-count wk"><b id="jcWeek">0</b>周记</span>
+      <span class="jm-count mo"><b id="jcMonth">0</b>月记</span>
+    </div>
   </div>
 
   <div class="next-card" id="nextCard"></div>
@@ -2299,14 +2492,30 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   </div>
 </div>
 
-<!-- 记忆单条编辑弹窗 -->
-<div class="mask" id="memJournalMask" style="z-index:93;">
-  <div class="sheet glass-strong">
-    <h3>📓 回忆档案（日记 → 周记 → 月记）</h3>
-    <div id="memJournalList" style="max-height:58vh;overflow:auto;font-size:13px;line-height:1.6;"></div>
-    <div class="row" style="margin-top:12px;">
-      <button class="btn ghost" onclick="closeMemJournal()">关闭</button>
+<!-- 回忆档案独立全屏页 -->
+<div class="mj-page-mask" id="journalPageMask" role="dialog" aria-modal="true" aria-label="回忆档案" onclick="if(event.target===this)closeJournalPage()">
+  <div class="mj-page">
+    <div class="mj-top">
+      <button class="mj-back" type="button" onclick="closeJournalPage()" aria-label="返回主页">‹</button>
+      <div class="mj-title">
+        <b>回忆档案</b>
+        <small>日记 · 周记 · 月记</small>
+      </div>
+      <span class="mj-total" id="mjTotal">共 0 篇</span>
     </div>
+    <div class="mj-stats">
+      <button class="mj-stat" type="button" onclick="mjFilter('day')"><b id="mjDayCount">0</b><span>日记</span><em>每天一篇</em></button>
+      <button class="mj-stat k-week" type="button" onclick="mjFilter('week')"><b id="mjWeekCount">0</b><span>周记</span><em>每周一结</em></button>
+      <button class="mj-stat k-month" type="button" onclick="mjFilter('month')"><b id="mjMonthCount">0</b><span>月记</span><em>每月回顾</em></button>
+    </div>
+    <div class="mj-filters">
+      <button class="mj-chip active" type="button" data-f="" onclick="mjFilter('')">全部</button>
+      <button class="mj-chip" type="button" data-f="day" onclick="mjFilter('day')">日记</button>
+      <button class="mj-chip" type="button" data-f="week" onclick="mjFilter('week')">周记</button>
+      <button class="mj-chip" type="button" data-f="month" onclick="mjFilter('month')">月记</button>
+    </div>
+    <div class="mj-list" id="mjList"></div>
+    <div class="mj-foot">回忆在时间里长成自己的样子</div>
   </div>
 </div>
 
@@ -3164,6 +3373,7 @@ function enterApp(){
   try{ loadConv(); }catch(e){ console.error(e); } // 恢复助理对话记录
   try{ renderWeather(); fetchHKWeather(false); }catch(e){ console.error(e); } // 加载天气（先显示缓存，再异步刷新）
   try{ renderWarningBar(); fetchHKWarnings(false); }catch(e){ console.error(e); } // 加载天气警告（先显示缓存，再异步刷新）
+  try{ memRenderJournalModule(); }catch(e){ console.error(e); } // 主页回忆档案摘要与计数
   try{ initPomo(); }catch(e){ console.error(e); } // 番茄钟 · 港窝小园
 }
 
@@ -5307,7 +5517,8 @@ function renderCalendar(){
     if(md){
       html += `<div class="when">${calSel} · 当天心情</div><div class="mood-detail"><span class="mood-detail-face">${moodSVG(md,42)}</span><span class="mood-detail-label">${MOOD_LABELS[md]}</span></div>`;
     }
-    if(!dayCourses.length && !dayTasks.length && !md) html += '<div class="empty glass">这天暂无安排</div>';
+    html += `<div class="cal-journal-slot" id="calJournalSlot"><div class="cal-journal loading">正在翻当日日记…</div></div>`;
+    if(!dayCourses.length && !dayTasks.length && !md) html += '<div class="empty glass">当天暂无日程安排</div>';
     html += `</div>`;
   } else {
     html += `<div class="cal-detail"><div class="empty glass">点有颜色小条的日期，看当天上什么课 ✦</div></div>`;
@@ -5319,9 +5530,51 @@ function renderCalendar(){
       grid.classList.remove('cal-next','cal-prev');
     }));
   }
+  if(calSel) renderCalJournal(calSel);
 }
 function calMove(n){ calM+=n; if(calM<0){calM=11;calY--;} if(calM>11){calM=0;calY++;} calSel=undefined; calDir=n; updateRing(); renderCalendar(); }
 function calPick(ds){ calSel = (calSel===ds)?undefined:ds; renderCalendar(); }
+
+/* 日历选中的某天：只展示日记，周记/月记留在回忆档案 */
+let _calJournalSeq = 0;
+function renderCalJournal(ds){
+  const slot = document.getElementById('calJournalSlot');
+  if(!slot) return;
+  const seq = ++_calJournalSeq;
+  slot.innerHTML = '<div class="cal-journal loading">正在翻当日日记…</div>';
+  memGetAll('journal').then(rows=>{
+    if(seq !== _calJournalSeq) return;
+    const hits = (rows || []).filter(j=>j && j.type === 'day' && j.start && j.end && j.start <= ds && ds <= j.end)
+                             .sort((a,b)=>String(b.end).localeCompare(String(a.end)));
+    if(!hits.length){
+      slot.innerHTML = '<div class="cal-journal empty"><div class="txt"><b>当天还没有日记</b>一天结束后会自动沉淀一篇小记，周记和月记去回忆档案看</div></div>';
+      return;
+    }
+    const j = hits[0];
+    const emptyNode = slot.parentElement ? slot.parentElement.querySelector('.empty.glass') : null;
+    if(emptyNode) emptyNode.remove(); // 已翻到当日日记时，不再重复提示「当天暂无日程安排」
+    const body = escHtml(j.content || '');
+    const more = String(j.content || '').length > 80 ? '<button class="cal-journal-more" type="button" onclick="calJournalToggle(this)">展开 ▾</button>' : '';
+    slot.innerHTML =
+      '<div class="cal-journal">' +
+        '<div class="cal-journal-head">' +
+          '<div class="cal-journal-title"><span>📓</span>当日日记 · ' + escHtml(ds) + '</div>' +
+          '<button class="cal-journal-edit" type="button" onclick="memJournalEdit(' + j.id + ')">✏️ 修改</button>' +
+        '</div>' +
+        '<div class="cal-journal-body">' + body + '</div>' +
+        more +
+      '</div>';
+  }).catch(()=>{
+    if(seq !== _calJournalSeq) return;
+    slot.innerHTML = '<div class="cal-journal empty"><div class="txt"><b>日记读取失败</b>稍后重新进入日历即可</div></div>';
+  });
+}
+function calJournalToggle(btn){
+  const box = btn.closest('.cal-journal');
+  if(!box) return;
+  const open = box.classList.toggle('open');
+  btn.textContent = open ? '收起 ▴' : '展开 ▾';
+}
 
 // CSV 字段转义：含逗号/引号/换行时用双引号包裹
 function csvField(s){
@@ -5886,8 +6139,15 @@ function shouldShowBackupReminder(){
 }
 function updateBackupUI(){
   const days = daysSinceLastBackup();
-  const banner = document.getElementById('backupBanner');
-  if(banner) banner.style.display = shouldShowBackupReminder() ? '' : 'none';
+  const btn = document.getElementById('topBackupBtn');
+  const need = shouldShowBackupReminder();
+  if(btn){
+    btn.classList.toggle('needs', need);
+    btn.title = need
+      ? (days===999 ? '从未备份，建议导出' : `已 ${days} 天未备份，建议导出`)
+      : '备份数据';
+    btn.setAttribute('aria-label', btn.title);
+  }
   const timeEl = document.getElementById('lastBackupTime');
   if(timeEl){
     if(days===999) timeEl.textContent = '暂无';
@@ -5895,10 +6155,6 @@ function updateBackupUI(){
     else if(days===1) timeEl.textContent = '昨天';
     else timeEl.textContent = `${days} 天前`;
   }
-}
-function hideBackupBanner(){
-  const banner = document.getElementById('backupBanner');
-  if(banner) banner.style.display = 'none';
 }
 
 /* ====== 同步状态（本机模式为装饰性指示） ====== */
@@ -5962,6 +6218,7 @@ function hideDialog(){ closeMask(document.getElementById('dialogMask')); }
    Cordova / Capacitor 壳层可把返回键事件交给这个函数，实现「先关弹窗再退出」。 */
 function closeTopOverlay(){
   const stack = [
+    {id:'memJournalEditMask', close:closeJournalEdit},
     {id:'pomoEggMask', close:closePomoEgg},
     {id:'pomoPlantMask', close:closePomoPlant},
     {id:'pomoSetMask', close:closePomoSettings},
@@ -5973,7 +6230,8 @@ function closeTopOverlay(){
     {id:'budgetMask', close:closeBudgetSet},
     {id:'expenseMask', close:closeExpenseAdd},
     {id:'addMask', close:closeAdd},
-    {id:'courseMask', close:closeCourseEdit}
+    {id:'courseMask', close:closeCourseEdit},
+    {id:'journalPageMask', close:closeJournalPage}
   ];
   for(const item of stack){
     const el = document.getElementById(item.id);
@@ -8289,33 +8547,108 @@ async function memJournalRefreshCtx(){
     AI_JOURNAL_CTX = parts.join('\n\n');
   }catch(e){ AI_JOURNAL_CTX = ''; }
 }
-// 日记档案面板
+// 日记档案：独立全屏页（主页回忆档案入口 / 设置里的日记档案都打开这里）
+let _journalRows = null;
+let _journalFilter = '';
+const _JOURNAL_META = {
+  day:   { label:'日记', cls:'k-day',   icon:'📓' },
+  week:  { label:'周记', cls:'k-week',  icon:'🗓' },
+  month: { label:'月记', cls:'k-month', icon:'📆' }
+};
 async function memViewJournal(){
-  const box = document.getElementById('memJournalList');
-  if(!box) return;
-  openMask(document.getElementById('memJournalMask'));
-  box.innerHTML = '<div class="hint" style="font-size:12px;">读取中…</div>';
-  try{
-    const js = await memGetAll('journal');
-    if(!js || !js.length){ box.innerHTML = '<div class="hint" style="font-size:12px;">还没有日记。聊几天天后，每天会生成一篇「今日小记」，攒满 7 天合并成周记，攒满 4 周合并成月记。</div>'; return; }
-    const sorted = js.slice().sort((a,b)=>String(b.start).localeCompare(String(a.start)));
-    const badge = { day:['📓 日记','#0F6E56'], week:['🗓 周记','#185FA5'], month:['📆 月记','#854F0B'] };
-    let html = '';
-    for(const j of sorted){
-      const b = badge[j.type] || ['📄','#888780'];
-      html += '<div style="padding:10px 0;border-bottom:1px solid var(--ink-faint);">' +
-        '<div style="font-size:11px;color:' + b[1] + ';font-weight:700;margin-bottom:3px;">' + b[0] + ' · ' + escHtml(j.start || '') + (j.end && j.end !== j.start ? ' ~ ' + escHtml(j.end) : '') + '</div>' +
-        '<div style="font-size:12px;line-height:1.6;white-space:pre-wrap;">' + escHtml(j.content || '') + '</div>' +
-        '<div style="display:flex;gap:8px;margin-top:6px;">' +
-          '<button class="btn ghost" type="button" onclick="memJournalEdit(' + j.id + ')" style="font-size:11px;padding:3px 10px;">✏️ 改</button>' +
-          '<button class="btn ghost" type="button" onclick="memJournalDelete(' + j.id + ')" style="font-size:11px;padding:3px 10px;color:#a32d2d;">🗑 删</button>' +
-        '</div>' +
-        '</div>';
-    }
-    box.innerHTML = html || '<div class="hint">暂无</div>';
-  }catch(e){ box.innerHTML = '<div class="hint">读取失败</div>'; }
+  const page = document.getElementById('journalPageMask');
+  if(!page) return;
+  if(!page.classList.contains('show')){
+    _journalFilter = '';
+    openMask(page);
+  }
+  _journalRows = null;
+  memRenderJournalList();
+  try{ _journalRows = await memGetAll('journal'); }catch(e){ _journalRows = []; }
+  memRenderJournalList();
+  memRenderJournalModule().catch(()=>{});
 }
-function closeMemJournal(){ closeMask(document.getElementById('memJournalMask')); }
+function closeJournalPage(){ closeMask(document.getElementById('journalPageMask')); }
+function memRenderJournalList(){
+  const list = document.getElementById('mjList');
+  if(!list) return;
+  const rows = (_journalRows || []).filter(Boolean);
+  const counts = { day:0, week:0, month:0 };
+  rows.forEach(j=>{ if(counts[j.type] != null) counts[j.type]++; });
+  const set = (id, v)=>{ const el = document.getElementById(id); if(el) el.textContent = v; };
+  set('mjTotal', '共 ' + rows.length + ' 篇');
+  set('mjDayCount', counts.day);
+  set('mjWeekCount', counts.week);
+  set('mjMonthCount', counts.month);
+  document.querySelectorAll('#journalPageMask .mj-chip').forEach(ch=>{
+    ch.classList.toggle('active', ch.dataset.f === (_journalFilter || ''));
+  });
+  if(_journalRows === null){
+    list.innerHTML = '<div class="mj-loading">正在翻开回忆…</div>';
+    return;
+  }
+  const shown = rows.filter(j=>!_journalFilter || j.type === _journalFilter)
+                    .sort((a,b)=>String(b.start || '').localeCompare(String(a.start || '')));
+  if(!shown.length){
+    list.innerHTML = rows.length
+      ? '<div class="mj-empty"><span class="big">🌱</span>这一类还没有收录</div>'
+      : '<div class="mj-empty"><span class="big">📭</span>还没有写下的回忆。多和我说说话，日记会在一天结束时悄悄长出来。</div>';
+    return;
+  }
+  let html = '';
+  for(const j of shown){
+    const m = _JOURNAL_META[j.type] || { label:'回忆', cls:'', icon:'📄' };
+    const range = (j.start && j.end && j.end !== j.start) ? (j.start + ' ~ ' + j.end) : (j.start || j.end || '');
+    html += '<div class="mj-item ' + m.cls + '">' +
+      '<div class="mj-item-head"><span class="mj-kind ' + m.cls + '">' + m.icon + ' ' + m.label + '</span><span class="mj-item-date">' + escHtml(range) + '</span></div>' +
+      '<div class="mj-item-body">' + escHtml(j.content || '') + '</div>' +
+      '<div class="mj-item-actions">' +
+        '<button class="mj-item-btn" type="button" onclick="memJournalEdit(' + j.id + ')">✏️ 修改</button>' +
+        '<button class="mj-item-btn del" type="button" onclick="memJournalDelete(' + j.id + ')">🗑 删除</button>' +
+      '</div></div>';
+  }
+  list.innerHTML = html;
+}
+function mjFilter(f){
+  _journalFilter = f || '';
+  memRenderJournalList();
+  if(navigator.vibrate){ try{ navigator.vibrate(8); }catch(e){} }
+}
+async function memRenderJournalModule(){
+  let rows = [];
+  try{ rows = (await memGetAll('journal')) || []; }catch(e){ rows = []; }
+  const counts = { day:0, week:0, month:0 };
+  rows.filter(Boolean).forEach(j=>{ if(counts[j.type] != null) counts[j.type]++; });
+  const bump = (id, v)=>{
+    const el = document.getElementById(id);
+    if(!el || el.textContent === String(v)) return;
+    el.textContent = String(v);
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.style.animation = '';
+  };
+  bump('jcDay', counts.day);
+  bump('jcWeek', counts.week);
+  bump('jcMonth', counts.month);
+  const latest = rows.filter(Boolean).sort((a,b)=>String(b.start || '').localeCompare(String(a.start || '')))[0];
+  const kindEl = document.getElementById('journalExcerptKind');
+  const textEl = document.getElementById('journalExcerptText');
+  const dateEl = document.getElementById('journalExcerptDate');
+  if(!latest){
+    if(kindEl) kindEl.textContent = '还没有回忆';
+    if(textEl){ textEl.textContent = '和我多聊几句，日记会在一天结束时悄悄长出来。'; textEl.classList.add('empty'); }
+    if(dateEl) dateEl.textContent = '';
+    return;
+  }
+  const m = _JOURNAL_META[latest.type] || { label:'回忆', icon:'📄' };
+  const range = (latest.start && latest.end && latest.end !== latest.start) ? (latest.start + ' ~ ' + latest.end) : (latest.start || latest.end || '');
+  if(kindEl) kindEl.textContent = m.icon + ' ' + m.label;
+  if(textEl){ textEl.textContent = latest.content || ''; textEl.classList.remove('empty'); }
+  if(dateEl) dateEl.textContent = range;
+}
+function refreshCalJournalSlot(){
+  try{ if(curTab === 'cal' && calSel) renderCalJournal(calSel); }catch(e){}
+}
 // 日记/周记/月记：手动编辑 / 删除（AI 写的回忆不满意可直接改或清掉）
 let _journalEditId = null;
 async function memJournalEdit(id){
@@ -8344,7 +8677,9 @@ async function memJournalSave(){
     }
     _journalEditId = null;
     closeJournalEdit();
-    await memViewJournal(); // 重新渲染列表
+    await memViewJournal(); // 重新渲染全屏列表
+    await memRenderJournalModule().catch(()=>{});
+    refreshCalJournalSlot();
     await memJournalRefreshCtx().catch(()=>{}); // 同步注入快照
     toast('已保存');
   }catch(e){ toast('保存失败'); }
@@ -8355,6 +8690,8 @@ function memJournalDelete(id){
     {label:'删除', cls:'danger', fn: async ()=>{
       await memDelete('journal', id).catch(()=>{});
       await memViewJournal();
+      await memRenderJournalModule().catch(()=>{});
+      refreshCalJournalSlot();
       await memJournalRefreshCtx().catch(()=>{});
       toast('已删除');
     }}
