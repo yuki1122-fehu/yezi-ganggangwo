@@ -259,10 +259,12 @@ body::after{
   background:rgba(130,160,126,.14);
   box-shadow:inset 0 0 0 1px rgba(130,160,126,.22);
 }
-[data-theme="dark"] .cal-cell.sel,
+[data-theme="dark"] .cal-cell.sel{
+  background:rgba(130,160,126,.14);
+  box-shadow:inset 0 0 0 2px rgba(130,160,126,.48),0 0 0 4px rgba(130,160,126,.12),0 6px 14px rgba(0,0,0,.18);
+}
 [data-theme="dark"] .cal-cell:active{
   background:rgba(130,160,126,.12);
-  outline-color:rgba(130,160,126,.35);
 }
 [data-theme="dark"] .item.done .check{
   background:rgba(130,160,126,.35);
@@ -837,7 +839,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .cal-cell.dim{color:var(--ink-faint);opacity:.6;}
 .cal-cell.today{background:var(--green-soft);font-weight:800;box-shadow:inset 0 0 0 1px var(--green-mid);}
 .cal-cell.has .dot{position:absolute;top:5px;right:5px;width:5px;height:5px;border-radius:50%;background:var(--green);box-shadow:0 0 5px var(--green-glow);}
-.cal-cell.sel{outline:2px solid var(--green-deep);outline-offset:-2px;background:var(--green-soft);}
+.cal-cell.sel{outline:none;background:var(--green-soft);box-shadow:inset 0 0 0 2px var(--green-deep),0 0 0 4px var(--green-glow),0 6px 14px rgba(130,160,126,.18);animation:calSelPop .32s var(--ease);}
+@keyframes calSelPop{0%{transform:scale(1);}45%{transform:scale(1.1);}100%{transform:scale(1);}}
 .cal-cell:active{background:var(--green-soft);transform:scale(.92);}
 .cd-num{font-size:13px;line-height:1;margin-top:1px;}
 .cd-class{margin-top:2px;font-size:9px;line-height:1.15;padding:2px 4px;border-radius:6px;color:#fff;--course-c1:var(--green-deep);--course-c2:var(--green);
@@ -991,9 +994,13 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   padding:11px 12px 10px;border-radius:15px;cursor:pointer;text-align:left;font-family:var(--font);
   background:var(--glass-strong);border:1px solid var(--glass-line);
   box-shadow:var(--shadow-inset),var(--shadow-xs);
+  position:relative;overflow:hidden;
   transition:transform .16s var(--ease),box-shadow .2s;
 }
 .mj-stat:active{transform:scale(.95);}
+.mj-stat::after{content:"";position:absolute;left:16%;right:16%;bottom:0;height:3px;border-radius:99px 99px 0 0;background:var(--green);opacity:.9;}
+.mj-stat.k-week::after{background:var(--cool);}
+.mj-stat.k-month::after{background:var(--warm);}
 .mj-stat b{display:block;font-size:25px;font-weight:800;color:var(--green-deep);line-height:1.1;font-variant-numeric:tabular-nums;letter-spacing:.4px;}
 .mj-stat span{display:block;font-size:10.5px;color:var(--ink-soft);font-weight:800;margin-top:3px;letter-spacing:.3px;}
 .mj-stat em{display:block;font-size:9.5px;font-style:normal;color:var(--ink-faint);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -1038,7 +1045,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .mj-item-btn.del{background:rgba(217,138,138,.12);color:var(--danger);border-color:rgba(217,138,138,.26);}
 .mj-foot{flex:0 0 auto;padding:6px 4px 2px;text-align:center;font-size:10.5px;color:var(--ink-faint);line-height:1.6;}
 @media (prefers-reduced-motion:reduce){
-  .journal-module,.journal-module::after,.jm-count b,.cal-journal,.mj-item,.mj-page-mask{animation:none !important;transition:none !important;}
+  .journal-module,.journal-module::after,.jm-count b,.cal-journal,.mj-item,.mj-stat,.mj-page-mask{animation:none !important;transition:none !important;}
 }
 
 /* ---------- 记账卡 ---------- */
@@ -1186,9 +1193,12 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .sheet .msg{font-size:12px;color:var(--green-dark);margin-top:13px;min-height:16px;text-align:center;font-weight:600;}
 
 /* ---------- 开关 Switch ---------- */
+/* 开关：轨道内阴影 + 勾选光晕 + 旋钮弹簧（Uiverse Galaxy fresh-moth-58 灵感，MIT） */
+.switch .switch-slider{box-shadow:var(--shadow-inset);}
 .switch .switch-slider::before{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;left:3px;transition:.25s;box-shadow:0 1px 3px rgba(0,0,0,.2);}
-.switch input:checked + .switch-slider{background:var(--green-deep);}
-.switch input:checked + .switch-slider::before{transform:translateX(20px);}
+.switch input:checked + .switch-slider{background:var(--green-deep);box-shadow:inset 0 2px 4px rgba(0,0,0,.16),0 0 12px var(--green-glow);}
+.switch input:checked + .switch-slider::before{transform:translateX(20px);animation:switchPop .36s var(--ease);box-shadow:0 2px 6px rgba(0,0,0,.24),0 0 10px rgba(255,255,255,.5);}
+@keyframes switchPop{0%{transform:translateX(20px) scale(1);}45%{transform:translateX(20px) scale(1.22);}100%{transform:translateX(20px) scale(1);}}
 .switch input:disabled + .switch-slider{opacity:.5;cursor:not-allowed;}
 .model-guide summary::-webkit-details-marker{display:none;}
 .model-guide[open] summary{color:var(--green-deep);}
@@ -1214,7 +1224,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   border:1px solid rgba(255,255,255,.14);box-shadow:var(--shadow);
   transition:opacity .32s var(--ease),transform .32s var(--ease);z-index:80;pointer-events:none;white-space:nowrap;max-width:90%;font-weight:600;}
-.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);animation:toastIn .36s cubic-bezier(.34,1.56,.64,1);}
+@keyframes toastIn{0%{opacity:0;transform:translateX(-50%) translateY(16px) scale(.92);}100%{opacity:1;transform:translateX(-50%) translateY(0) scale(1);}}
 
 /* ---------- AI 助理面板 ---------- */
 #aiMask{position:fixed;inset:0;z-index:70;display:none;flex-direction:column;background:var(--bg);
@@ -1306,7 +1317,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   transition:transform .16s var(--ease),background .2s,color .2s,border-color .2s;
 }
 .mini-backup:active{transform:scale(.92);background:var(--green-soft);color:var(--green-dark);border-color:var(--green-mid);}
-.mini-backup.needs{color:var(--warm);border-color:rgba(224,170,112,.55);background:var(--warm-soft);}
+.mini-backup.needs{color:var(--warm);border-color:rgba(224,170,112,.55);background:var(--warm-soft);animation:backupBreath 2.8s ease-in-out infinite;}
+@keyframes backupBreath{0%,100%{box-shadow:var(--shadow-inset),0 0 0 0 rgba(224,170,112,0);}50%{box-shadow:var(--shadow-inset),0 0 0 3px rgba(224,170,112,.12),0 0 14px rgba(224,170,112,.22);}}
 
 /* ---------- 桌面端微调 ---------- */
 @media (min-width:520px){
@@ -1320,12 +1332,20 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   }
 }
 
+/* 桌面/触控板等带悬停能力的设备：轻微抬升，不做移动端干扰 */
+@media (hover:hover){
+  .journal-module:hover{transform:translateY(-2px);box-shadow:var(--shadow),var(--shadow-inset);}
+  .cal-cell:not(.dim):hover{background:var(--green-soft);transform:translateY(-1px);}
+  .mj-stat:hover{transform:translateY(-2px);box-shadow:var(--shadow),var(--shadow-inset);}
+}
+
 /* ---------- 减少动效偏好 ---------- */
 @media (prefers-reduced-motion:reduce){
   /* 温和降级：停掉 ambient/无限循环/庆祝类动效（前庭刺激主因），保留短促的入场/退场/状态过渡（帮助理解状态变化） */
   .pomo-aurora,.pomo-bokeh,body::after,.ambient,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-anim,.weather-anim *,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after,#ringFg,.pct b,.pomo-ring,.pomo-ring::before,.pomo-ring.running::after,.pomo-tip,.title-leaf{
     animation:none !important;transition:none !important;
   }
+  .mini-backup.needs{animation:none !important;}
   /* 番茄环 & 天气卡背景过渡降级为瞬时，避免逐秒 tick 的过渡卡顿 */
   .pomo-ring #pomoFg,.pomo-ring #pomoGlow{transition:none !important;}
   .weather-card{transition:none !important;}
