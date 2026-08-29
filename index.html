@@ -2539,6 +2539,25 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       </div>
     </div>
 
+    <!-- ===================== 后台消息推送（Web Push） ===================== -->
+    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(145,180,200,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;color:var(--green-dark);">🔔 后台消息推送</div>
+        <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+          <input type="checkbox" id="aiPushOn" onchange="pushToggle(this.checked)" style="opacity:0;width:0;height:0;position:absolute;">
+          <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+        </label>
+      </div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
+        开启后，即使 App 完全关闭，AI 也能把消息弹到手机上：跟 AI 说「X 点提醒我 Y」会到点弹窗；每天打开时若角色想「今晚再叮嘱一句」，也会在 20:30 弹给你。首次开启会请求系统通知权限。需要先部署推送中继（见教程）。
+      </p>
+      <div class="row" style="margin:0;gap:8px;align-items:center;">
+        <button class="btn ghost" type="button" onclick="pushTest()" style="flex:0 0 auto;">📨 发送测试通知</button>
+        <span id="pushState" style="font-size:11px;color:var(--ink-soft);"></span>
+      </div>
+      <p class="hint" id="pushHint" style="font-size:11px;color:var(--green-dark);margin:8px 0 0;line-height:1.5;"></p>
+    </div>
+
     <!-- ===================== 用量与缓存命中（Cove Prompt Cache 观测） ===================== -->
     <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(145,180,200,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
       <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">💸 用量与缓存命中</div>
@@ -3467,6 +3486,7 @@ function enterApp(){
   try{ initPomo(); }catch(e){ console.error(e); } // 番茄钟 · 港窝小园
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
+  try{ setTimeout(()=>{ pushInit(); }, 800); }catch(e){ console.error(e); } // 后台消息推送：开启时订阅并上报（/sub）
 }
 
 /* ====== 任务加载与本地持久化 ====== */
@@ -6356,7 +6376,8 @@ const TOOL_LABEL = {
   get_courses:'查询课表', add_course:'添加课程', update_course:'修改课程',
   remove_course:'删除课程', compare_courses:'核对课表', batch_update_courses:'批量修改课表',
   add_expense:'记账', get_expenses:'查询账目', set_budget:'设置预算',
-  log_mood:'记录心情', get_mood:'查询心情'
+  log_mood:'记录心情', get_mood:'查询心情',
+  schedule_push:'预约推送'
 };
 const AI_TOOLS = [
   { type:'function', function:{
@@ -6543,6 +6564,15 @@ const AI_TOOLS = [
       date:{type:'string', description:'具体日期 YYYY-MM-DD，查某一天；留空则查最近 N 天'},
       days:{type:'integer', description:'最近 N 天，默认 7，最大 30'}
     }, required:[]}
+  }},
+  { type:'function', function:{
+    name:'schedule_push',
+    description:'预约一条后台推送：到指定时间，即使崽崽没有打开 App，手机也会弹系统通知提醒她。用户明确要求"X点提醒我/到时候告诉我/到点喊我/过X小时提醒我"时使用。用户只是说"提醒我"但没有具体时间时，不要调用，先问她几点。',
+    parameters:{ type:'object', properties:{
+      title:{type:'string', description:'通知标题，2-6 个字，如"喝水时间""上课提醒"'},
+      body:{type:'string', description:'通知正文，一句话把要说的事说清楚'},
+      at:{type:'string', description:'提醒时间，如"15:00"（今天）、"明天 9:00"、"后天 下午3点"；不要编造用户没说的时间'}
+    }, required:['title','body','at']}
   }}
 ];
 
@@ -7065,18 +7095,36 @@ async function maybeAutoAIProactive(){
       else aiConv[0] = { role:'system', content: buildSystem() };
       const msgs = aiConv.slice();
       // 这条 user 只是内部触发指令，不进对话历史；发送时它就是最近一条「用户当前指令」，aiCall 会自动注入实时上下文。
-      msgs.push({ role:'user', content: '（系统自动触发，不是用户输入）崽崽刚打开工作台，还没来得及说话。请以「身份」里的角色主动先发来一条消息，像微信聊天那样自然开口：可以是问候、关心，也可以是真的想和崽崽分享的东西，甚至提前说说今天哪一方不在、晚点才回。内容和长短都由你按当下语境自然决定，不要因此写成任务清单复读、分点或新闻稿。只能依据当前时间、天气、近期任务/课表、心情记录和对话历史里明确出现过的事实；没有依据的行程、去向、心情不要编造。实在没什么可说的，就简单说一句当下的日常问候。' });
+      msgs.push({ role:'user', content: '（系统自动触发，不是用户输入）崽崽刚打开工作台，还没来得及说话。请以「身份」里的角色主动先发来一条消息，像微信聊天那样自然开口：可以是问候、关心，也可以是真的想和崽崽分享的东西，甚至提前说说今天哪一方不在、晚点才回。内容和长短都由你按当下语境自然决定，不要因此写成任务清单复读、分点或新闻稿。只能依据当前时间、天气、近期任务/课表、心情记录和对话历史里明确出现过的事实；没有依据的行程、去向、心情不要编造。实在没什么可说的，就简单说一句当下的日常问候。另外：如果你发自内心觉得今晚（约 20:30）还想再叮嘱崽崽一句、或有一件小事想晚点告诉她，可以把那句话单独放在 <tonight>标签里（放在消息最后，不要解释、不要加多余文字）；没什么要说的就不写这个标签。' });
       const r = await aiCall(msgs, cfg, 1, {noTools:true});
       const msg = r && r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message;
       if(!msg) return; // 失败/空响应不占当日次数
       const content = (typeof msg.content === 'string') ? msg.content : (Array.isArray(msg.content) ? msg.content.map(p=>p && p.text ? p.text : '').join(' ').trim() : '');
       if(!content.trim()) return;
-      msg.content = content;
+      // 「今晚再叮嘱一句」：AI 若把想晚点说的话放进 <tonight> 标签，剥掉后预约今晚 20:30 推送（App 关闭也能弹窗）
+      const tonightM = content.match(/<tonight>([\s\S]*?)<\/tonight>/);
+      let tonightText = '';
+      if(tonightM){
+        tonightText = tonightM[1].trim();
+        msg.content = content.replace(/<tonight>[\s\S]*?<\/tonight>/g, '').replace(/\n{3,}/g, '\n\n').trim();
+      } else {
+        msg.content = content;
+      }
       msg.id = msg.id || 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
       aiConv.push(msg);
       saveConv();
       const vr = aiResolveVoice(content);
       addAIMsg('ai', vr.clean, msg.id);
+      // 预约今晚推送（用户开了后台推送才生效）
+      if(tonightText){
+        const nt = new Date();
+        nt.setHours(PUSH_TONIGHT_HOUR, PUSH_TONIGHT_MIN, 0, 0);
+        if(nt.getTime() <= Date.now()) nt.setDate(nt.getDate()+1); // 已过 20:30 则约到明天
+        pushSchedule('叶子港港窝', tonightText.slice(0,120), nt.getTime()).then(okFlag=>{
+          if(okFlag) setPushHint('角色想「今晚再叮嘱一句」，已约 ' + (nt.getMonth()+1) + '月' + nt.getDate() + '日 20:30 推送 ✅');
+          else setPushHint('想收「今晚再叮嘱一句」？先在 AI 设置里打开「后台消息推送」');
+        });
+      }
       memNoteAssistant(aiStickerPlain(content), msg.id); // 记忆里剥掉表情包标签、不朗读
       if(mask && mask.classList.contains('show')) markAIRead(); else markAIUnread();
       rec = rec || {date:ds, count:0};
@@ -7090,6 +7138,165 @@ async function maybeAutoAIProactive(){
     window.__aiAutoReq = false;
     console.warn('自动主动开口跳过：', e && e.message ? e.message : e);
   }
+}
+/* =====================================================================
+   后台消息推送（Web Push）——AI 主动找你的第二种方式
+   ---------------------------------------------------------------------
+   原理：App 打开时把订阅凭证上报给云端推送中继（Cloudflare Worker），
+   之后即使 App 完全关闭，中继也能经系统推送服务把消息投递到手机弹窗。
+   三级能力：
+   1. 设置里开启后，页面加载即订阅并上报（/sub）
+   2. AI 对话里说"X点提醒我Y" → 工具 schedule_push 预约（/schedule）→ 到点弹窗
+   3. 每天打开时 AI 主动开口若想"今晚再叮嘱一句"，放进 <tonight> 标签 → 预约今晚 20:30 弹窗
+   部署依赖：push-worker.js（项目目录）部署到 Cloudflare Workers，
+   然后把地址填进下面 PUSH_WORKER，Secret 与 Worker 环境变量一致。
+   ===================================================================== */
+const PUSH_WORKER = '';          // ⚠️ 部署后填：https://<你的worker>.workers.dev
+const PUSH_SECRET = 'yezi_ggw_2026_9201';  // 与 Worker 的 PUSH_SECRET 环境变量一致
+const PUSH_VAPID_PUBLIC = 'BFiV82O9OaiIV-638CD5LxBSPTdm7l4Ud_el0Nsw3wpQdX0BrZkmjAwRHY7IJwsAnUCU3wJZBvQOEBiY04giS3g';
+const PUSH_ON_KEY = 'mhm_push_on';
+const PUSH_TONIGHT_HOUR = 20, PUSH_TONIGHT_MIN = 30; // 「今晚再叮嘱一句」默认推送时间
+
+function pushEnabled(){ try{ return localStorage.getItem(PUSH_ON_KEY)==='1'; }catch(e){ return false; } }
+function pushWorkerReady(){ return !!(PUSH_WORKER && /^https:\/\//.test(PUSH_WORKER)); }
+function urlBase64ToUint8Array(b64){
+  const pad = '='.repeat((4 - b64.length % 4) % 4);
+  const raw = atob((b64 + pad).replace(/-/g,'+').replace(/_/g,'/'));
+  const out = new Uint8Array(raw.length);
+  for(let i=0;i<raw.length;i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+async function pushGetReg(){
+  try{
+    if(!('serviceWorker' in navigator)) return null;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if(reg) return reg;
+    return await navigator.serviceWorker.register('sw.js');
+  }catch(e){ return null; }
+}
+async function pushInit(){
+  if(!pushEnabled() || !pushWorkerReady()) return;
+  try{
+    if(!('Notification' in window) || !('PushManager' in window)){ setPushHint('此浏览器不支持通知推送'); return; }
+    if(Notification.permission !== 'granted'){
+      Notification.requestPermission().then(p=>{ if(p==='granted') pushSubscribe(); });
+      return;
+    }
+    await pushSubscribe();
+  }catch(e){ console.warn('推送初始化跳过：', e); }
+}
+async function pushSubscribe(){
+  try{
+    const reg = await pushGetReg(); if(!reg) return;
+    let sub = await reg.pushManager.getSubscription();
+    if(!sub){
+      sub = await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey: urlBase64ToUint8Array(PUSH_VAPID_PUBLIC)});
+    }
+    if(!sub) return;
+    if(pushWorkerReady()){
+      const r = await fetch(PUSH_WORKER + '/sub', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({secret:PUSH_SECRET, subscription: sub.toJSON()})});
+      const d = await r.json().catch(()=>({}));
+      if(d && d.ok) setPushHint('已连接推送服务 ✅');
+      else setPushHint('推送服务连接失败：' + (d && d.error ? d.error : '检查 Worker 部署'));
+    }
+  }catch(e){ console.warn('订阅失败：', e); setPushHint('订阅失败：' + (e && e.message ? e.message : e)); }
+}
+async function pushUnsubscribe(){
+  try{
+    const reg = await pushGetReg(); if(!reg) return;
+    const sub = await reg.pushManager.getSubscription();
+    if(sub){
+      if(pushWorkerReady()){
+        try{ await fetch(PUSH_WORKER + '/unsub', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({secret:PUSH_SECRET, endpoint: sub.endpoint})}); }catch(e){}
+      }
+      await sub.unsubscribe();
+    }
+  }catch(e){}
+}
+async function pushToggle(on){
+  try{ localStorage.setItem(PUSH_ON_KEY, on ? '1' : '0'); }catch(e){}
+  if(on){
+    if(!pushWorkerReady()){ setPushHint('先把 PUSH_WORKER 填成你的 Worker 地址（见教程）'); return; }
+    if(!('Notification' in window)){ setPushHint('此浏览器不支持通知'); return; }
+    if(Notification.permission === 'granted'){ await pushSubscribe(); }
+    else{
+      try{
+        const p = await Notification.requestPermission();
+        if(p === 'granted') await pushSubscribe();
+        else setPushHint('通知权限被拒绝：去手机系统设置里为这个 App 打开通知');
+      }catch(e){ setPushHint('浏览器要求 HTTPS 环境才能开启推送（线上版本可以）'); }
+    }
+  }else{
+    await pushUnsubscribe();
+    setPushHint('后台推送已关闭');
+  }
+}
+async function pushTest(){
+  if(!pushWorkerReady()){ setPushHint('还没配置推送中继地址（PUSH_WORKER）'); return; }
+  setPushHint('发送测试通知…');
+  try{
+    const r = await fetch(PUSH_WORKER + '/test', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({secret:PUSH_SECRET, title:'叶子港港窝', body:'这是测试推送，收到说明链路通了！'})});
+    const d = await r.json().catch(()=>({}));
+    if(d && d.ok) setPushHint(d.skipped === 'no-subs' ? '还没有订阅记录：先打开上面的「后台消息推送」开关' : '已发送 ✅ 手机应该弹窗了');
+    else setPushHint('发送失败：' + (d && d.error ? d.error : '检查 Worker 与 Secret'));
+  }catch(e){ setPushHint('网络错误：' + (e && e.message ? e.message : e)); }
+}
+async function pushSchedule(title, body, atMs){
+  if(!pushWorkerReady() || !pushEnabled()) return false;
+  try{
+    const r = await fetch(PUSH_WORKER + '/schedule', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({secret:PUSH_SECRET, title: title, body: body, at: atMs})});
+    const d = await r.json().catch(()=>({}));
+    return !!(d && d.ok);
+  }catch(e){ return false; }
+}
+function setPushHint(t){
+  const el = document.getElementById('pushHint');
+  if(el) el.textContent = t;
+}
+/* AI 工具 schedule_push 的实现：解析"下午3点/明天9点/X小时后"等说法 */
+function pushParseTime(s){
+  if(!s) return null;
+  const str = String(s);
+  const now = new Date();
+  let t = new Date(now);
+  const rel = str.match(/(今天|明天|后天)/);
+  let tm = str.match(/(\d{1,2})[:：](\d{2})/);
+  if(!tm){
+    const c = str.match(/(\d{1,2})点(半|(\d{1,2})分)?/);
+    if(c){
+      let h = +c[1], m = 0;
+      if(c[2] === '半') m = 30; else if(c[3]) m = +c[3];
+      if(/下午|傍晚|晚上|夜里/.test(str) && h < 12) h += 12;
+      if((/晚上|夜里|凌晨/.test(str)) && h === 12) h = 0;
+      tm = [null, String(h), String(m)];
+    }
+  }
+  if(!tm) return null;
+  let h = +tm[1], m = +tm[2];
+  if(h < 0 || h > 23 || m < 0 || m > 59) return null;
+  if(rel){
+    if(rel[1] === '明天') t.setDate(t.getDate()+1);
+    else if(rel[1] === '后天') t.setDate(t.getDate()+2);
+  }else{
+    // 没提日期：默认今天；若已过（或一样）则顺延到明天——睡前说的"早上"指的是明天
+    if(h*60+m <= now.getHours()*60 + now.getMinutes() + 1) t.setDate(t.getDate()+1);
+  }
+  t.setHours(h, m, 0, 0);
+  return t.getTime();
+}
+async function aiSchedulePush(args){
+  if(!pushWorkerReady()) return {ok:false, error:'推送中继未配置（PUSH_WORKER 为空），无法预约提醒'};
+  if(!pushEnabled()) return {ok:false, error:'后台推送开关未开启：请到 AI 设置里打开「后台消息推送」'};
+  const title = (args && args.title) ? String(args.title).slice(0, 40) : '叶子港港窝';
+  const body = (args && args.body) ? String(args.body).slice(0, 120) : '';
+  const atMs = pushParseTime((args && args.at) ? args.at : '');
+  if(!atMs) return {ok:false, error:'没看懂提醒时间，请说具体点，比如"下午3点"或"明天早上9点"（至少 1 分钟后）'};
+  const okFlag = await pushSchedule(title, body, atMs);
+  if(okFlag){
+    const t = new Date(atMs);
+    return {ok:true, info:'已预约 ' + (t.getMonth()+1) + '月' + t.getDate() + '日 ' + String(t.getHours()).padStart(2,'0') + ':' + String(t.getMinutes()).padStart(2,'0') + ' 弹窗提醒：「' + (body || title) + '」，到点即使没打开 App 也会收到'};
+  }
+  return {ok:false, error:'预约失败：推送中继没响应，检查 Worker 部署或 Secret 是否一致'};
 }
 function injectTimeAnchor(result){
   const idx = result.length - 1;
@@ -7531,6 +7738,17 @@ function openAISettings(){
   document.getElementById('memTagHint').textContent = '';
   syncMemUI();
   memRefreshStats();
+  // 后台消息推送（Web Push）
+  const pushEl = document.getElementById('aiPushOn');
+  if(pushEl){
+    pushEl.checked = pushEnabled();
+    const st = document.getElementById('pushState');
+    if(st){
+      if(!pushWorkerReady()) st.textContent = pushEnabled() ? '⚠️ 未配置中继地址' : '需先部署推送中继';
+      else if(!('PushManager' in window)) st.textContent = '浏览器不支持';
+      else st.textContent = pushEnabled() ? '已开启' : '未开启';
+    }
+  }
   renderStickerManage();
   renderUsageStats(); // B1：打开设置时刷新用量/缓存统计
   document.getElementById('appTitle').value = getAppTitle()===DEFAULT_TITLE ? '' : getAppTitle();
@@ -9827,7 +10045,7 @@ async function aiRun(){
         if(!stepEl) stepEl = addSysStep('🧭 ' + label);
         else stepEl.textContent = '🧭 ' + label;
         for(const tc of msg.tool_calls){
-          const res = execTool(tc.function.name, tc.function.arguments);
+          const res = await execTool(tc.function.name, tc.function.arguments);
           aiConv.push({role:'tool', tool_call_id: tc.id, content: JSON.stringify(res)});
         }
         continue;
@@ -10129,7 +10347,7 @@ async function streamAICallText(messages, cfg, opts, onDelta){
   return {ok: true, text: text, usage: usage};
 }
 
-function execTool(name, argsStr){
+async function execTool(name, argsStr){
   let args = {};
   try{ args = JSON.parse(argsStr||'{}'); }catch(e){ args = {}; }
   let res;
@@ -10151,6 +10369,7 @@ function execTool(name, argsStr){
     else if(name==='set_budget') res = aiSetBudget(args);
     else if(name==='log_mood') res = aiLogMood(args);
     else if(name==='get_mood') res = aiGetMood(args);
+    else if(name==='schedule_push') res = await aiSchedulePush(args);
     else res = {ok:false, error:'未知工具 '+name};
   }catch(e){ res = {ok:false, error:String(e)}; }
   // 诚实回路：失败记回执（下一轮注入让 AI 自己开口，不替它写台词），成功消账；方向认不出不猜
