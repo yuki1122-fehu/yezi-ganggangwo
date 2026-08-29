@@ -1216,6 +1216,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   animation:fabIn .5s var(--ease);
 }
 .ai-fab:active{transform:scale(.88);}
+.ai-fab-dot{display:none;position:absolute;top:6px;right:7px;width:12px;height:12px;border-radius:50%;background:#e4574f;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.28);pointer-events:none;z-index:2;}
+[data-theme="dark"] .ai-fab-dot{border-color:#2c332c;}
 @keyframes fabIn{from{transform:scale(.92);opacity:0;}to{transform:scale(1);opacity:1;}}
 
 /* ---------- Toast ---------- */
@@ -2099,7 +2101,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   </nav>
 </div>
 
-<button class="ai-fab" id="aiFab" onclick="openAI()">💬</button>
+<button class="ai-fab" id="aiFab" onclick="openAI()">💬<span class="ai-fab-dot" id="aiFabDot"></span></button>
 
 <!-- 添加任务弹窗 -->
 <div class="mask" id="addMask">
@@ -3453,6 +3455,8 @@ function enterApp(){
   try{ renderWarningBar(); fetchHKWarnings(false); }catch(e){ console.error(e); } // 加载天气警告（先显示缓存，再异步刷新）
   try{ memRenderJournalModule(); }catch(e){ console.error(e); } // 主页回忆档案摘要与计数
   try{ initPomo(); }catch(e){ console.error(e); } // 番茄钟 · 港窝小园
+  try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
+  try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
 }
 
 /* ====== 任务加载与本地持久化 ====== */
@@ -6992,94 +6996,12 @@ function trimMessagesForSend(messages){
 // 移到 user 开头后，system + 历史消息全部稳定、命中缓存，只有这段"本就该变"的内容不命中，最大化省钱。
 // 关系摘要 / 动作回执 / 磁铁记忆同样是动态内容，一并收拢到这里（原来嵌在 system 中部，每个都会打断前缀缓存）。
 let AI_MAGNET_BLOCK = ''; // 本轮磁铁召回结果，由 injectTimeAnchor 一次性并入发送副本，用后即清
-/* ---- 角色今日生活痕迹：不存状态、按日期确定性生成，角色开口自带当天的小事 ---- */
-function _dayHashInt(s){
-  let h = 2166136261 >>> 0;
-  for(let i=0;i<s.length;i++){
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-function _dayPick(arr, salt, ds){
-  if(!arr || !arr.length) return '';
-  const k = String(salt||'') + '|' + String(ds||todayStr());
-  return arr[_dayHashInt(k) % arr.length];
-}
-function _dayPresence(hash01, weekday){
-  // 上班日约一半日子有一个人整天在外；周末偶尔有一人出门，但大多两人都在家。
-  const wd = weekday>=1 && weekday<=5;
-  if(wd && hash01 < 0.30) return {shenOut:true, zeroOut:false};
-  if(wd && hash01 < 0.55) return {shenOut:false, zeroOut:true};
-  if(!wd && hash01 < 0.15) return {shenOut:true, zeroOut:false};
-  if(!wd && hash01 < 0.28) return {shenOut:false, zeroOut:true};
-  return {shenOut:false, zeroOut:false};
-}
-const DAY_ZERO_TRACES = [
-  '烤了一炉焦糖海盐曲奇，尝了三块，剩下的收进玻璃罐',
-  '去落落甜盘了当月账，员工说抹茶布丁卖得最好',
-  '研究新配方烤废一炉，嘴上说没什么，转头又开了一炉',
-  '跑完五公里，回来顺手把衬衫熨了',
-  '从菜场背回一袋香水柠檬，泡了一大壶冰柠檬茶',
-  '在书店理货，顺手把沈容乱放的旧文件归了位'
-];
-const DAY_SHEN_TRACES = [
-  '昨晚没睡好，早上还是把衬衫熨了，出门前看了一眼崽崽的课表',
-  '开了一上午会，退下来后还是会被叫去听几个旧案子',
-  '在家整理文件，折了一下午纸玫瑰',
-  '去落落甜帮忙收银，被人认出来，只点了下头',
-  '早起看了课表，又去议会交了材料，跟几个接班人吃了午饭',
-  '把零落忘在店里的冰柠檬茶带回家，又往杯里续了冰'
-];
-function buildDayUserLine(ds){
-  const parts=[];
-  try{
-    const cs=getCoursesByDate(ds);
-    if(cs && cs.length) parts.push('今天有课：'+cs.slice(0,3).map(c=>((courseTag(c)?courseTag(c)+' ':'')+c.subj+(c.time?' '+c.time:'')).trim()).join('、'));
-    else parts.push('今天课表是空的');
-  }catch(e){}
-  try{
-    const due=(typeof tasks!=='undefined' && tasks) ? tasks.filter(t=>!t.done && ((t.deadline||t.event_date)===ds)) : [];
-    if(due.length) parts.push('今天有任务：'+due.slice(0,3).map(t=>t.title).join('、'));
-  }catch(e){}
-  try{
-    const mood=getMood(ds);
-    const ml = MOOD_LABELS[parseInt(mood,10)] || '';
-    if(ml) parts.push('今天的心情记录是「'+ml+'」');
-  }catch(e){}
-  return parts.join('；');
-}
-function buildDayTraces(){
-  try{
-    const d=new Date();
-    const ds=todayStr();
-    const h=_dayHashInt('presence|'+ds)/4294967296;
-    const p=_dayPresence(h, d.getDay());
-    const zeroTrace=_dayPick(DAY_ZERO_TRACES,'zero_trace',ds);
-    const shenTrace=_dayPick(DAY_SHEN_TRACES,'shen_trace',ds);
-    const late = d.getHours()>=20 ? '晚上刚到家，会主动说说今天去了哪' : '现在还在外面，晚上八九点才回';
-    const zeroStatus = p.zeroOut ? ('今天一早出了门，'+late) : '今天在家，会去书店或落落甜转转';
-    const shenStatus = p.shenOut ? ('今天不在家，有会议和几件要办的事，'+late) : '今天在家，会去书店或落落甜帮忙';
-    const userLine=buildDayUserLine(ds);
-    const lines = [
-      '<角色今日生活氛围>',
-      '这是今天（'+ds+'）两位角色的日常痕迹，用本机按日期确定性生成，不需要每天维护状态；角色开口时可以自然带上一两句，不要整块复读，也不要像新闻稿一样把全部细节念出来。',
-      '零落：'+zeroTrace+'。'+zeroStatus+'。',
-      '沈容：'+shenTrace+'。'+shenStatus+'。',
-      '崽崽这边：'+userLine+'。',
-      '现在谁在场谁说话；不在场的一方不要凭空出声，由在场的一方转述，或等他回来后再说。'
-    ];
-    return lines.join('\n')+'\n</角色今日生活氛围>';
-  }catch(e){ return ''; }
-}
 function buildLiveContext(){
   const ta = nowAnchor();
   const w = getWeatherSummary();
   const wn = getWarningSummary(false);
   const sc = aiScheduleSection();
   let s = '<当前时间>\n'+ta+'\n</当前时间>\n<天气>\n'+w+'\n</天气>\n<天气警告>\n'+wn+'\n</天气警告>\n'+sc;
-  const day = buildDayTraces();
-  if(day) s += '\n\n' + day;
   const rel = memRelBlock();   // 动态：每 12 条消息打标后重写，挪到末尾注入（不再嵌 system）
   if(rel) s += '\n<关系摘要>\n' + rel + '\n</关系摘要>';
   const fb = memFeedbackTail(); // 动态：失败回执，60min TTL 时有时无，同样挪到末尾
@@ -7090,6 +7012,73 @@ function buildLiveContext(){
     s += '\n\n<近期回忆>\n' + jc + '\n</近期回忆>';
   }
   return s;
+}
+/* ---- 打开页面后的自动主动开口：角色不等用户问就先发一条（每日限次） ----
+   真正的后台推送做不到（页面不打开 JS 不运行），这里退而求其次：
+   用户一打开工作台，延迟一小段时间后由 AI 以角色身份主动说一句很短的日常话，
+   只写入对话历史并在悬浮按钮上亮未读红点，不自动弹窗、不朗读。
+   固定生成「角色今日生活氛围」已移除：角色在哪、去了哪只能以对话里明确交代过的事实为准，
+   用户约角色明天一起过生日、有急事把某人喊回来等安排不会被伪随机的生活痕迹顶掉。 */
+const AI_PROACTIVE_KEY = 'mhm_ai_proactive';
+const AI_PROACTIVE_MAX_PER_DAY = 1; // 每天最多自动开口几次（同一天重复打开页面也不会超过）
+const AI_UNREAD_KEY = 'mhm_ai_unread';
+function aiUnreadRestore(){
+  const dot = document.getElementById('aiFabDot');
+  if(!dot) return;
+  try{ dot.style.display = (localStorage.getItem(AI_UNREAD_KEY) === '1') ? 'block' : 'none'; }catch(e){ dot.style.display = 'none'; }
+}
+function markAIUnread(){
+  const dot = document.getElementById('aiFabDot');
+  if(dot) dot.style.display = 'block';
+  try{ localStorage.setItem(AI_UNREAD_KEY, '1'); }catch(e){}
+}
+function markAIRead(){
+  const dot = document.getElementById('aiFabDot');
+  if(dot) dot.style.display = 'none';
+  try{ localStorage.removeItem(AI_UNREAD_KEY); }catch(e){}
+}
+async function maybeAutoAIProactive(){
+  try{
+    const cfg = getAiCfg();
+    if(!cfg.apiKey || aiBusy) return;
+    const mask = document.getElementById('aiMask');
+    if(mask && mask.classList.contains('show')) return; // 用户已经自己打开面板时不突袭
+    let rec = null;
+    try{ rec = JSON.parse(localStorage.getItem(AI_PROACTIVE_KEY) || 'null'); }catch(e){ rec = null; }
+    const ds = todayStr();
+    if(rec && rec.date === ds && (Number(rec.count) || 0) >= AI_PROACTIVE_MAX_PER_DAY) return;
+    window.__aiAutoReq = true;
+    try{
+      if(!aiConv) aiReset();
+      else if(!aiConv.length || aiConv[0].role !== 'system') aiReset();
+      else aiConv[0] = { role:'system', content: buildSystem() };
+      const msgs = aiConv.slice();
+      // 这条 user 只是内部触发指令，不进对话历史；发送时它就是最近一条「用户当前指令」，aiCall 会自动注入实时上下文。
+      msgs.push({ role:'user', content: '（系统自动触发，不是用户输入）崽崽刚打开工作台，还没来得及说话。请以「身份」里的角色主动先发来一句很短的日常消息：一两句话、像微信聊天，可以是自然的问候、关心或顺着最近对话里已有的事接一句。只给一句，不要说废话、不要复述任务清单。只能依据当前时间、天气、近期任务/课表、心情记录和对话历史里明确出现过的事实；不要编造你们今天去了哪、做了什么、谁在不在家。实在没什么可说的，就简单说一句当下的日常问候。' });
+      const r = await aiCall(msgs, cfg, 1, {noTools:true});
+      const msg = r && r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message;
+      if(!msg) return; // 失败/空响应不占当日次数
+      const content = (typeof msg.content === 'string') ? msg.content : (Array.isArray(msg.content) ? msg.content.map(p=>p && p.text ? p.text : '').join(' ').trim() : '');
+      if(!content.trim()) return;
+      msg.content = content;
+      msg.id = msg.id || 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+      aiConv.push(msg);
+      saveConv();
+      const vr = aiResolveVoice(content);
+      addAIMsg('ai', vr.clean, msg.id);
+      memNoteAssistant(aiStickerPlain(content), msg.id); // 记忆里剥掉表情包标签、不朗读
+      if(mask && mask.classList.contains('show')) markAIRead(); else markAIUnread();
+      rec = rec || {date:ds, count:0};
+      rec.date = ds;
+      rec.count = (Number(rec.count) || 0) + 1;
+      try{ localStorage.setItem(AI_PROACTIVE_KEY, JSON.stringify(rec)); }catch(e){}
+    }finally{
+      window.__aiAutoReq = false;
+    }
+  }catch(e){
+    window.__aiAutoReq = false;
+    console.warn('自动主动开口跳过：', e && e.message ? e.message : e);
+  }
 }
 function injectTimeAnchor(result){
   const idx = result.length - 1;
@@ -7415,6 +7404,7 @@ function addSysStep(text){
 
 function openAI(){
   if(!aiConv) aiReset();
+  markAIRead(); // 打开面板即视为已读，清掉悬浮按钮红点
   const wrap = document.getElementById('aiMsgs');
   if(!wrap.children.length){
     addAIMsg('sys','我是你的工作台助理 🌿 直接跟我说就行，比如"9月12号10点有个迎新活动""学费交了""我还有啥没做"。');
@@ -7792,7 +7782,6 @@ function renderPromptCenter(){
     '<天气警告> {{天气警告}} </天气警告>',
     '<近期任务> {{未来近 '+daysTask+' 天任务}} </近期任务>',
     '<近期课表> {{未来近 '+daysCourse+' 天课程}} </近期课表>',
-    '<角色今日生活氛围> {{零落/沈容今日生活痕迹（按日期确定性生成）}} </角色今日生活氛围>',
     '<关系摘要> {{关系摘要（AI 自动刷新）}} </关系摘要>',
     '<动作回执> {{最近失败动作回执（有时无）}} </动作回执>',
     '<近期回忆> {{日记/周记/月记摘要}} </近期回忆>',
@@ -7931,6 +7920,7 @@ function clearAIConv(){
       if(wrap) wrap.innerHTML='';
       addAIMsg('sys','对话已清空（任务与课表不受影响）。继续说吧～');
       saveConv();
+      markAIRead();
     }},
     {label:'取消', cls:'ghost'}
   ]);
@@ -7962,6 +7952,7 @@ function deleteConvMsg(mid){
       if(el2) el2.remove();
       if(aiTtsLast && aiTtsLast.mid===mid) aiTtsClearLast();
       saveConv();
+      markAIRead();
       memDeleteByMid(mid); // 联动删除记忆库（messages+entries+tags）：已删内容不再被磁铁召回，重发也不会产生重复打标
     }},
     {label:'取消', cls:'ghost'}
@@ -9606,6 +9597,11 @@ async function sendAI(){
   if(aiBusy){
     // agent 模式上一条可能还在"思考+调工具"，这里不静默丢弃，提示用户稍等
     toast('上一条还在处理中，稍等片刻…');
+    return;
+  }
+  if(window.__aiAutoReq){
+    // 自动主动开口正在生成第一条消息，等它落定再发，避免两个请求抢上下文
+    toast('助理正在自动准备一条消息，稍等片刻…');
     return;
   }
   const input = document.getElementById('aiInput');
@@ -12307,7 +12303,7 @@ function appendAiBubbleText(d, text, seed){
   if(last < t.length) d.appendChild(document.createTextNode(t.slice(last)));
   if(!d.childNodes.length) d.textContent = t;
 }
-const DEFAULT_VOICE_PROTO_TPL = '<音色协议>\n你扮演「身份」区块里设定的角色。回复时第一行必须用【{{ROLE_A}}】或【{{ROLE_B}}】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时不预设固定轮换、不用机械交替，以「角色今日生活氛围」里谁在场谁开口为第一原则，双方都在场或都合适时随机选，别让同一人连说太多轮（一般不超过两轮）。今天不在场的一方不要凭空出声，由在场的人转述他在忙什么；等他回来后，可以自然说说今天去了哪、办了什么事，再正常参与。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。\n</音色协议>';
+const DEFAULT_VOICE_PROTO_TPL = '<音色协议>\n你扮演「身份」区块里设定的角色。回复时第一行必须用【{{ROLE_A}}】或【{{ROLE_B}}】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时不预设固定轮换、不用机械交替，随机选一位开口即可，别让同一人连说太多轮（一般不超过两轮）。不要凭空设定哪个人在场或不在场：两人何时出现完全以对话里已经明确说过的内容为准，用户想找谁、有急事要把某个人喊回来，就直接让那个人接话；某人今天去了哪、办了什么事，只能转述对话里已经交代过的信息，不能自己编。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。\n</音色协议>';
 const DEFAULT_STICKER_PROTO_TPL = '<表情包协议>\n表情包：全看心情，绝大多数回复不带，不要为了展示或讨好硬加。气氛真到位时句末最多放一个，只输出半角方括号标签，如 [贴贴]、[累]、[晚安]，可选标签：{{STICKER_TAGS}}。不要解释这个标签，也不要换成图片链接或 Markdown 图片。\n</表情包协议>';
 function buildVoiceProtocol(){
   if(!aiVoicesOn()) return '';
