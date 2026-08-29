@@ -3487,6 +3487,24 @@ function enterApp(){
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
   try{ setTimeout(()=>{ pushInit(); }, 800); }catch(e){ console.error(e); } // 后台消息推送：开启时订阅并上报（/sub）
+  try{
+    // v2：App 切回前台时再补一次订阅（解决 iOS/Android PWA 在 KV 端点过期后收不到 push）
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState === 'visible' && pushEnabled() && pushWorkerReady()) pushSubscribe();
+    });
+    // v2：接收 sw.js 弹窗诊断回执（push 真的被弹了/没弹），写到 localStorage 方便排查
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.addEventListener('message', function(ev){
+        try{
+          var d = ev && ev.data;
+          if(d && d.kind === 'pushShowResult'){
+            try{ localStorage.setItem('mhm_push_last_show', JSON.stringify({t: Date.now(), ok: !!d.ok, err: d.err || '', title: d.title || ''})); }catch(e){}
+            try{ setPushHint(d.ok ? ('上一次推送已弹窗 ✅ ' + (d.title ? '「'+d.title+'」' : '')) : ('上一次推送被拦截：' + (d.err || '未知原因'))); }catch(e){}
+          }
+        }catch(e){}
+      });
+    }
+  }catch(e){ console.error(e); }
 }
 
 /* ====== 任务加载与本地持久化 ====== */
