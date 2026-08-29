@@ -1035,6 +1035,14 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .mj-kind.k-month{background:linear-gradient(135deg,#b48651,#d3a36b);}
 .mj-item-date{flex:1;min-width:0;text-align:right;font-size:10.5px;color:var(--ink-faint);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .mj-item-body{font-size:13px;line-height:1.75;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
+/* 日记 gems：这天值得终生记住的大事/梗——只留在日记里展示，不进记忆库（2026-08-29 拆桥） */
+.mj-gems{margin-top:10px;padding:9px 11px;border-radius:12px;background:rgba(240,196,79,.1);border:1px solid rgba(240,196,79,.28);}
+.mj-gems-head{font-size:10.5px;font-weight:800;color:#8a6a1e;letter-spacing:.3px;margin-bottom:6px;}
+.mj-gem{display:flex;flex-direction:column;gap:2px;padding:5px 0;border-top:1px dashed rgba(240,196,79,.3);}
+.mj-gem:first-of-type{border-top:none;padding-top:0;}
+.mj-gem-ev{font-size:12px;font-weight:800;color:#7a5c17;line-height:1.45;word-break:break-word;}
+.mj-gem-sm{font-size:12px;line-height:1.65;color:var(--ink);word-break:break-word;}
+.mj-gem-kw{font-size:10.5px;color:var(--ink-soft);word-break:break-word;}
 .mj-item-actions{display:flex;gap:8px;margin-top:11px;padding-top:10px;border-top:1px dashed var(--line);}
 .mj-item-btn{
   flex:0 0 auto;font-size:11px;font-weight:800;padding:6px 13px;border-radius:99px;cursor:pointer;
@@ -1270,6 +1278,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .ai-msg.mem-scanned.ai{box-shadow:var(--shadow-sm),0 0 0 1px var(--glass-line),0 0 14px rgba(240,196,79,.12);}
 .ai-msg.mem-scanned.mem-pick{outline:2px solid rgba(80,170,140,.55);outline-offset:3px;}
 .ai-msg.mem-has::after{content:'✦';position:absolute;top:-9px;right:16px;font-size:11px;line-height:1;pointer-events:none;opacity:.38;color:#f0c44f;text-shadow:0 1px 2px rgba(0,0,0,.14);}
+/* 记忆的起点气泡：星更亮，一眼看出「这条记忆是从这儿开始的」 */
+.ai-msg.mem-origin::after{opacity:.9;color:#dba31c;font-size:12px;}
 .ai-msg.mem-pick{outline:2px solid rgba(80,170,140,.55);outline-offset:3px;}
 .mem-picking .ai-msg{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}
 /* 手动选气泡打标：底部小工具条 */
@@ -5645,6 +5655,7 @@ function renderCalJournal(ds){
         '</div>' +
         '<div class="cal-journal-body">' + body + '</div>' +
         more +
+        journalGemsHtml(j) +
       '</div>';
   }).catch(()=>{
     if(seq !== _calJournalSeq) return;
@@ -8604,16 +8615,21 @@ async function memTagBatch(cfg, rows){
     topic:   Array.isArray(t.topic) ? t.topic.map(String).slice(0, 2) : []
   })).filter(t=> t.summary || t.keyword.length || t.emotion.length || t.topic.length);
 }
-async function memSaveEntryAndTags(msgId, t, eid){
+// mids = 这条记忆的「原料气泡 mid 列表」（打标整批 / 手动圈选的那几条），用于气泡回溯与黄框判定。
+// 注意与 source_msg_id 区分：后者是 db 自增 id，只标记记忆的起点；mids 是气泡 mid 字符串，覆盖整段来源对话。
+async function memSaveEntryAndTags(msgId, t, eid, mids){
+  const newMids = Array.isArray(mids) ? mids.filter(Boolean).map(String) : [];
   if(!t.summary && !t.keyword.length && !t.emotion.length && !t.topic.length) return;
   const now = new Date().toISOString();
   if(eid){
     // 事件聚合更新：同一 event 的后续进展 → 覆盖 summary/status、刷新 created_at（保持时近衰减）、重建标签
+    // source_msg_id 保持不动（记忆起点不变），只把本批新原料累加进 source_mids，让整条事件链的对话都能显示"已记下"
     try{
       const rows = await memGetAll('entries');
       const cur = rows.find(x=>x && x.id === eid);
       if(!cur) return;
-      await memPut('entries', Object.assign({}, cur, { summary: t.summary, event: t.event || cur.event || '', status: t.status || cur.status || 'done', created_at: now }));
+      const mergedMids = Array.from(new Set((Array.isArray(cur.source_mids) ? cur.source_mids.map(String) : []).concat(newMids)));
+      await memPut('entries', Object.assign({}, cur, { summary: t.summary, event: t.event || cur.event || '', status: t.status || cur.status || 'done', source_mids: mergedMids, created_at: now }));
       const tags = await memGetAll('tags');
       for(const tg of tags){ if(tg && tg.entry_id === eid) await memDelete('tags', tg.id).catch(()=>{}); }
       const nt = [];
@@ -8624,7 +8640,7 @@ async function memSaveEntryAndTags(msgId, t, eid){
       return;
     }catch(e){ console.warn('[mem] update entry', e); }
   }
-  const nid = await memPut('entries', { source_msg_id: msgId, summary: t.summary, event: t.event || '', status: t.status || 'done', detail: '', active: 1, created_at: now });
+  const nid = await memPut('entries', { source_msg_id: msgId, source_mids: newMids, summary: t.summary, event: t.event || '', status: t.status || 'done', detail: '', active: 1, created_at: now });
   if(!nid) return;
   const tags = [];
   (t.keyword||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'keyword', tag:k.trim(), weight:1}); });
@@ -8645,12 +8661,33 @@ async function memPruneNoEvent(){
     for(const tg of tags){ if(tg && ids.has(tg.entry_id)) await memDelete('tags', tg.id); }
   }catch(e){ console.warn('[mem] prune', e); }
 }
+// 一次性迁移：拆掉「日记 gems → 记忆库」的桥（2026-08-29）后，清掉历史遗留的 gem 条目。
+// 判据很干净：gem 写入时 source_msg_id 被写死为 0；打标路径（= 批首消息 id）与手动路径（= rows[0].id）都 > 0。
+// 只删 entries/tags，journal（日记本身）完全不受影响。用 kv 墓碑保证只跑一次。
+const MEM_GEM_PURGE_KEY = 'mem_gem_purged';
+async function memPurgeGemEntries(){
+  try{
+    if(await memKvGet(MEM_GEM_PURGE_KEY)) return 0;
+    const entries = await memGetAll('entries');
+    const gemIds = entries.filter(e=>e && e.active === 1 && Number(e.source_msg_id) === 0).map(e=>e.id);
+    if(gemIds.length){
+      const idSet = new Set(gemIds);
+      const tags = await memGetAll('tags');
+      for(const t of tags){ if(t && idSet.has(t.entry_id)) await memDelete('tags', t.id).catch(()=>{}); }
+      for(const id of gemIds){ await memDelete('entries', id).catch(()=>{}); }
+    }
+    await memKvSet(MEM_GEM_PURGE_KEY, { at: new Date().toISOString(), removed: gemIds.length }).catch(()=>{});
+    if(gemIds.length) console.warn('[mem] 已清理历史日记 gem 记忆条目 ' + gemIds.length + ' 条（日记本身保留）');
+    return gemIds.length;
+  }catch(e){ console.warn('[mem] purge gems', e); return 0; }
+}
 async function memRunTagger(){
   if(!memEnabled()) return 0;
   const cfg = getAiCfg();
   if(!cfg.apiKey) return 0;
   try{
     await memPruneNoEvent(); // 先清理老流水账，避免继续参与后续召回
+    await memPurgeGemEntries(); // 一次性：清掉拆桥前由日记 gems 写进来的历史记忆条目
     const msgs = await memGetAll('messages');
     if(!msgs.length) return 0;
     const wm = await memKvGet('tagger_watermark') || 0;
@@ -8701,6 +8738,8 @@ async function memRunTagger(){
     try{
       const segs = await memTagBatch(cfg, batch);
       const all = await memGetAll('entries');
+      // 本批全部气泡 mid：整段对话都是这批记忆的原料，用于气泡回溯（黄框）与以后按需复查
+      const batchMids = batch.map(m=>String((m && m.mid) || '')).filter(Boolean);
       for(const t of segs){
         if(t.event && all.some(e=>e && e.active === 1 && e.manual === 1 && e.event && e.event === t.event)){
           tagged++; // 手动优先：用户已手动定稿这一事件，自动打标不再动它
@@ -8708,7 +8747,7 @@ async function memRunTagger(){
         }
         let target = null;
         if(t.event){ target = all.find(e=>e && e.active === 1 && e.event && e.event === t.event && !e.manual); }
-        await memSaveEntryAndTags(batch[0].id, t, target ? target.id : null); // 溯源挂批首消息；更新路径走 eid
+        await memSaveEntryAndTags(batch[0].id, t, target ? target.id : null, batchMids); // 溯源挂批首消息；更新路径走 eid
         tagged++;
       }
     }catch(e){
@@ -8716,7 +8755,7 @@ async function memRunTagger(){
       for(const r of batch){
         try{
           const t = await memTagOne(cfg, r.content);
-          await memSaveEntryAndTags(r.id, t);
+          await memSaveEntryAndTags(r.id, t, null, r.mid ? [String(r.mid)] : []);
           tagged++;
         }catch(e2){ skipped++; } // MUST：单条失败隔离，不连累同批
       }
@@ -8784,6 +8823,7 @@ const MEM_JOURNAL_MERGE_PROMPT = '你是回忆档案整理员。把下面 {N} �
 async function memJournalMaintain(cfg){
   if(!memEnabled() || !cfg || !cfg.apiKey) return;
   try{
+    await memPurgeGemEntries(); // 一次性：拆桥后清掉历史日记 gem 记忆条目（日记本身不受影响）
     const today = _memToday();
     const yesterday = _memDateShift(today, -1); // 只归档已结束的昨天，今天未结束不写
     let js = await memGetAll('journal');
@@ -8829,24 +8869,19 @@ async function memJournalDay(cfg, afterDate, endDate){
     if(!j) return;
     const t = JSON.parse(j);
     const diary = String(t.diary || '').trim();
-    if(diary){
+    // gems 只留在日记里：2026-08-29 拆掉「日记 → 记忆库」的桥。
+    // 原设计把 gems 回写 entries（日记到磁铁索引的桥），但带来三个问题：①记忆列表不标来源，用户分不清哪条来自日记
+    // ②gems 没有 emotion/topic 标签，而磁铁召回靠字面命中标签且只有类目原词加权，召回能力打折、与设计意图自相矛盾
+    // ③source_msg_id 写死 0，回溯不到对话，没有黄框也没有小星。现在 gems 存进 journal 行自带字段，只在日记档案/日历展示，
+    // 不进 entries、不参与磁铁召回与事件聚合。想让某件大事"说到就想起"，请用长按气泡手动记为记忆。
+    const gems = (Array.isArray(t.gems) ? t.gems.slice(0, 2) : []).map(g=>({
+      event:   String((g && g.event) || '').trim().slice(0, 40),
+      summary: String((g && g.summary) || '').trim().slice(0, 80),
+      keyword: Array.isArray(g && g.keyword) ? g.keyword.map(String).slice(0, 3) : []
+    })).filter(g=>g.event); // MUST：gems 必须能单独命名一个事件/梗；无 event 的说明这条不合格，丢弃
+    if(diary || gems.length){
       const start = afterDate ? _memDateShift(afterDate, 1) : endDate;
-      await memPut('journal', { type:'day', start: start, end: endDate, content: diary.slice(0, 600), created_at: new Date().toISOString() });
-    }
-    // gems → 磁铁索引条目（带 event/keyword，参与事件聚合；同 event 更新）
-    const gems = Array.isArray(t.gems) ? t.gems.slice(0, 2) : [];
-    if(gems.length){
-      const all = await memGetAll('entries');
-      const manualEvents = new Set(all.filter(e=>e && e.active === 1 && e.manual === 1 && e.event).map(e=>e.event));
-      for(const g of gems){
-        const ev = String(g.event || '').trim();
-        const sm = String(g.summary || '').trim();
-        if(!ev) continue; // MUST：gems 写回磁铁记忆必须带 event；无 event 的只留日记，不进索引
-        if(manualEvents.has(ev)) continue; // 手动优先：用户已手动定稿这一事件，日记 gems 不再重复建自动条目
-        let target = null;
-        if(ev){ target = all.find(e=>e && e.active === 1 && e.event && e.event === ev && !e.manual); }
-        await memSaveEntryAndTags(0, { event: ev, status:'done', summary: sm.slice(0, 80), keyword: Array.isArray(g.keyword) ? g.keyword.map(String).slice(0, 3) : [], emotion: [], topic: [] }, target ? target.id : null);
-      }
+      await memPut('journal', { type:'day', start: start, end: endDate, content: diary.slice(0, 600), gems: gems, created_at: new Date().toISOString() });
     }
   }catch(e){ console.warn('[mem] journal day', e); }
 }
@@ -8908,6 +8943,19 @@ async function memViewJournal(){
   memRenderJournalModule().catch(()=>{});
 }
 function closeJournalPage(){ closeMask(document.getElementById('journalPageMask')); }
+// 日记 gems 渲染：这天值得终生记住的大事/梗。只留在日记里展示，不进记忆库（2026-08-29 拆桥）
+function journalGemsHtml(j){
+  const gems = Array.isArray(j && j.gems) ? j.gems.filter(g=>g && g.event) : [];
+  if(!gems.length) return '';
+  const items = gems.map(g=>
+    '<div class="mj-gem">' +
+      '<span class="mj-gem-ev">✦ ' + escHtml(g.event) + '</span>' +
+      (g.summary ? '<span class="mj-gem-sm">' + escHtml(g.summary) + '</span>' : '') +
+      (Array.isArray(g.keyword) && g.keyword.length ? '<span class="mj-gem-kw"># ' + escHtml(g.keyword.join(' / ')) + '</span>' : '') +
+    '</div>'
+  ).join('');
+  return '<div class="mj-gems"><div class="mj-gems-head">✨ 这天记住了</div>' + items + '</div>';
+}
 function memRenderJournalList(){
   const list = document.getElementById('mjList');
   if(!list) return;
@@ -8941,6 +8989,7 @@ function memRenderJournalList(){
     html += '<div class="mj-item ' + m.cls + '">' +
       '<div class="mj-item-head"><span class="mj-kind ' + m.cls + '">' + m.icon + ' ' + m.label + '</span><span class="mj-item-date">' + escHtml(range) + '</span></div>' +
       '<div class="mj-item-body">' + escHtml(j.content || '') + '</div>' +
+      journalGemsHtml(j) +
       '<div class="mj-item-actions">' +
         '<button class="mj-item-btn" type="button" onclick="memJournalEdit(' + j.id + ')">✏️ 修改</button>' +
         '<button class="mj-item-btn del" type="button" onclick="memJournalDelete(' + j.id + ')">🗑 删除</button>' +
@@ -9214,21 +9263,40 @@ async function memMarkBubbles(){
     for(const m of msgs){
       if(m && m.mid){ byMid.set(String(m.mid), m.id); byDb.set(m.id, String(m.mid)); }
     }
+    // entBySrc: 记忆的「起点气泡」(db id) → 手动/自动；entryMids: 所有记忆条目的原料气泡 mid（打标整批 + 手动圈选）
     const entBySrc = new Map();
+    const entryMids = new Set();
     const manualMids = new Set();
     for(const e of entries){
       if(!e || e.active !== 1) continue;
-      if(e.source_msg_id) entBySrc.set(Number(e.source_msg_id), e.manual === 1 ? 'manual' : 'auto');
-      if(Array.isArray(e.source_mids)){ for(const mm of e.source_mids){ if(mm) manualMids.add(String(mm)); } }
+      const kind = e.manual === 1 ? 'manual' : 'auto';
+      if(e.source_msg_id) entBySrc.set(Number(e.source_msg_id), kind);
+      if(Array.isArray(e.source_mids)){
+        for(const mm of e.source_mids){
+          if(!mm) continue;
+          entryMids.add(String(mm));
+          if(kind === 'manual') manualMids.add(String(mm));
+        }
+      }
     }
     document.querySelectorAll('#aiMsgs .ai-msg[data-mid]').forEach(el=>{
       const mid = el.getAttribute('data-mid');
       const dbId = byMid.get(mid);
-      el.classList.toggle('mem-scanned', manualMids.has(mid) || (typeof dbId === 'number' && (keepDbIds.has(dbId) || dbId <= wmv)));
-      let src = (dbId != null && entBySrc.get(Number(dbId))) || (manualMids.has(mid) ? 'manual' : null);
+      // 黄框语义（2026-08-29 改）=「这段已经记下来了」，不再只是「AI 扫过」：
+      // 是某条记忆的原料对话 ∪ 水位线以下扫过 ∪ 手动圈选。
+      // 只按水位线判定会漏三种情况：①日记 gems 产出的记忆（已拆桥）②事件跨批合并的最新进展（还没攒够 24 条没触发打标）
+      // ③清空记忆后重打时还没轮到的批次。现在只要记忆库里有它，对话就一定有框。
+      const scanned = entryMids.has(mid) || (typeof dbId === 'number' && (keepDbIds.has(dbId) || dbId <= wmv));
+      el.classList.toggle('mem-scanned', scanned);
+      const isOrigin = (dbId != null && entBySrc.has(Number(dbId))); // 记忆的起点气泡：星更亮
+      let src = isOrigin ? entBySrc.get(Number(dbId)) : (entryMids.has(mid) ? 'auto' : null);
+      if(src === 'auto' && manualMids.has(mid)) src = 'manual';
       el.classList.toggle('mem-has', !!src);
       el.classList.toggle('mem-manual', src === 'manual');
-      el.title = src === 'manual' ? '从这里手动记了一条记忆' : (src === 'auto' ? '从这里提炼了一条记忆' : '');
+      el.classList.toggle('mem-origin', isOrigin);
+      el.title = isOrigin
+        ? (src === 'manual' ? '你从这里手动记了一条记忆' : '一条记忆从这里开始产出')
+        : (src ? (src === 'manual' ? '这段在你手动记的记忆里' : '这段对话已经沉淀成记忆了') : '');
     });
   }catch(e){ console.warn('[mem] mark bubbles', e); }
 }
