@@ -1256,6 +1256,11 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .sticker-more{flex:0 0 auto;font-size:10px;color:var(--ink-soft);}
 .sticker-url{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-soft);font-size:11px;}
 .sticker-del{flex:0 0 auto;width:24px;height:24px;border-radius:8px;border:1px solid var(--glass-line);background:#fff;cursor:pointer;color:#a32d2d;font-size:14px;line-height:1;}
+.sticker-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;}
+.sticker-head .arrow{display:inline-block;transition:transform .2s var(--ease);font-size:12px;color:var(--ink-soft);}
+.sticker-head.open .arrow{transform:rotate(180deg);}
+.sticker-body{display:none;margin-top:10px;}
+.sticker-body.open{display:block;}
 .ai-msg.sys{align-self:center;background:transparent;color:var(--ink-faint);font-size:12px;text-align:center;max-width:92%;font-weight:500;}
 /* 记忆已打标：淡金描边 = AI 扫过；右上角小星 = 从这里产出过记忆（手动/自动通用，低调不抢眼） */
 .ai-msg.mem-scanned{outline:2px solid rgba(240,196,79,.38);outline-offset:2px;}
@@ -1287,6 +1292,16 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .payload-role.user{background:rgba(224,170,112,.18);color:var(--warm);}
 .payload-role.assistant{background:rgba(120,150,200,.18);color:#5a6f9a;}
 .payload-role.tool{background:rgba(180,140,200,.18);color:#8a5aa0;}
+.prompt-section{background:var(--glass);border:1px solid var(--glass-line);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;}
+.prompt-title{font-size:13px;font-weight:700;color:var(--green-dark);display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;line-height:1.45;}
+.prompt-order{flex:0 0 auto;font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--green-soft);color:var(--green-dark);white-space:nowrap;}
+.prompt-desc{font-size:11px;color:var(--ink-soft);margin:0 0 8px;line-height:1.55;}
+.prompt-body{width:100%;min-height:140px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre;border:1px solid var(--glass-line);border-radius:10px;padding:10px;background:rgba(255,255,255,.65);color:var(--ink);box-sizing:border-box;}
+.prompt-pre{width:100%;white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;line-height:1.55;border:1px solid var(--glass-line);border-radius:10px;padding:10px;background:rgba(255,255,255,.45);color:var(--ink);margin:0 0 8px;box-sizing:border-box;max-height:46vh;overflow:auto;-webkit-overflow-scrolling:touch;}
+.prompt-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.prompt-actions label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-dark);cursor:pointer;}
+.prompt-actions input[type=number]{width:64px;padding:4px 6px;border:1px solid var(--glass-line);border-radius:8px;background:rgba(255,255,255,.65);font-size:12px;font-family:var(--font);color:var(--ink);}
+.prompt-actions input[type=text]{width:100px;padding:4px 6px;border:1px solid var(--glass-line);border-radius:8px;background:rgba(255,255,255,.65);font-size:12px;font-family:var(--font);color:var(--ink);}
 .ai-input-row{display:flex;gap:10px;padding:12px 14px calc(14px + var(--safe-b));border-top:1px solid var(--line);align-items:flex-end;background:var(--glass-strong);backdrop-filter:blur(40px) saturate(200%);-webkit-backdrop-filter:blur(40px) saturate(200%);}
 .ai-input-row textarea{flex:1 1 0;min-width:0;border:1px solid var(--glass-line);border-radius:17px;padding:12px 14px;font-size:15px;font-family:var(--font);color:var(--ink);background:var(--glass-strong);outline:none;max-height:120px;min-height:46px;resize:none;box-shadow:var(--shadow-inset);transition:border-color .2s,box-shadow .2s;}
 .ai-input-row textarea:focus{border-color:var(--green-deep);box-shadow:0 0 0 4px var(--green-glow),var(--shadow-inset);}
@@ -2201,6 +2216,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <div class="ai-head-actions">
       <button onclick="clearAIConv()" title="清空对话（不影响任务/课表）">🗑</button>
       <button onclick="openPayloadView()" title="查看发送给助理的内容"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></button>
+      <button onclick="openPromptCenter()" title="提示词中心：按发送顺序查看并修改所有发给 AI 的提示词">✎</button>
       <button onclick="openAISettings()" title="设置" style="font-size:20px;">⚙</button>
       <button onclick="closeAI()" title="关闭">✕</button>
     </div>
@@ -2463,26 +2479,28 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">填 0 即不发送该项，改完点「保存」生效。</p>
     </div>
 
-    <!-- ===================== 表情包（AI 偶尔发，可自定义） ===================== -->
+    <!-- ===================== 表情包（可自定义/可删内置，默认折叠） ===================== -->
     <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(233,195,145,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px;flex-wrap:wrap;">
-        <div style="font-size:13px;font-weight:700;color:var(--green-dark);">😊 表情包（偶尔发）</div>
+      <div class="sticker-head" id="stickerHead" onclick="toggleStickerPanel()">
+        <div style="font-size:13px;font-weight:700;color:var(--green-dark);">😊 表情包 <span class="arrow" id="stickerArrow">▾</span></div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span id="stickerCount" style="font-size:11px;color:var(--ink-soft);"></span>
-          <button class="btn ghost" id="stickerReset" type="button" onclick="aiStickerReset()" style="display:none;flex:0 0 auto;padding:4px 8px;font-size:11px;">↺ 恢复内置</button>
+          <button class="btn ghost" id="stickerReset" type="button" onclick="event.stopPropagation();aiStickerReset()" style="display:none;flex:0 0 auto;padding:4px 8px;font-size:11px;">↺ 恢复内置</button>
         </div>
       </div>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
-        AI 只在气氛到位时发，不是每条回复都有，全看心情。填一个短标签（如 好耶）和图片 URL；同名标签会覆盖内置图源，删掉自定义项即恢复内置。
-      </p>
-      <div class="row" style="margin:0;gap:6px;align-items:center;">
-        <input id="aiStickerTag" maxlength="12" placeholder="标签，如 好耶" style="flex:0 0 88px;min-width:0;">
-        <input id="aiStickerUrl" placeholder="https://图片URL" oninput="aiStickerPreviewUrl()" style="flex:1;min-width:0;">
-        <img id="aiStickerPreview" alt="" style="display:none;width:44px;height:44px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid var(--glass-line);flex:0 0 auto;">
-        <button class="btn ghost" type="button" onclick="aiStickerAdd()" style="flex:0 0 auto;">＋ 添加</button>
+      <div class="sticker-body" id="stickerCollapsible">
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
+          填短标签和图片 URL；同名标签覆盖内置图源。内置表情也可以直接删，删错了点「恢复内置」。
+        </p>
+        <div class="row" style="margin:0;gap:6px;align-items:center;">
+          <input id="aiStickerTag" maxlength="12" placeholder="标签，如 好耶" style="flex:0 0 88px;min-width:0;">
+          <input id="aiStickerUrl" placeholder="https://图片URL" oninput="aiStickerPreviewUrl()" style="flex:1;min-width:0;">
+          <img id="aiStickerPreview" alt="" style="display:none;width:44px;height:44px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid var(--glass-line);flex:0 0 auto;">
+          <button class="btn ghost" type="button" onclick="aiStickerAdd()" style="flex:0 0 auto;">＋ 添加</button>
+        </div>
+        <p class="hint" id="stickerAddHint" style="font-size:11px;color:var(--green-dark);margin:8px 0 0;line-height:1.5;"></p>
+        <div id="stickerManageList" style="margin-top:10px;display:flex;flex-direction:column;gap:8px;"></div>
       </div>
-      <p class="hint" id="stickerAddHint" style="font-size:11px;color:var(--green-dark);margin:8px 0 0;line-height:1.5;"></p>
-      <div id="stickerManageList" style="margin-top:10px;display:flex;flex-direction:column;gap:8px;"></div>
     </div>
 
     <!-- ===================== 记忆系统（磁铁式） ===================== -->
@@ -2636,6 +2654,21 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <button class="btn primary" onclick="copyPayload()">复制全部</button>
     </div>
     <p class="hint" style="font-size:11px;color:var(--ink-soft);margin-top:12px;line-height:1.6;">这里展示「实际发给模型」的完整消息：系统提示词、近期日程、近期对话、工具调用结果。图片 base64 已省略。底部附最近一次视觉模型的调用与原始返回，发图结果不对时可对照排查。</p>
+  </div>
+</div>
+
+<!-- 提示词中心：按实际发送顺序集中查看/修改所有发给 AI 的提示词 -->
+<div class="mask" id="promptCenterMask" style="z-index:91;">
+  <div class="sheet glass-strong" style="max-height:90vh;display:flex;flex-direction:column;padding-bottom:14px;">
+    <h3>✎ 提示词中心</h3>
+    <p class="payload-meta">按实际发送顺序排列；实时更新的内容用占位符表示。这里是用来检查与修改提示词的地方，不是实时查看某次发送结果。</p>
+    <div id="promptCenterBody" style="flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;padding:2px 4px 10px 0;"></div>
+    <div class="row" style="flex:0 0 auto;margin:10px 0 0;gap:8px;">
+      <button class="btn ghost" onclick="closePromptCenter()">关闭</button>
+      <button class="btn ghost" onclick="copyPromptCenter()">复制全部</button>
+      <button class="btn primary" onclick="savePromptCenter()">保存修改</button>
+    </div>
+    <p class="hint" id="promptCenterHint" style="font-size:11px;color:var(--green-dark);margin:8px 0 0;line-height:1.5;"></p>
   </div>
 </div>
 
@@ -6275,6 +6308,7 @@ function closeTopOverlay(){
     {id:'pomoSetMask', close:closePomoSettings},
     {id:'pomoMask', close:closePomodoro},
     {id:'aiPayloadMask', close:closePayloadView},
+    {id:'promptCenterMask', close:closePromptCenter},
     {id:'aiSetMask', close:closeAISettings},
     {id:'aiMask', close:closeAI},
     {id:'dialogMask', close:hideDialog},
@@ -7711,6 +7745,166 @@ function copyPayload(){
     else text += '(空)\n';
   }
   const done = ()=>{ const b=document.querySelector('#aiPayloadMask .btn.primary'); if(b){ const o=b.textContent; b.textContent='已复制✓'; setTimeout(()=>b.textContent=o,1500); } };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(()=>{ fallbackCopy(text); done(); });
+  } else { fallbackCopy(text); done(); }
+}
+
+/* ====== 提示词中心：按发送顺序集中查看/修改所有发给 AI 的提示词 ====== */
+function openPromptCenter(){
+  renderPromptCenter();
+  openMask(document.getElementById('promptCenterMask'));
+}
+function closePromptCenter(){ closeMask(document.getElementById('promptCenterMask')); }
+function pcResetSystemTpl(){
+  const ta = document.getElementById('pcSystemTpl');
+  if(!ta) return;
+  ta.value = DEFAULT_SYSTEM_TPL;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认系统提示词，点「保存修改」生效。';
+}
+function pcResetIdentity(){
+  const ta = document.getElementById('pcMemIdentity');
+  if(!ta) return;
+  ta.value = DEFAULT_MEM_IDENTITY;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认关系身份，点「保存修改」生效。';
+}
+function renderPromptCenter(){
+  const wrap = document.getElementById('promptCenterBody');
+  if(!wrap) return;
+  const hint = document.getElementById('promptCenterHint');
+  if(hint) hint.textContent = '';
+  const cfg = getAiCfg();
+  const _ps = (pomoData && pomoData.settings) ? pomoData.settings : {};
+  const daysTask = cfg.daysTask != null ? cfg.daysTask : 21;
+  const daysCourse = cfg.daysCourse != null ? cfg.daysCourse : 21;
+  const rounds = cfg.roundsConv != null ? cfg.roundsConv : 8;
+  const vv = aiVoices();
+  const sysTpl = cfg.systemTpl !== undefined ? cfg.systemTpl : DEFAULT_SYSTEM_TPL;
+  const identity = memIdentity();
+  const roleProto = buildRoleProtocol();
+  const yueOn = !!_ps.miniYueText;
+  const yueText = '<粤语模式>用户粤语还在练习中，请用「简单日常粤语」回复：优先选常用、易懂的字词，避免生僻粤语字（能用「唔」「係」「嘅」「喺」「啲」「咁」「同埋」等常见字就用，拿不准时宁可用普通话词汇代替）。每句粤语后面用「〔普通：…〕」附一句普通话翻译（只翻关键词汇即可，不用逐字），方便用户对照理解。格式示例：「今日天气几好。〔普通：今天天气不错。〕」';
+  const liveParts = [
+    '<当前时间> {{当前实时时间}} </当前时间>',
+    '<天气> {{香港天气摘要}} </天气>',
+    '<天气警告> {{天气警告}} </天气警告>',
+    '<近期任务> {{未来近 '+daysTask+' 天任务}} </近期任务>',
+    '<近期课表> {{未来近 '+daysCourse+' 天课程}} </近期课表>',
+    '<角色今日生活氛围> {{零落/沈容今日生活痕迹（按日期确定性生成）}} </角色今日生活氛围>',
+    '[relationship] {{关系摘要（AI 自动刷新）}}',
+    '【动作回执】{{最近失败动作回执（有时无）}}',
+    '<近期回忆> {{日记/周记/月记摘要}} </近期回忆>',
+    '[magnet_memory] {{本地磁铁记忆召回（聊到关键词时出现）}}'
+  ].join('\n');
+  const sc = [];
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">1</span><span>系统提示词模板</span></div>'
+    + '<p class="prompt-desc">所有回复的底层规则，可直接改；{{TIME_ANCHOR}} 等标签在发送时替换为实时内容或移到对话末尾。</p>'
+    + '<textarea id="pcSystemTpl" class="prompt-body" rows="12">'+escHtml(sysTpl)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetSystemTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">2</span><span>关系身份 [identity]</span></div>'
+    + '<p class="prompt-desc">角色是谁、你们的关系基调，直接改；会以 [identity] 常驻块发送。</p>'
+    + '<textarea id="pcMemIdentity" class="prompt-body" rows="10">'+escHtml(identity)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetIdentity()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">3</span><span>角色扮演与音色协议</span></div>'
+    + '<p class="prompt-desc">由角色音色设置自动生成；角色名和开关改完点「保存修改」。</p>'
+    + '<div class="prompt-actions" style="margin-bottom:8px;">'
+    + '<label><input type="checkbox" id="pcVoiceOn"'+(vv.on !== false ? ' checked' : '')+'> 启用</label>'
+    + '<label>角色 A <input type="text" id="pcVoiceAName" value="'+escHtml(vv.a.name || '零落')+'"></label>'
+    + '<label>角色 B <input type="text" id="pcVoiceBName" value="'+escHtml(vv.b.name || '沈容')+'"></label>'
+    + '</div>'
+    + '<pre class="prompt-pre">'+escHtml(roleProto || '（角色音色未启用，此块不发送）')+'</pre></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">4</span><span>粤语文字模式</span></div>'
+    + '<p class="prompt-desc">开启后追加下面的 <粤语模式> 块，让助理用简单粤语回复。</p>'
+    + '<div class="prompt-actions" style="margin-bottom:8px;"><label><input type="checkbox" id="pcYueText"'+(yueOn ? ' checked' : '')+'> 开启（与助理设置/番茄钟设置联动）</label></div>'
+    + '<pre class="prompt-pre">'+escHtml(yueText)+'</pre></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">5</span><span>实时上下文（发送时自动生成）</span></div>'
+    + '<p class="prompt-desc">插在最新一条用户消息的开头，每轮实时刷新，这里只列出占位符；天数/轮数可在这里一并修改。</p>'
+    + '<div class="prompt-actions" style="margin-bottom:8px;">'
+    + '<label>近 <input type="number" id="pcDaysTask" min="0" max="120" value="'+daysTask+'"> 日任务</label>'
+    + '<label>近 <input type="number" id="pcDaysCourse" min="0" max="120" value="'+daysCourse+'"> 日课表</label>'
+    + '<label>近 <input type="number" id="pcRounds" min="0" max="40" value="'+rounds+'"> 轮对话</label>'
+    + '</div>'
+    + '<pre class="prompt-pre">'+escHtml(liveParts)+'</pre></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">6</span><span>对话历史</span></div>'
+    + '<p class="prompt-desc">发送时保留最近 '+rounds+' 轮往来消息（每轮含用户+助理一条）。</p>'
+    + '<pre class="prompt-pre">{{最近 '+rounds+' 轮对话历史}}</pre></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">7</span><span>用户最新指令</span></div>'
+    + '<p class="prompt-desc">最新这条用户消息会单独包起来，与上面的实时上下文区分。</p>'
+    + '<pre class="prompt-pre"><用户当前指令>\n{{用户最新这句话}}\n</用户当前指令></pre></div>');
+  wrap.innerHTML = sc.join('');
+}
+function savePromptCenter(){
+  const cfg = getAiCfg();
+  const sysEl = document.getElementById('pcSystemTpl');
+  const idEl = document.getElementById('pcMemIdentity');
+  const vOn = document.getElementById('pcVoiceOn');
+  const vA = document.getElementById('pcVoiceAName');
+  const vB = document.getElementById('pcVoiceBName');
+  const yue = document.getElementById('pcYueText');
+  const dt = document.getElementById('pcDaysTask');
+  const dc = document.getElementById('pcDaysCourse');
+  const rr = document.getElementById('pcRounds');
+  if(sysEl) cfg.systemTpl = sysEl.value;
+  if(idEl) localStorage.setItem(MEM_IDENTITY_KEY, idEl.value.trim());
+  if(vOn){
+    const vv = aiVoices();
+    vv.on = vOn.checked;
+    if(vA) vv.a.name = vA.value.trim() || '零落';
+    if(vB) vv.b.name = vB.value.trim() || '沈容';
+    localStorage.setItem(AI_VOICES_KEY, JSON.stringify(vv));
+  }
+  if(yue){
+    try{
+      if(!pomoData) pomoData = {settings:{}};
+      pomoData.settings = pomoData.settings || {};
+      pomoData.settings.miniYueText = yue.checked;
+      if(typeof savePomoData === 'function') savePomoData();
+    }catch(e){}
+  }
+  if(dt !== null) cfg.daysTask = clampInt(dt.value, 0, 120, 21);
+  if(dc !== null) cfg.daysCourse = clampInt(dc.value, 0, 120, 21);
+  if(rr !== null) cfg.roundsConv = clampInt(rr.value, 0, 40, 8);
+  localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg));
+  const sync = [
+    ['aiSystemTpl', sysEl ? sysEl.value : null],
+    ['aiMemIdentity', idEl ? idEl.value : null],
+    ['aiVoiceOn', vOn ? vOn.checked : null],
+    ['aiVoiceAName', vA ? (vA.value.trim() || '零落') : null],
+    ['aiVoiceBName', vB ? (vB.value.trim() || '沈容') : null],
+    ['aiYueText', yue ? yue.checked : null],
+    ['aiDaysTask', dt !== null ? cfg.daysTask : null],
+    ['aiDaysCourse', dc !== null ? cfg.daysCourse : null],
+    ['aiRounds', rr !== null ? cfg.roundsConv : null]
+  ];
+  sync.forEach(pair=>{
+    const el = document.getElementById(pair[0]);
+    if(!el || pair[1] == null) return;
+    if(el.type === 'checkbox') el.checked = !!pair[1];
+    else el.value = String(pair[1]);
+  });
+  if(aiConv && aiConv.length && aiConv[0].role === 'system') aiConv[0].content = buildSystem();
+  renderPromptCenter();
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已保存：系统提示词、关系身份、角色名、粤语模式与发送范围都已更新。';
+  toast('提示词已保存');
+}
+function copyPromptCenter(){
+  const wrap = document.getElementById('promptCenterBody');
+  if(!wrap) return;
+  const lines = [];
+  wrap.querySelectorAll('.prompt-section').forEach(sec=>{
+    const title = sec.querySelector('.prompt-title');
+    const ta = sec.querySelector('textarea.prompt-body');
+    const pre = sec.querySelector('pre.prompt-pre');
+    lines.push('【' + (title ? title.textContent.trim() : '') + '】');
+    if(ta) lines.push(ta.value);
+    else if(pre) lines.push(pre.textContent);
+    lines.push('');
+  });
+  const text = lines.join('\n');
+  const done = ()=>{ const b = document.querySelector('#promptCenterMask .btn.primary'); if(b){ const o = b.textContent; b.textContent='已复制✓'; setTimeout(()=>b.textContent=o,1500); } };
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(text).then(done).catch(()=>{ fallbackCopy(text); done(); });
   } else { fallbackCopy(text); done(); }
@@ -11900,7 +12094,6 @@ const AI_STICKERS = {
   '生气': ['https://iili.io/CLo4zmP.png'],
   '打你': ['https://i.imgant.com/v2/qM1qVjG.png'],
   '喜欢': ['https://i.imgant.com/v2/9xre7B6.png'],
-  '惊': ['https://i.imgant.com/v2/txenljb.png'],
   '抽烟': ['https://i.imgant.com/v2/h4vtL4m.png'],
   '可怜': ['https://i.imgant.com/v2/eDtXtLh.png'],
   '倒下': ['https://i.imgant.com/v2/AOwEjNc.png'],
@@ -11909,6 +12102,7 @@ const AI_STICKERS = {
   '盯': ['https://i.imgant.com/v2/oQz729n.png']
 };
 const AI_STICKERS_KEY = 'mhm_ai_stickers';
+const AI_STICKERS_REMOVED_KEY = 'mhm_ai_stickers_removed';
 function aiStickerUser(){
   try{
     const raw = JSON.parse(localStorage.getItem(AI_STICKERS_KEY) || 'null');
@@ -11926,9 +12120,17 @@ function aiStickerUser(){
     return out;
   }catch(e){ return {}; }
 }
+function aiStickerRemoved(){
+  try{
+    const arr = JSON.parse(localStorage.getItem(AI_STICKERS_REMOVED_KEY) || 'null');
+    return Array.isArray(arr) ? arr.filter(t=>typeof t === 'string' && t) : [];
+  }catch(e){ return []; }
+}
 function aiStickerMap(){
   const map = {};
-  Object.keys(AI_STICKERS).forEach(k=>{ map[k] = AI_STICKERS[k].slice(); });
+  const removed = {};
+  aiStickerRemoved().forEach(t=>{ removed[t] = true; });
+  Object.keys(AI_STICKERS).forEach(k=>{ if(!removed[k]) map[k] = AI_STICKERS[k].slice(); });
   const user = aiStickerUser();
   Object.keys(user).forEach(k=>{ map[k] = user[k].slice(); });
   return map;
@@ -11939,6 +12141,14 @@ function aiStickerSyncSystem(){
       aiConv[0].content = buildSystem();
     }
   }catch(e){}
+}
+function toggleStickerPanel(){
+  const body = document.getElementById('stickerCollapsible');
+  const head = document.getElementById('stickerHead');
+  if(!body) return;
+  const open = !body.classList.contains('open');
+  body.classList.toggle('open', open);
+  if(head) head.classList.toggle('open', open);
 }
 function aiStickerPreviewUrl(){
   const img = document.getElementById('aiStickerPreview');
@@ -11975,14 +12185,26 @@ function aiStickerAdd(){
   aiStickerSyncSystem();
 }
 function aiStickerRemove(tag){
-  const user = aiStickerUser();
-  delete user[tag];
-  localStorage.setItem(AI_STICKERS_KEY, JSON.stringify(user));
+  if(Object.prototype.hasOwnProperty.call(AI_STICKERS, tag)){
+    const removed = aiStickerRemoved();
+    if(!removed.includes(tag)) removed.push(tag);
+    localStorage.setItem(AI_STICKERS_REMOVED_KEY, JSON.stringify(removed));
+    const user = aiStickerUser();
+    if(Object.prototype.hasOwnProperty.call(user, tag)){
+      delete user[tag];
+      localStorage.setItem(AI_STICKERS_KEY, JSON.stringify(user));
+    }
+  }else{
+    const user = aiStickerUser();
+    delete user[tag];
+    localStorage.setItem(AI_STICKERS_KEY, JSON.stringify(user));
+  }
   renderStickerManage();
   aiStickerSyncSystem();
 }
 function aiStickerReset(){
   try{ localStorage.removeItem(AI_STICKERS_KEY); }catch(e){}
+  try{ localStorage.removeItem(AI_STICKERS_REMOVED_KEY); }catch(e){}
   renderStickerManage();
   aiStickerSyncSystem();
   const hint = document.getElementById('stickerAddHint');
@@ -11992,6 +12214,7 @@ function renderStickerManage(){
   const list = document.getElementById('stickerManageList');
   if(!list) return;
   const user = aiStickerUser();
+  const removed = aiStickerRemoved();
   const map = aiStickerMap();
   const tags = Object.keys(map).sort((a,b)=>a.localeCompare(b,'zh-Hans-CN'));
   list.innerHTML = '';
@@ -12027,20 +12250,20 @@ function renderStickerManage(){
       urlText.className = 'sticker-url';
       urlText.textContent = urls[0] || '';
       row.appendChild(urlText);
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'sticker-del';
-      del.title = '删除 [' + tag + ']';
-      del.textContent = '×';
-      del.onclick = ()=>aiStickerRemove(tag);
-      row.appendChild(del);
     }
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'sticker-del';
+    del.title = custom ? '删除自定义 [' + tag + ']' : '删除内置 [' + tag + ']';
+    del.textContent = '×';
+    del.onclick = ()=>aiStickerRemove(tag);
+    row.appendChild(del);
     list.appendChild(row);
   });
   const cnt = document.getElementById('stickerCount');
-  if(cnt) cnt.textContent = '内置 ' + Object.keys(AI_STICKERS).length + ' · 自定义 ' + Object.keys(user).length;
+  if(cnt) cnt.textContent = '内置 ' + (Object.keys(AI_STICKERS).length - removed.length) + ' · 自定义 ' + Object.keys(user).length;
   const reset = document.getElementById('stickerReset');
-  if(reset) reset.style.display = Object.keys(user).length ? '' : 'none';
+  if(reset) reset.style.display = (Object.keys(user).length || removed.length) ? '' : 'none';
 }
 function aiStickerPick(tag, seed, cache){
   const arr = cache || aiStickerMap()[tag];
@@ -12084,7 +12307,7 @@ function buildRoleProtocol(){
   if(!aiVoicesOn()) return '';
   const v = aiVoices();
   const stickerTags = Object.keys(aiStickerMap()).sort((a,b)=>a.localeCompare(b,'zh-Hans-CN')).join('、');
-  return '【角色扮演与音色】\n你扮演 [identity] 里设定的角色。回复时第一行必须用【' + v.a.name + '】或【' + v.b.name + '】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时不预设固定轮换、不用机械交替，以「角色今日生活氛围」里谁在场谁开口为第一原则，双方都在场或都合适时随机选，别让同一人连说太多轮（一般不超过两轮）。今天不在场的一方不要凭空出声，由在场的人转述他在忙什么；等他回来后，可以自然说说今天去了哪、办了什么事，再正常参与。\n表情包：绝大多数回复不带表情包（大概每 5-10 条才可能出现一个），完全看心情和当下氛围，随机自然，不要为了展示或讨好硬加。气氛真到位时句末最多放一个，只输出半角方括号标签，如 [贴贴]、[累]、[晚安]，可选标签：' + stickerTags + '。不要解释这个标签，也不要换成图片链接或 Markdown 图片。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。';
+  return '【角色扮演与音色】\n你扮演 [identity] 里设定的角色。回复时第一行必须用【' + v.a.name + '】或【' + v.b.name + '】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时不预设固定轮换、不用机械交替，以「角色今日生活氛围」里谁在场谁开口为第一原则，双方都在场或都合适时随机选，别让同一人连说太多轮（一般不超过两轮）。今天不在场的一方不要凭空出声，由在场的人转述他在忙什么；等他回来后，可以自然说说今天去了哪、办了什么事，再正常参与。\n表情包：全看心情，绝大多数回复不带，不要为了展示或讨好硬加。气氛真到位时句末最多放一个，只输出半角方括号标签，如 [贴贴]、[累]、[晚安]，可选标签：' + stickerTags + '。不要解释这个标签，也不要换成图片链接或 Markdown 图片。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。';
 }
 function syncVoiceUI(){
   const on = document.getElementById('aiVoiceOn') ? document.getElementById('aiVoiceOn').checked : true;
