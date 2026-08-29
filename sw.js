@@ -80,6 +80,7 @@ self.addEventListener('push', function(e){
   }catch(err){
     try{ data.body = e.data.text(); }catch(e2){}
   }
+  try{ fetch('https://yezi-push.2451087669.workers.dev/pong', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({t: Date.now()})}); }catch(e){}
   e.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
