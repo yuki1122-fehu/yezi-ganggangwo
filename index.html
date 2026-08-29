@@ -7095,7 +7095,7 @@ async function maybeAutoAIProactive(){
       else aiConv[0] = { role:'system', content: buildSystem() };
       const msgs = aiConv.slice();
       // 这条 user 只是内部触发指令，不进对话历史；发送时它就是最近一条「用户当前指令」，aiCall 会自动注入实时上下文。
-      msgs.push({ role:'user', content: '（系统自动触发，不是用户输入）崽崽刚打开工作台，还没来得及说话。请以「身份」里的角色主动先发来一条消息，像微信聊天那样自然开口：可以是问候、关心，也可以是真的想和崽崽分享的东西，甚至提前说说今天哪一方不在、晚点才回。内容和长短都由你按当下语境自然决定，不要因此写成任务清单复读、分点或新闻稿。只能依据当前时间、天气、近期任务/课表、心情记录和对话历史里明确出现过的事实；没有依据的行程、去向、心情不要编造。实在没什么可说的，就简单说一句当下的日常问候。另外：如果你发自内心觉得今晚（约 20:30）还想再叮嘱崽崽一句、或有一件小事想晚点告诉她，可以把那句话单独放在 <tonight>标签里（放在消息最后，不要解释、不要加多余文字）；没什么要说的就不写这个标签。' });
+      msgs.push({ role:'user', content: '（系统自动触发，不是用户输入）崽崽刚打开工作台，还没来得及说话。请以「身份」里的角色主动先发来一条消息，像微信聊天那样自然开口：可以是问候、关心，也可以是真的想和崽崽分享的东西，甚至提前说说今天哪一方不在、晚点才回。内容和长短都由你按当下语境自然决定，不要因此写成任务清单复读、分点或新闻稿。只能依据当前时间、天气、近期任务/课表、心情记录和对话历史里明确出现过的事实；没有依据的行程、去向、心情不要编造。实在没什么可说的，就简单说一句当下的日常问候。另外：如果你发自内心觉得今晚（约 20:30）还想再叮嘱崽崽一句、或有一件小事想晚点告诉她，可以把那句话单独放在 <tonight>标签里（放在消息最后，不要解释、不要加多余文字）；没什么要说的就不写这个标签。最后：动动你的脑子像真人和她相处那样想想——今天接下来（中午/下午/晚上）你有哪些时刻会自然想起崽崽、想以真人身份主动对她说点什么？（可以是某一刻想起的关心、想分享的小感受、想提醒她的事，语气像微信随口发的消息，不要分点、不要任务清单、不要新闻腔。）如果有，把每条这样安排进 <plans>JSON数组</plans> 标签里（放在 <tonight> 之后）：[{"t":"建议发送时间，如\"下午3点\"或\"19:00\"，不要写具体分秒挤在一起","text":"想说的话，一到两句，口语化"}...]，最多 3 条、时间分散在不同时段；每条都只能依据上面允许引用的事实，没依据的话宁可少写。如果接下来没什么想说的，整个 <plans> 标签都不要写。' });
       const r = await aiCall(msgs, cfg, 1, {noTools:true});
       const msg = r && r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message;
       if(!msg) return; // 失败/空响应不占当日次数
@@ -7109,6 +7109,14 @@ async function maybeAutoAIProactive(){
         msg.content = content.replace(/<tonight>[\s\S]*?<\/tonight>/g, '').replace(/\n{3,}/g, '\n\n').trim();
       } else {
         msg.content = content;
+      }
+      // 「主动消息银行」：AI 想晚些时候像真人一样主动找崽崽说的话（<plans> JSON 数组）→ 批量预约到点推送
+      const plansM = msg.content.match(/<plans>([\s\S]*?)<\/plans>/);
+      if(plansM){
+        msg.content = msg.content.replace(/<plans>[\s\S]*?<\/plans>/g, '').replace(/\n{3,}/g, '\n\n').trim();
+        let plansArr = null;
+        try{ plansArr = JSON.parse(plansM[1].trim()); }catch(e){ plansArr = null; }
+        if(Array.isArray(plansArr)) aiBankPushPlans(plansArr); // 后台预约，不阻塞本次主动开口
       }
       msg.id = msg.id || 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
       aiConv.push(msg);
@@ -7248,6 +7256,39 @@ async function pushSchedule(title, body, atMs){
     const d = await r.json().catch(()=>({}));
     return !!(d && d.ok);
   }catch(e){ return false; }
+}
+/* ---- 主动消息银行：AI 像真人一样一天里主动找你的几条消息 ----
+   每次打开 App 时 AI 主动开口的同时，可额外生成 2-3 条「接下来想说的话」
+   （<plans> JSON），这里逐条预约到推送中继；到点 App 关闭也会弹窗。
+   每天最多一批（localStorage 去重），宁缺毋滥。 */
+const AI_BANK_KEY = 'mhm_ai_bank';
+const AI_BANK_MAX_PER_DAY = 3;  // 每天最多预约条数（AI 生成超过也只取前 N）
+function aiBankScheduledToday(){
+  try{
+    const r = JSON.parse(localStorage.getItem(AI_BANK_KEY) || 'null');
+    return !!(r && r.date === todayStr() && (Number(r.count) || 0) > 0);
+  }catch(e){ return false; }
+}
+async function aiBankPushPlans(plans){
+  if(!Array.isArray(plans) || aiBankScheduledToday()) return 0; // 今天已有预约：不重复刷屏
+  let okCount = 0;
+  const picked = [];
+  for(const p of plans.slice(0, AI_BANK_MAX_PER_DAY)){
+    const t = p && p.t ? String(p.t).trim() : '';
+    const tx = p && p.text ? String(p.text).trim() : '';
+    if(!tx || tx.length < 4) continue;              // 空话/太短的忽略
+    const atMs = pushParseTime(t);
+    if(!atMs) continue;                             // 时间没搞懂就跳过，不猜
+    const okFlag = await pushSchedule('叶子港港窝', tx.slice(0,120), atMs);
+    if(okFlag){ okCount++; picked.push(tx); }
+  }
+  if(okCount > 0){
+    try{ localStorage.setItem(AI_BANK_KEY, JSON.stringify({date: todayStr(), count: okCount})); }catch(e){}
+    setPushHint('角色安排了 ' + okCount + ' 条主动消息：比如「' + (picked[0] ? picked[0].slice(0,22) : '') + (picked.length > 1 ? '…' : '') + '」，今天会像真人一样弹给你 💌');
+  } else if(pushWorkerReady() && !pushEnabled()){
+    setPushHint('角色有话想晚点对你说，先把「后台消息推送」打开才会送到你手机上');
+  }
+  return okCount;
 }
 function setPushHint(t){
   const el = document.getElementById('pushHint');
