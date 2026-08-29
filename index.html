@@ -2294,14 +2294,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <input id="aiBase" placeholder="或手动输入 Base URL" value="">
     <label>API Key</label>
     <input id="aiKey" placeholder="API Key" type="password">
-    <label>其余系统提示词（一般不用动，出问题才改）
-      <span style="font-size:11px;color:var(--ink-soft)">占位符：{{TIME_ANCHOR}} 当前时间、{{WEATHER}} 香港天气、{{WARNINGS}} 天气警告、{{SCHEDULE}} 近期任务/课表。默认模板已用 &lt;当前时间&gt;&lt;天气&gt; 等标签组织，AI 对"现在几点"等更敏感。留空则用默认。风格与语气统一在「🧠 记忆」的关系身份里设，这里只管系统骨架。</span>
-    </label>
-    <textarea id="aiSystemTpl" style="min-height:220px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre;"></textarea>
-    <div style="display:flex;gap:8px;align-items:center;margin:6px 0 2px;">
-      <button class="btn ghost" type="button" onclick="resetSystemTpl()" style="flex:0 0 auto;">↺ 一键恢复默认</button>
-      <span id="tplHint" style="font-size:11px;color:var(--ink-soft);"></span>
-    </div>
+    <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.6;">
+      系统提示词、关系身份、音色协议、表情包协议、粤语模式等全部统一在右侧「✎ 提示词中心」里改，这里只保留连接与模型设置。
+    </p>
     <label>模型</label>
     <input id="aiModel" list="modelList" placeholder="如 deepseek-v4-flash">
     <datalist id="modelList">
@@ -2516,10 +2511,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
         助理会把你们的对话自动沉淀成带标签的记忆（关键词 / 情感 / 主题），你聊到某个词时，相关回忆会自动浮上来——陪伴生动感优先，固定代办不占记忆。打标在后台分批跑，不拖慢聊天。长按任意气泡可手动圈选对话、按你的要求写成一条记忆（总结只进记忆，不影响日记）。
         </p>
       <div id="memFields" style="transition:opacity .25s;">
-        <label>关系身份（常驻块，最值得改）
-          <span style="font-size:11px;color:var(--ink-soft)">叶子是谁、我们的关系基调——决定助理「记得什么、以什么身份相处」。可以直接整段粘贴你的 OC 设定（多个人格也行，配合下方「角色音色」自动切换声音）。注意：设定较长时每轮对话都会发给模型，会占 token，建议保留关键人格段即可。</span>
-        </label>
-        <textarea id="aiMemIdentity" style="min-height:220px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.55;white-space:pre;"></textarea>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
+          关系身份（常驻块）已统一到「✎ 提示词中心」里修改，这里只管理记忆库本身。
+        </p>
         <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
           <button class="btn ghost" type="button" onclick="memTagNow()" style="flex:0 0 auto;">⚡ 立即打标</button>
@@ -6753,13 +6747,13 @@ function buildSystem(){
     .replace(/<角色身份>\s*<\/角色身份>/g, ''); // 清掉旧自定义模板残留的空壳标签（DEFAULT 已无此标签；历史自定义模板带 <角色身份></角色身份> 白费 token）
   const memBlocks = buildMemorySyncBlocks(); // 记忆常驻块：仅关系身份（关系摘要/动作回执/磁铁召回皆为动态内容，改在发送时注入末尾 user 消息，见 buildLiveContext —— 动态块进 system 会打穿 prefix cache）
   if(memBlocks) sys += '\n\n' + memBlocks;
-  const roleProto = buildRoleProtocol(); // 多角色音色协议：强制回复以【角色名】开头（音色切换用）
+  const roleProto = buildRoleProtocol(); // 音色协议（强制回复以【角色名】开头，音色切换用）+ 表情包协议
   if(roleProto) sys += '\n\n' + roleProto;
   // 粤语文字输出开关：开启后自动注入"用粤语回复"指令（练粤语用），配合语音粤语 language_boost=Chinese,Yue 成完整粤语对话
   try{
     const _ps = (pomoData && pomoData.settings) ? pomoData.settings : {};
     if(_ps.miniYueText){
-      sys += '\n\n<粤语模式>用户粤语还在练习中，请用「简单日常粤语」回复：优先选常用、易懂的字词，避免生僻粤语字（能用「唔」「係」「嘅」「喺」「啲」「咁」「同埋」等常见字就用，拿不准时宁可用普通话词汇代替）。每句粤语后面用「〔普通：…〕」附一句普通话翻译（只翻关键词汇即可，不用逐字），方便用户对照理解。格式示例：「今日天气几好。〔普通：今天天气不错。〕」';
+      sys += '\n\n<粤语模式>\n用户粤语还在练习中，请用「简单日常粤语」回复：优先选常用、易懂的字词，避免生僻粤语字（能用「唔」「係」「嘅」「喺」「啲」「咁」「同埋」等常见字就用，拿不准时宁可用普通话词汇代替）。每句粤语后面用「〔普通：…〕」附一句普通话翻译（只翻关键词汇即可，不用逐字），方便用户对照理解。格式示例：「今日天气几好。〔普通：今天天气不错。〕」\n</粤语模式>';
     }
   }catch(e){}
   return sys;
@@ -7087,7 +7081,7 @@ function buildLiveContext(){
   const day = buildDayTraces();
   if(day) s += '\n\n' + day;
   const rel = memRelBlock();   // 动态：每 12 条消息打标后重写，挪到末尾注入（不再嵌 system）
-  if(rel) s += '\n[relationship]\n' + rel;
+  if(rel) s += '\n<关系摘要>\n' + rel + '\n</关系摘要>';
   const fb = memFeedbackTail(); // 动态：失败回执，60min TTL 时有时无，同样挪到末尾
   if(fb) s += '\n' + fb;
   if(AI_JOURNAL_CTX){ // 日记/周记/月记（memJournalRefreshCtx 异步预取）；限长防注入块膨胀（越长 miss 越多，拉低缓存命中率）
@@ -7528,14 +7522,11 @@ function openAISettings(){
   const _ps2 = (pomoData && pomoData.settings) ? pomoData.settings : {};
   document.getElementById('aiYueVoice').checked = (_ps2.miniLang === 'Chinese,Yue');
   document.getElementById('aiYueText').checked = !!_ps2.miniYueText;
-  document.getElementById('aiSystemTpl').value = (cfg.systemTpl!==undefined ? cfg.systemTpl : DEFAULT_SYSTEM_TPL);
-  document.getElementById('tplHint').textContent='';
   document.getElementById('aiDaysTask').value = (cfg.daysTask!=null ? cfg.daysTask : 21);
   document.getElementById('aiDaysCourse').value = (cfg.daysCourse!=null ? cfg.daysCourse : 21);
   document.getElementById('aiRounds').value = (cfg.roundsConv!=null ? cfg.roundsConv : 8);
   // 记忆系统（磁铁式）
   document.getElementById('aiMemOn').checked = (localStorage.getItem(MEM_ENABLED_KEY) !== '0');
-  document.getElementById('aiMemIdentity').value = memIdentity();
   document.getElementById('memTagHint').textContent = '';
   syncMemUI();
   memRefreshStats();
@@ -7545,12 +7536,6 @@ function openAISettings(){
   document.getElementById('aiSetHint').textContent='';
   updateBackupUI();
   openMask(document.getElementById('aiSetMask'));
-}
-function resetSystemTpl(){
-  const ta = document.getElementById('aiSystemTpl');
-  if(!ta) return;
-  ta.value = DEFAULT_SYSTEM_TPL;
-  document.getElementById('tplHint').textContent='已恢复默认，点「保存」生效。';
 }
 /* ---- 视觉模型开关联动：关掉时配置区变灰禁用 ---- */
 function syncVisionUI(){
@@ -7770,6 +7755,20 @@ function pcResetIdentity(){
   const h = document.getElementById('promptCenterHint');
   if(h) h.textContent = '已恢复默认关系身份，点「保存修改」生效。';
 }
+function pcResetVoiceProto(){
+  const ta = document.getElementById('pcVoiceProto');
+  if(!ta) return;
+  ta.value = DEFAULT_VOICE_PROTO_TPL;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认音色协议，点「保存修改」生效。';
+}
+function pcResetStickerProto(){
+  const ta = document.getElementById('pcStickerProto');
+  if(!ta) return;
+  ta.value = DEFAULT_STICKER_PROTO_TPL;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认表情包协议，点「保存修改」生效。';
+}
 function renderPromptCenter(){
   const wrap = document.getElementById('promptCenterBody');
   if(!wrap) return;
@@ -7783,9 +7782,10 @@ function renderPromptCenter(){
   const vv = aiVoices();
   const sysTpl = cfg.systemTpl !== undefined ? cfg.systemTpl : DEFAULT_SYSTEM_TPL;
   const identity = memIdentity();
-  const roleProto = buildRoleProtocol();
+  const voiceProto = (cfg.voiceProtoTpl !== undefined && cfg.voiceProtoTpl.trim()) ? cfg.voiceProtoTpl.trim() : DEFAULT_VOICE_PROTO_TPL;
+  const stickerProto = (cfg.stickerProtoTpl !== undefined && cfg.stickerProtoTpl.trim()) ? cfg.stickerProtoTpl.trim() : DEFAULT_STICKER_PROTO_TPL;
   const yueOn = !!_ps.miniYueText;
-  const yueText = '<粤语模式>用户粤语还在练习中，请用「简单日常粤语」回复：优先选常用、易懂的字词，避免生僻粤语字（能用「唔」「係」「嘅」「喺」「啲」「咁」「同埋」等常见字就用，拿不准时宁可用普通话词汇代替）。每句粤语后面用「〔普通：…〕」附一句普通话翻译（只翻关键词汇即可，不用逐字），方便用户对照理解。格式示例：「今日天气几好。〔普通：今天天气不错。〕」';
+  const yueText = '<粤语模式>\n用户粤语还在练习中，请用「简单日常粤语」回复：优先选常用、易懂的字词，避免生僻粤语字（能用「唔」「係」「嘅」「喺」「啲」「咁」「同埋」等常见字就用，拿不准时宁可用普通话词汇代替）。每句粤语后面用「〔普通：…〕」附一句普通话翻译（只翻关键词汇即可，不用逐字），方便用户对照理解。格式示例：「今日天气几好。〔普通：今天天气不错。〕」\n</粤语模式>';
   const liveParts = [
     '<当前时间> {{当前实时时间}} </当前时间>',
     '<天气> {{香港天气摘要}} </天气>',
@@ -7793,33 +7793,38 @@ function renderPromptCenter(){
     '<近期任务> {{未来近 '+daysTask+' 天任务}} </近期任务>',
     '<近期课表> {{未来近 '+daysCourse+' 天课程}} </近期课表>',
     '<角色今日生活氛围> {{零落/沈容今日生活痕迹（按日期确定性生成）}} </角色今日生活氛围>',
-    '[relationship] {{关系摘要（AI 自动刷新）}}',
-    '【动作回执】{{最近失败动作回执（有时无）}}',
+    '<关系摘要> {{关系摘要（AI 自动刷新）}} </关系摘要>',
+    '<动作回执> {{最近失败动作回执（有时无）}} </动作回执>',
     '<近期回忆> {{日记/周记/月记摘要}} </近期回忆>',
-    '[magnet_memory] {{本地磁铁记忆召回（聊到关键词时出现）}}'
+    '<磁铁记忆> {{本地磁铁记忆召回（聊到关键词时出现）}} </磁铁记忆>'
   ].join('\n');
   const sc = [];
   sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">1</span><span>系统提示词模板</span></div>'
     + '<p class="prompt-desc">所有回复的底层规则，可直接改；{{TIME_ANCHOR}} 等标签在发送时替换为实时内容或移到对话末尾。</p>'
     + '<textarea id="pcSystemTpl" class="prompt-body" rows="12">'+escHtml(sysTpl)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetSystemTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">2</span><span>关系身份 [identity]</span></div>'
-    + '<p class="prompt-desc">角色是谁、你们的关系基调，直接改；会以 [identity] 常驻块发送。</p>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">2</span><span>关系身份 &lt;身份&gt;</span></div>'
+    + '<p class="prompt-desc">角色是谁、你们的关系基调，直接改；会以 &lt;身份&gt; 常驻块发送。</p>'
     + '<textarea id="pcMemIdentity" class="prompt-body" rows="10">'+escHtml(identity)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetIdentity()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">3</span><span>角色扮演与音色协议</span></div>'
-    + '<p class="prompt-desc">由角色音色设置自动生成；角色名和开关改完点「保存修改」。</p>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">3</span><span>音色协议 &lt;音色协议&gt;</span></div>'
+    + '<p class="prompt-desc">角色切换规则，独立于表情包协议；{{ROLE_A}} / {{ROLE_B}} 在发送时替换成你填的角色名。</p>'
     + '<div class="prompt-actions" style="margin-bottom:8px;">'
     + '<label><input type="checkbox" id="pcVoiceOn"'+(vv.on !== false ? ' checked' : '')+'> 启用</label>'
     + '<label>角色 A <input type="text" id="pcVoiceAName" value="'+escHtml(vv.a.name || '零落')+'"></label>'
     + '<label>角色 B <input type="text" id="pcVoiceBName" value="'+escHtml(vv.b.name || '沈容')+'"></label>'
     + '</div>'
-    + '<pre class="prompt-pre">'+escHtml(roleProto || '（角色音色未启用，此块不发送）')+'</pre></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">4</span><span>粤语文字模式</span></div>'
-    + '<p class="prompt-desc">开启后追加下面的 <粤语模式> 块，让助理用简单粤语回复。</p>'
+    + '<textarea id="pcVoiceProto" class="prompt-body" rows="8">'+escHtml(voiceProto)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetVoiceProto()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">4</span><span>表情包协议 &lt;表情包协议&gt;</span></div>'
+    + '<p class="prompt-desc">表情包使用规则，独立于音色协议；{{STICKER_TAGS}} 在发送时替换成当前可用标签（含自定义）。</p>'
+    + '<textarea id="pcStickerProto" class="prompt-body" rows="6">'+escHtml(stickerProto)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetStickerProto()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">5</span><span>粤语文字模式</span></div>'
+    + '<p class="prompt-desc">开启后追加下面的 &lt;粤语模式&gt; 块，让助理用简单粤语回复。</p>'
     + '<div class="prompt-actions" style="margin-bottom:8px;"><label><input type="checkbox" id="pcYueText"'+(yueOn ? ' checked' : '')+'> 开启（与助理设置/番茄钟设置联动）</label></div>'
     + '<pre class="prompt-pre">'+escHtml(yueText)+'</pre></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">5</span><span>实时上下文（发送时自动生成）</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">6</span><span>实时上下文（发送时自动生成）</span></div>'
     + '<p class="prompt-desc">插在最新一条用户消息的开头，每轮实时刷新，这里只列出占位符；天数/轮数可在这里一并修改。</p>'
     + '<div class="prompt-actions" style="margin-bottom:8px;">'
     + '<label>近 <input type="number" id="pcDaysTask" min="0" max="120" value="'+daysTask+'"> 日任务</label>'
@@ -7827,10 +7832,10 @@ function renderPromptCenter(){
     + '<label>近 <input type="number" id="pcRounds" min="0" max="40" value="'+rounds+'"> 轮对话</label>'
     + '</div>'
     + '<pre class="prompt-pre">'+escHtml(liveParts)+'</pre></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">6</span><span>对话历史</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">7</span><span>对话历史</span></div>'
     + '<p class="prompt-desc">发送时保留最近 '+rounds+' 轮往来消息（每轮含用户+助理一条）。</p>'
-    + '<pre class="prompt-pre">{{最近 '+rounds+' 轮对话历史}}</pre></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">7</span><span>用户最新指令</span></div>'
+    + '<pre class="prompt-pre"><对话历史>\n{{最近 '+rounds+' 轮对话历史}}\n</对话历史></pre></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">8</span><span>用户最新指令</span></div>'
     + '<p class="prompt-desc">最新这条用户消息会单独包起来，与上面的实时上下文区分。</p>'
     + '<pre class="prompt-pre"><用户当前指令>\n{{用户最新这句话}}\n</用户当前指令></pre></div>');
   wrap.innerHTML = sc.join('');
@@ -7839,6 +7844,8 @@ function savePromptCenter(){
   const cfg = getAiCfg();
   const sysEl = document.getElementById('pcSystemTpl');
   const idEl = document.getElementById('pcMemIdentity');
+  const vpEl = document.getElementById('pcVoiceProto');
+  const spEl = document.getElementById('pcStickerProto');
   const vOn = document.getElementById('pcVoiceOn');
   const vA = document.getElementById('pcVoiceAName');
   const vB = document.getElementById('pcVoiceBName');
@@ -7848,6 +7855,8 @@ function savePromptCenter(){
   const rr = document.getElementById('pcRounds');
   if(sysEl) cfg.systemTpl = sysEl.value;
   if(idEl) localStorage.setItem(MEM_IDENTITY_KEY, idEl.value.trim());
+  if(vpEl) cfg.voiceProtoTpl = vpEl.value;
+  if(spEl) cfg.stickerProtoTpl = spEl.value;
   if(vOn){
     const vv = aiVoices();
     vv.on = vOn.checked;
@@ -7868,8 +7877,6 @@ function savePromptCenter(){
   if(rr !== null) cfg.roundsConv = clampInt(rr.value, 0, 40, 8);
   localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg));
   const sync = [
-    ['aiSystemTpl', sysEl ? sysEl.value : null],
-    ['aiMemIdentity', idEl ? idEl.value : null],
     ['aiVoiceOn', vOn ? vOn.checked : null],
     ['aiVoiceAName', vA ? (vA.value.trim() || '零落') : null],
     ['aiVoiceBName', vB ? (vB.value.trim() || '沈容') : null],
@@ -7887,7 +7894,7 @@ function savePromptCenter(){
   if(aiConv && aiConv.length && aiConv[0].role === 'system') aiConv[0].content = buildSystem();
   renderPromptCenter();
   const h = document.getElementById('promptCenterHint');
-  if(h) h.textContent = '已保存：系统提示词、关系身份、角色名、粤语模式与发送范围都已更新。';
+  if(h) h.textContent = '已保存：系统提示词、关系身份、音色协议、表情包协议、角色名、粤语模式与发送范围都已更新。';
   toast('提示词已保存');
 }
 function copyPromptCenter(){
@@ -7966,7 +7973,7 @@ function clampInt(v, min, max, dflt){
   return Math.min(max, Math.max(min, n));
 }
 function saveAISettings(){
-  const cfg = {
+  const cfg = Object.assign({}, getAiCfg(), {
     mode: document.getElementById('aiMode').value,
     relayUrl: document.getElementById('aiRelay').value.trim(),
     baseUrl: document.getElementById('aiBase').value.trim(),
@@ -7976,18 +7983,15 @@ function saveAISettings(){
     visionBase: document.getElementById('aiVisionBase').value.trim(),
     visionKey: document.getElementById('aiVisionKey').value.trim(),
     visionModel: document.getElementById('aiVisionModel').value.trim(),
-    systemTpl: document.getElementById('aiSystemTpl').value,
     daysTask: clampInt(document.getElementById('aiDaysTask').value, 0, 120, 21),
     daysCourse: clampInt(document.getElementById('aiDaysCourse').value, 0, 120, 21),
     roundsConv: clampInt(document.getElementById('aiRounds').value, 0, 40, 8),
     aiTts: document.getElementById('aiTtsOn').checked,
     aiTtsMode: document.getElementById('aiTtsMode').value === 'full' ? 'full' : 'brief',
     memOn: document.getElementById('aiMemOn').checked,
-    memIdentity: document.getElementById('aiMemIdentity').value,
-  };
+  });
   localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg));
   localStorage.setItem(MEM_ENABLED_KEY, document.getElementById('aiMemOn').checked ? '1' : '0');
-  localStorage.setItem(MEM_IDENTITY_KEY, document.getElementById('aiMemIdentity').value.trim());
   // 角色音色（多角色自动切换）
   const aEngine = document.getElementById('aiVoiceAEngine').value;
   const bEngine = document.getElementById('aiVoiceBEngine').value;
@@ -9102,7 +9106,7 @@ function memFeedbackTail(){
       lines.push('· 刚才 [[ ' + (f.name || '动作') + ' ]] 没做成：' + f.reason);
     }
     if(!lines.length) return '';
-    return '【动作回执】\n' + lines.join('\n');
+    return '<动作回执>\n' + lines.join('\n') + '\n</动作回执>';
   }catch(e){ return ''; }
 }
 function memRecordActionFail(name, reason){
@@ -9122,11 +9126,11 @@ function memResolveActionFail(name){
 }
 // ---- 分层注入（§4）：常驻块进 buildSystem（同步）；磁铁块按轮注入（异步） ----
 function buildMemorySyncBlocks(){
-  // 缓存友好：system 只放真正静态的 [identity]；关系摘要 / 动作回执这些会变的内容移出 system，
+  // 缓存友好：system 只放真正静态的 <身份>；关系摘要 / 动作回执这些会变的内容移出 system，
   // 改由 buildLiveContext 在发送时合并进末尾 user 消息（动态块嵌在 system 中部会打穿 prefix cache，连带历史全 miss）
   if(!memEnabled()) return '';
   const identity = memIdentity();
-  return (identity && identity.trim()) ? ('[identity]\n' + identity.trim()) : '';
+  return (identity && identity.trim()) ? ('<身份>\n' + identity.trim() + '\n</身份>') : '';
 }
 function memLastUserText(){
   if(!aiConv) return '';
@@ -9150,7 +9154,7 @@ async function memInjectMagnet(userText){
     // 改存模块变量，由 injectTimeAnchor 随发送副本并入末尾 user 消息，消费即清。
     // 限条限长：召回块是每轮必变的 miss 部分，越大越拉低缓存命中率；5 条 × 80 字足够给 AI 提示，不用全量。
     const cap = rec.slice(0,5).map(x=>{ const t=String(x||''); return t.length>80 ? t.slice(0,80)+'…' : t; });
-    AI_MAGNET_BLOCK = '[magnet_memory]\n' + cap.join('\n');
+    AI_MAGNET_BLOCK = '<磁铁记忆>\n' + cap.join('\n') + '\n</磁铁记忆>';
   }catch(e){}
 }
 // ---- 设置页 UI ----
@@ -12303,11 +12307,31 @@ function appendAiBubbleText(d, text, seed){
   if(last < t.length) d.appendChild(document.createTextNode(t.slice(last)));
   if(!d.childNodes.length) d.textContent = t;
 }
-function buildRoleProtocol(){
+const DEFAULT_VOICE_PROTO_TPL = '<音色协议>\n你扮演「身份」区块里设定的角色。回复时第一行必须用【{{ROLE_A}}】或【{{ROLE_B}}】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时不预设固定轮换、不用机械交替，以「角色今日生活氛围」里谁在场谁开口为第一原则，双方都在场或都合适时随机选，别让同一人连说太多轮（一般不超过两轮）。今天不在场的一方不要凭空出声，由在场的人转述他在忙什么；等他回来后，可以自然说说今天去了哪、办了什么事，再正常参与。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。\n</音色协议>';
+const DEFAULT_STICKER_PROTO_TPL = '<表情包协议>\n表情包：全看心情，绝大多数回复不带，不要为了展示或讨好硬加。气氛真到位时句末最多放一个，只输出半角方括号标签，如 [贴贴]、[累]、[晚安]，可选标签：{{STICKER_TAGS}}。不要解释这个标签，也不要换成图片链接或 Markdown 图片。\n</表情包协议>';
+function buildVoiceProtocol(){
   if(!aiVoicesOn()) return '';
+  const cfg = getAiCfg();
   const v = aiVoices();
+  const tpl = (cfg.voiceProtoTpl && cfg.voiceProtoTpl.trim()) ? cfg.voiceProtoTpl.trim() : DEFAULT_VOICE_PROTO_TPL;
+  return tpl
+    .replace(/\{\{ROLE_A\}\}/g, ()=>String(v.a.name || '零落'))
+    .replace(/\{\{ROLE_B\}\}/g, ()=>String(v.b.name || '沈容'))
+    .trim();
+}
+function buildStickerProtocol(){
+  const cfg = getAiCfg();
+  const tpl = (cfg.stickerProtoTpl && cfg.stickerProtoTpl.trim()) ? cfg.stickerProtoTpl.trim() : DEFAULT_STICKER_PROTO_TPL;
   const stickerTags = Object.keys(aiStickerMap()).sort((a,b)=>a.localeCompare(b,'zh-Hans-CN')).join('、');
-  return '【角色扮演与音色】\n你扮演 [identity] 里设定的角色。回复时第一行必须用【' + v.a.name + '】或【' + v.b.name + '】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时不预设固定轮换、不用机械交替，以「角色今日生活氛围」里谁在场谁开口为第一原则，双方都在场或都合适时随机选，别让同一人连说太多轮（一般不超过两轮）。今天不在场的一方不要凭空出声，由在场的人转述他在忙什么；等他回来后，可以自然说说今天去了哪、办了什么事，再正常参与。\n表情包：全看心情，绝大多数回复不带，不要为了展示或讨好硬加。气氛真到位时句末最多放一个，只输出半角方括号标签，如 [贴贴]、[累]、[晚安]，可选标签：' + stickerTags + '。不要解释这个标签，也不要换成图片链接或 Markdown 图片。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。';
+  return tpl.replace(/\{\{STICKER_TAGS\}\}/g, ()=>stickerTags).trim();
+}
+function buildRoleProtocol(){
+  const parts = [];
+  const vp = buildVoiceProtocol();
+  if(vp) parts.push(vp);
+  const sp = buildStickerProtocol();
+  if(sp) parts.push(sp);
+  return parts.join('\n\n');
 }
 function syncVoiceUI(){
   const on = document.getElementById('aiVoiceOn') ? document.getElementById('aiVoiceOn').checked : true;
@@ -13957,26 +13981,28 @@ init();
   // ── 专注轻量提示词装配（会话开始冻结 3 常驻 + 每轮替换 volatile 视觉）──
   async function buildFocusPrefix(){
     const blocks=[];
-    // [identity] 用用户自定义的「关系身份」（memIdentity()，未设置时回退默认）——之前硬编码 DEFAULT_MEM_IDENTITY，用户配的身份没被引用
-    blocks.push('[identity]\n'+((typeof memIdentity==='function'?memIdentity():DEFAULT_MEM_IDENTITY)||'').trim());
+    // <身份> 用用户自定义的「关系身份」（memIdentity()，未设置时回退默认）——之前硬编码 DEFAULT_MEM_IDENTITY，用户配的身份没被引用
+    const idTxt=((typeof memIdentity==='function'?memIdentity():DEFAULT_MEM_IDENTITY)||'').trim();
+    if(idTxt) blocks.push('<身份>\n'+idTxt+'\n</身份>');
     const recent=await focusRecentSummary();
-    if(recent) blocks.push('[recent]\n'+recent);
+    if(recent) blocks.push('<近期记忆>\n'+recent+'\n</近期记忆>');
     const task=(session&&session.taskNow&&session.taskNow.trim())?session.taskNow.trim():'这场的专注任务未设定，随意陪伴即可。';
-    blocks.push('[task_now]\n'+task);
+    blocks.push('<当前任务>\n'+task+'\n</当前任务>');
     const rp=(typeof buildRoleProtocol==='function')?buildRoleProtocol():null; if(rp) blocks.push(rp);
-    blocks.push('[陪伴规则]\n你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n你有本次会话的记忆：下方对话记录里能看到你们之前聊过什么（包括你自己说过的话），主动开口前先回想自己刚才说过什么——已经提醒过的事不要重复说，换个时机或换个说法；用户主动接话时基于上下文自然延续，而不是每次都像第一次见面。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。');
+    blocks.push('<陪伴规则>\n你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n你有本次会话的记忆：下方对话记录里能看到你们之前聊过什么（包括你自己说过的话），主动开口前先回想自己刚才说过什么——已经提醒过的事不要重复说，换个时机或换个说法；用户主动接话时基于上下文自然延续，而不是每次都像第一次见面。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。\n</陪伴规则>');
     // 粤语文字输出开关：开启后自动注入"用粤语回复"指令（练粤语用），配合语音粤语 language_boost=Chinese,Yue 成完整粤语对话
     try{
       const _ps=(pomoData&&pomoData.settings)?pomoData.settings:{};
-      if(_ps.miniYueText) blocks.push('[粤语模式]\n用户粤语还在练习中，请用「简单日常粤语」回复：优先选常用、易懂的字词，避免生僻粤语字（能用「唔」「係」「嘅」「喺」「啲」「咁」「同埋」等常见字就用，拿不准时宁可用普通话词汇代替）。每句粤语后面用「〔普通：…〕」附一句普通话翻译（只翻关键词汇即可，不用逐字），方便用户对照理解。格式示例：「今日天气几好。〔普通：今天天气不错。〕」');
+      if(_ps.miniYueText) blocks.push('<粤语模式>\n用户粤语还在练习中，请用「简单日常粤语」回复：优先选常用、易懂的字词，避免生僻粤语字（能用「唔」「係」「嘅」「喺」「啲」「咁」「同埋」等常见字就用，拿不准时宁可用普通话词汇代替）。每句粤语后面用「〔普通：…〕」附一句普通话翻译（只翻关键词汇即可，不用逐字），方便用户对照理解。格式示例：「今日天气几好。〔普通：今天天气不错。〕」\n</粤语模式>');
     }catch(e){}
     return blocks.join('\n\n');
   }
   function defaultResident(){
-    let r='[identity]\n'+((typeof memIdentity==='function'?memIdentity():DEFAULT_MEM_IDENTITY)||'')+'\n\n[task_now]\n'+((session&&session.taskNow)?session.taskNow:'随意陪伴');
+    const idTxt=((typeof memIdentity==='function'?memIdentity():DEFAULT_MEM_IDENTITY)||'').trim();
+    let r='<身份>\n'+idTxt+'\n</身份>\n\n<当前任务>\n'+((session&&session.taskNow)?session.taskNow:'随意陪伴')+'\n</当前任务>';
     try{
       const _ps=(pomoData&&pomoData.settings)?pomoData.settings:{};
-      if(_ps.miniYueText) r+='\n\n[粤语模式]\n用户粤语还在练习中，请用「简单日常粤语」回复：优先选常用、易懂的字词，避免生僻粤语字（能用「唔」「係」「嘅」「喺」「啲」「咁」「同埋」等常见字就用，拿不准时宁可用普通话词汇代替）。每句粤语后面用「〔普通：…〕」附一句普通话翻译（只翻关键词汇即可，不用逐字），方便用户对照理解。格式示例：「今日天气几好。〔普通：今天天气不错。〕」';
+      if(_ps.miniYueText) r+='\n\n<粤语模式>\n用户粤语还在练习中，请用「简单日常粤语」回复：优先选常用、易懂的字词，避免生僻粤语字（能用「唔」「係」「嘅」「喺」「啲」「咁」「同埋」等常见字就用，拿不准时宁可用普通话词汇代替）。每句粤语后面用「〔普通：…〕」附一句普通话翻译（只翻关键词汇即可，不用逐字），方便用户对照理解。格式示例：「今日天气几好。〔普通：今天天气不错。〕」\n</粤语模式>';
     }catch(e){}
     return r;
   }
