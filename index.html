@@ -7151,7 +7151,7 @@ async function maybeAutoAIProactive(){
    部署依赖：push-worker.js（项目目录）部署到 Cloudflare Workers，
    然后把地址填进下面 PUSH_WORKER，Secret 与 Worker 环境变量一致。
    ===================================================================== */
-const PUSH_WORKER = '';          // ⚠️ 部署后填：https://<你的worker>.workers.dev
+const PUSH_WORKER = 'https://yezi-push.2451087669.workers.dev';  // 推送中继（Cloudflare Workers，已部署）
 const PUSH_SECRET = 'yezi_ggw_2026_9201';  // 与 Worker 的 PUSH_SECRET 环境变量一致
 const PUSH_VAPID_PUBLIC = 'BFiV82O9OaiIV-638CD5LxBSPTdm7l4Ud_el0Nsw3wpQdX0BrZkmjAwRHY7IJwsAnUCU3wJZBvQOEBiY04giS3g';
 const PUSH_ON_KEY = 'mhm_push_on';
