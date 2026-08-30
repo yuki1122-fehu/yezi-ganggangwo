@@ -3489,6 +3489,7 @@ function enterApp(){
   try{ scheduleProactiveWake(); }catch(e){ console.error(e); } // 后台定时苏醒：开着时每约 45 分钟静默补一条主动分享
   try{ setTimeout(()=>{ pushInit(); }, 800); }catch(e){ console.error(e); } // 后台消息推送：开启时订阅并上报（/sub）
   try{ setTimeout(()=>{ syncCloudContext().catch(()=>{}); }, 1500); }catch(e){ console.error(e); } // 云端语境同步：打开时把角色设定+最近对话+当天动态传给 Worker（/sync）
+  try{ setTimeout(()=>{ pullCloudMsgs().catch(()=>{}); }, 2400); }catch(e){ console.error(e); } // 云端主动消息回填：打开时拉云端推过的消息，合并进对话页
   try{
     // v2：App 切回前台时再补一次订阅（解决 iOS/Android PWA 在 KV 端点过期后收不到 push）
     document.addEventListener('visibilitychange', function(){
@@ -7407,6 +7408,36 @@ async function syncCloudContext(){
     return false;
   }
 }
+/* ---- 云端主动消息回填：云端 auto-wake 推的主动消息，App 打开时拉取并合并进对话页 ----
+   原理：Worker 每次推送主动消息会把内容存 KV cloudmsg:日期；App 打开/聊完后 GET /msgs
+   拉最近 3 天，按 id（cloudmsg:<ts>）去重后追加进 aiConv，让消息页能看到记录（不只是弹窗）。 */
+const CLOUD_MSG_PREFIX = 'cloudmsg';
+let __cloudMsgMerged = {}; // 本次会话已合并的 id 集合（防重复拉取重复注入）
+async function pullCloudMsgs(){
+  try{
+    if(!pushWorkerReady() || !pushEnabled()) return;
+    const r = await fetch(PUSH_WORKER + '/msgs', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({secret:PUSH_SECRET})});
+    const d = await r.json().catch(()=>({}));
+    if(!d || !d.ok || !Array.isArray(d.msgs) || !d.msgs.length) return;
+    if(!aiConv) aiReset();
+    const have = {};
+    for(const m of aiConv){ if(m && m.id) have[m.id] = true; }
+    let added = 0, lastTs = 0;
+    for(const m of d.msgs){
+      if(!m || !m.text) continue;
+      const id = CLOUD_MSG_PREFIX + ':' + m.ts;
+      if(have[id] || __cloudMsgMerged[id]) continue;
+      have[id] = true; __cloudMsgMerged[id] = true;
+      aiConv.push({role:'assistant', content: String(m.text).slice(0,300), id, ts: m.ts});
+      lastTs = m.ts; added++;
+    }
+    if(!added) return;
+    saveConv();
+    const mask = document.getElementById('aiMask');
+    if(mask && mask.classList.contains('show')) renderConvFromState(); // 对话面板开着：直接渲染出来
+    else markAIUnread(); // 面板没开：亮悬浮红点
+  }catch(e){ console.warn('云端消息回填跳过：', e && e.message ? e.message : e); }
+}
 /* 云端语境同步是否真正生效：云端已配好（key + 推送 + Worker）时，主动分享改由云端统一安排，
    前端不再重复排程（避免 45 分钟节奏上两边各推一条）。云端没配好时前端兜底照常。 */
 function cloudCtxFresh(){
@@ -10304,6 +10335,7 @@ async function aiRun(){
     clearTimeout(wd);
     saveConv(); // 持久化本次对话，刷新后仍在
     syncCloudContext().catch(()=>{}); // 云端语境同步：聊完一回合刷新云端上下文（回复主动消息后语境即更新）
+    pullCloudMsgs().catch(()=>{}); // 云端主动消息回填：聊完也拉一次（云端可能刚好推了新消息）
     setAIBusy(false);
     hideTyping(); // 双保险：任何路径结束都确保三点气泡被移除，绝不残留
   }
