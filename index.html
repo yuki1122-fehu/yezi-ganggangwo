@@ -3488,6 +3488,7 @@ function enterApp(){
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
   try{ scheduleProactiveWake(); }catch(e){ console.error(e); } // 后台定时苏醒：开着时每约 45 分钟静默补一条主动分享
   try{ setTimeout(()=>{ pushInit(); }, 800); }catch(e){ console.error(e); } // 后台消息推送：开启时订阅并上报（/sub）
+  try{ setTimeout(()=>{ syncCloudContext().catch(()=>{}); }, 1500); }catch(e){ console.error(e); } // 云端语境同步：打开时把角色设定+最近对话+当天动态传给 Worker（/sync）
   try{
     // v2：App 切回前台时再补一次订阅（解决 iOS/Android PWA 在 KV 端点过期后收不到 push）
     document.addEventListener('visibilitychange', function(){
@@ -7133,9 +7134,11 @@ async function maybeAutoAIProactive(){
       const plansM = msg.content.match(/<plans>([\s\S]*?)<\/plans>/);
       if(plansM){
         msg.content = msg.content.replace(/<plans>[\s\S]*?<\/plans>/g, '').replace(/\n{3,}/g, '\n\n').trim();
-        let plansArr = null;
-        try{ plansArr = JSON.parse(plansM[1].trim()); }catch(e){ plansArr = null; }
-        if(Array.isArray(plansArr)) aiBankPushPlans(plansArr); // 后台预约，不阻塞本次主动开口
+        let plansArr = parsePlansJson(plansM[1]);
+        if(plansArr === null && plansM[1].trim()) console.warn('[主动银行] <plans> 存在但 JSON 解析失败：', plansM[1].trim().slice(0,200));
+        if(Array.isArray(plansArr) && !cloudCtxOn()) aiBankPushPlans(plansArr); // 云端生效时不重复排程；否则后台预约，不阻塞本次主动开口
+      } else if(aiBankTodayCount() === 0){
+        console.warn('[主动银行] 本次 AI 未输出 <plans> 标签，银行无预约（模型未配合或内容被截断）');
       }
       msg.id = msg.id || 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
       aiConv.push(msg);
@@ -7143,7 +7146,7 @@ async function maybeAutoAIProactive(){
       const vr = aiResolveVoice(content);
       addAIMsg('ai', vr.clean, msg.id);
       // 预约今晚推送（用户开了后台推送才生效）
-      if(tonightText){
+      if(tonightText && !cloudCtxOn()){ // 云端生效时改由云端统一安排主动分享，避免 20:30 再补一条
         const nt = new Date();
         nt.setHours(PUSH_TONIGHT_HOUR, PUSH_TONIGHT_MIN, 0, 0);
         if(nt.getTime() <= Date.now()) nt.setDate(nt.getDate()+1); // 已过 20:30 则约到明天
@@ -7172,6 +7175,10 @@ async function maybeAutoAIProactive(){
    你的 AI key 来定时调用（见下方 PUSH_WORKER 说明），这里只是开着时的实时补充。 */
 let __proactiveWakeTimer = null;
 function scheduleProactiveWake(){
+  if(cloudCtxOn()){ // 云端已接手主动分享（45±随机、封顶10、22:30停），前端不再重复排程
+    if(__proactiveWakeTimer){ clearTimeout(__proactiveWakeTimer); __proactiveWakeTimer = null; }
+    return;
+  }
   if(__proactiveWakeTimer){ clearTimeout(__proactiveWakeTimer); __proactiveWakeTimer = null; }
   const step = () => {
     const now = new Date();
@@ -7205,9 +7212,9 @@ async function silentBankWake(){
     const content = (typeof m.content === 'string') ? m.content : (Array.isArray(m.content) ? m.content.map(p=>p && p.text ? p.text : '').join(' ').trim() : '');
     if(!content.trim()) return;
     const plansM = content.match(/<plans>([\s\S]*?)<\/plans>/);
-    if(!plansM) return;
-    let plansArr = null;
-    try{ plansArr = JSON.parse(plansM[1].trim()); }catch(e){ plansArr = null; }
+    if(!plansM){ console.warn('[静默苏醒] AI 未输出 <plans>，本次不排程（若持续出现，检查模型是否配合长指令）'); return; }
+    let plansArr = parsePlansJson(plansM[1]);
+    if(plansArr === null && plansM[1].trim()) console.warn('[静默苏醒] <plans> JSON 解析失败：', plansM[1].trim().slice(0,200));
     if(Array.isArray(plansArr)) await aiBankPushPlans(plansArr);
   }catch(e){ console.warn('静默苏醒跳过：', e && e.message ? e.message : e); }
 }
@@ -7329,6 +7336,91 @@ const AI_BANK_KEY = 'mhm_ai_bank';
 const AI_BANK_MAX_PER_DAY = 10;  // 每天最多主动分享条数（按当日累计条数封顶，不再「一天只一批」）
 const AI_BANK_MIN_GAP_MS = 45*60*1000;  // 主动分享两条之间最小参考间隔（AI 规划自然错开，这里兜底防撞）
 const AI_QUIET_HOUR = 22, AI_QUIET_MIN = 30;  // 22:30 之后不再自动主动分享/提醒
+/* ---- 云端语境同步：让云端 Worker 也能"看到"角色设定 + 当天动态 + 最近对话 ----
+   原理：纯浏览器端拿不到你的 localStorage/IndexedDB，所以 App 打开/聊完一回合后，
+   主动把一份"语境快照" POST 给 Worker 的 /sync，Worker 存进 KV ctx:today。
+   之后 Worker 定时调 DeepSeek 时，就用这份快照当上下文，生成有依据的主动消息。
+   快照只在"同步那一刻"有效——你收到主动消息后点进去回复，又会触发一次新同步，语境就刷新了。 */
+const CLOUD_CTX_SYNC_ON = true; // 开关：关掉则 App 不再上传语境到云端
+const CLOUD_CTX_OK_KEY = 'mhm_cloud_ctx_ok'; // 云端语境同步成功时间戳（判断云端是否在岗，见 cloudCtxFresh）
+/* <plans> JSON 容错解析：模型经常把数组包进 ```json 代码块、带前后说明文字、或输出非严格 JSON
+   （尾逗号/注释等）。直接 JSON.parse 失败 = 银行空 = 主动消息"罢工"（无感知）。这里逐级兜底：
+   ① 剥 ``` 代码块围栏 → ② 剥标签外杂质 → ③ 提取第一个 [ ... ] 数组段 → ④ 兜底清洗后解析。 */
+function parsePlansJson(raw){
+  try{
+    if(!raw || !String(raw).trim()) return null;
+    let s = String(raw).trim();
+    s = s.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '');
+    if(s[0] !== '['){
+      const m = s.match(/\[[\s\S]*\]/);
+      if(m) s = m[0];
+    }
+    let arr = null;
+    try{ arr = JSON.parse(s); }catch(e){
+      s = s.replace(/,\s*([\]}])/g, '$1');                 // 去尾逗号
+      s = s.replace(/\/\/[^\n"]*/g, '').replace(/#[^\n"]*/g, ''); // 去行注释
+      try{ arr = JSON.parse(s); }catch(e2){ arr = null; }
+    }
+    return Array.isArray(arr) ? arr : null;
+  }catch(e){ return null; }
+}
+function cloudRecentText(){
+  try{
+    if(!Array.isArray(aiConv) || aiConv.length<=1) return '';
+    const tail = aiConv.slice(-8); // 最近 8 条（含 user + assistant），控制云端上下文体积
+    return tail.map(m=>{
+      let c = '';
+      if(typeof m.content === 'string') c = m.content;
+      else if(Array.isArray(m.content)) c = m.content.map(p=>p&&p.type==='text'?p.text:'').join(' ');
+      // 剥掉注入的实时上下文（<当前时间>/<天气>/<近期任务>… 属于动态，云端实时拿会更好，别当对话正文）
+      c = c.replace(/<当前时间>[\s\S]*?<\/当前时间>/g,'').replace(/<天气>[\s\S]*?<\/天气>/g,'')
+           .replace(/<天气警告>[\s\S]*?<\/天气警告>/g,'').replace(/<近期任务>[\s\S]*?<\/近期任务>/g,'')
+           .replace(/<近期课表>[\s\S]*?<\/近期课表>/g,'').replace(/<关系摘要>[\s\S]*?<\/关系摘要>/g,'')
+           .replace(/<近期回忆>[\s\S]*?<\/近期回忆>/g,'')
+           .replace(/<用户当前指令>[\s\S]*?<\/用户当前指令>/g,'')
+           .replace(/\s+/g,' ').trim();
+      if(!c) return '';
+      return (m.role==='assistant' ? '你：' : '崽崽：') + c.slice(0,300);
+    }).filter(Boolean).join('\n');
+  }catch(e){ return ''; }
+}
+async function syncCloudContext(){
+  try{
+    if(!CLOUD_CTX_SYNC_ON) return false;
+    const cfg = getAiCfg();
+    if(!cfg.apiKey || !pushWorkerReady() || !pushEnabled()) return false; // 没配 key 或没开推送就不同步
+    const sys = buildSystem(); // 角色设定稳定部分（含记忆常驻块/角色协议/粤语模式等，不含动态时间/天气/日程）
+    if(!sys || sys.length < 40) return false;
+    const live = buildLiveContext(); // 当天动态：时间/天气/警告/任务/课表/关系摘要/近期回忆
+    const recent = cloudRecentText();
+    const payload = { secret:PUSH_SECRET, sys, live, recent, ts: Date.now() };
+    const r = await fetch(PUSH_WORKER + '/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const d = await r.json().catch(()=>({}));
+    if(d && d.ok){
+      try{ localStorage.setItem(CLOUD_CTX_OK_KEY, String(Date.now())); }catch(e){} // 记录云端在岗，前端主动分享让位云端
+      return true;
+    }
+    try{ localStorage.removeItem(CLOUD_CTX_OK_KEY); }catch(e){}
+    return false;
+  }catch(e){
+    console.warn('云端语境同步跳过：', e && e.message ? e.message : e);
+    return false;
+  }
+}
+/* 云端语境同步是否真正生效：云端已配好（key + 推送 + Worker）时，主动分享改由云端统一安排，
+   前端不再重复排程（避免 45 分钟节奏上两边各推一条）。云端没配好时前端兜底照常。 */
+function cloudCtxFresh(){
+  // 只有「最近确实同步成功过」才算云端在岗：防止云端没部署/404 时前端全让位 → 两边真空罢工
+  try{
+    const t = parseInt(localStorage.getItem(CLOUD_CTX_OK_KEY) || '0', 10) || 0;
+    return t > 0 && (Date.now() - t) < 12*3600*1000; // 语境快照同步成功后 12 小时内视为云端接管
+  }catch(e){ return false; }
+}
+function cloudCtxOn(){
+  try{
+    return CLOUD_CTX_SYNC_ON && pushWorkerReady() && pushEnabled() && !!(getAiCfg().apiKey) && cloudCtxFresh();
+  }catch(e){ return false; }
+}
 function aiBankTodayCount(){
   try{
     const r = JSON.parse(localStorage.getItem(AI_BANK_KEY) || 'null');
@@ -10211,6 +10303,7 @@ async function aiRun(){
   }finally{
     clearTimeout(wd);
     saveConv(); // 持久化本次对话，刷新后仍在
+    syncCloudContext().catch(()=>{}); // 云端语境同步：聊完一回合刷新云端上下文（回复主动消息后语境即更新）
     setAIBusy(false);
     hideTyping(); // 双保险：任何路径结束都确保三点气泡被移除，绝不残留
   }
