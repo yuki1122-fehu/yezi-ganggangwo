@@ -1018,6 +1018,25 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-btn.ghost{background:var(--glass-strong);}
 .god-btn:disabled{opacity:.5;}
 
+/* ===== 主页角色栏（合并入口，今日任务不再被推远） ===== */
+.role-bar{display:flex;gap:10px;margin:0 16px 15px;}
+.role-btn{
+  flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 13px;border-radius:18px;text-align:left;cursor:pointer;
+  background:var(--glass-strong);border:1px solid var(--glass-line);box-shadow:var(--shadow-sm),var(--shadow-inset);
+  transition:transform .18s var(--ease),box-shadow .28s var(--ease);
+}
+.role-btn:active{transform:scale(.98);}
+.role-ic{
+  width:34px;height:34px;border-radius:11px;flex:0 0 auto;color:#fff;font-size:16px;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 5px 12px rgba(143,107,216,.30),var(--shadow-inset);
+}
+.role-btn:first-child .role-ic{background:linear-gradient(135deg,#c9a3e8,#8f6bd8);}
+.role-btn:last-child .role-ic{background:linear-gradient(135deg,#6ec3e8,#5b8ae6);box-shadow:0 5px 12px rgba(91,138,230,.30),var(--shadow-inset);}
+.role-txt{flex:1;min-width:0;}
+.role-txt b{display:block;font-size:13px;font-weight:800;color:var(--ink);letter-spacing:.3px;white-space:nowrap;}
+.role-txt small{display:block;font-size:10px;color:var(--ink-faint);font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
 .cal-journal-slot{display:block;}
 .cal-journal{
   margin-top:10px;padding:13px 14px 12px;border-radius:var(--radius-sm);
@@ -2170,30 +2189,6 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     </div>
   </div>
 
-  <div class="journal-module oc-feed-module" id="ocFeedModule" onclick="ocFeedOpen()" role="button" aria-label="打开角色动态">
-    <div class="jm-top">
-      <div class="jm-title">
-        <span class="jm-ic oc-ic">🌸</span>
-        <span><b>他们的生活</b><small>零落 · 沈容</small></span>
-      </div>
-      <span class="jm-go">翻看 ›</span>
-    </div>
-    <div class="jm-excerpt">
-      <div class="jm-kind" id="ocExcerptKind">正在翻阅…</div>
-      <div class="jm-text" id="ocExcerptText">他们的生活会在这里长出来。</div>
-      <div class="jm-date" id="ocExcerptDate"></div>
-    </div>
-    <div class="jm-counts">
-      <span class="jm-count"><b id="ocCount">0</b>条生活痕迹</span>
-    </div>
-  </div>
-
-  <button class="god-entry glass" id="godEntry" onclick="godOpen()" type="button">
-    <span class="god-entry-ic">👁</span>
-    <span class="god-entry-txt"><b>上帝视角</b><small>看看零落和沈容此刻在做什么</small></span>
-    <span class="jm-go">看看 ›</span>
-  </button>
-
   <div class="next-card" id="nextCard"></div>
 
   <div class="mood-bar glass" id="moodBar">
@@ -2205,6 +2200,17 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <button data-m="4" onclick="logMood(4)" aria-label="不错"></button>
       <button data-m="5" onclick="logMood(5)" aria-label="很好"></button>
     </div>
+  </div>
+
+  <div class="role-bar" id="roleBar">
+    <button class="role-btn" onclick="ocFeedOpen()" type="button">
+      <span class="role-ic">🌸</span>
+      <span class="role-txt"><b>他们的生活</b><small id="ocExcerptText">多聊聊天，生活痕迹会长出来</small></span>
+    </button>
+    <button class="role-btn" onclick="godOpen()" type="button">
+      <span class="role-ic">👁</span>
+      <span class="role-txt"><b>上帝视角</b><small>看看他们此刻在做什么</small></span>
+    </button>
   </div>
 
   <div class="view-title">
@@ -13230,21 +13236,17 @@ async function ocRefreshCtx(){
 async function ocRenderCard(){
   try{
     const all = await ocPostRecent(20);
-    const countEl = document.getElementById('ocCount');
-    if(countEl) countEl.textContent = all.length ? String(all.length) : '0';
     const latest = all[0];
-    const kindEl = document.getElementById('ocExcerptKind');
     const textEl = document.getElementById('ocExcerptText');
-    const dateEl = document.getElementById('ocExcerptDate');
     if(!latest){
-      if(kindEl) kindEl.textContent = '还没有生活痕迹';
-      if(textEl){ textEl.textContent = '和他们多聊聊天，生活痕迹会自己长出来。'; textEl.classList.add('empty'); }
-      if(dateEl) dateEl.textContent = '';
+      if(textEl){ textEl.textContent = '多聊聊天，生活痕迹会长出来'; textEl.classList.add('empty'); }
       return;
     }
-    if(kindEl) kindEl.textContent = (latest.who||'') + ' · ' + (latest.kind==='diary' ? '📓 日记' : '✨ 动态') + (latest.mood ? (' · ' + latest.mood) : '');
-    if(textEl){ textEl.textContent = latest.content || ''; textEl.classList.remove('empty'); }
-    if(dateEl) dateEl.textContent = latest.when || '';
+    if(textEl){
+      const whoWhen = (latest.who || '') + (latest.when ? ' · ' + latest.when : '');
+      textEl.textContent = (whoWhen ? whoWhen + '  ' : '') + (latest.content || '');
+      textEl.classList.remove('empty');
+    }
   }catch(e){}
 }
 // 全屏动态流
