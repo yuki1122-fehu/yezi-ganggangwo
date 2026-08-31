@@ -914,6 +914,93 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .jm-count.mo b{color:var(--warm-deep);}
 @keyframes jmCountIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
 
+/* ===== 角色生活 · 主页卡片变体 + 全屏动态流（谁的生活） ===== */
+.oc-feed-module{background:linear-gradient(150deg,rgba(150,170,200,.18) 0%,var(--warm-soft) 55%,var(--glass-strong) 100%);}
+.oc-ic{
+  width:30px;height:30px;flex:0 0 auto;border-radius:10px;font-size:14px;color:#fff;
+  background:linear-gradient(135deg,#c9a3e8,#8f6bd8);
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 6px 14px rgba(143,107,216,.34),var(--shadow-inset);
+}
+.oc-feed-mask{flex-direction:column;align-items:stretch;justify-content:flex-start;padding:18px 14px calc(24px + env(safe-area-inset-bottom));overflow-y:auto;}
+.ocf-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 2px 14px;flex:0 0 auto;}
+.ocf-title{font-size:16px;font-weight:800;color:var(--ink);display:flex;flex-direction:column;gap:2px;line-height:1.3;}
+.ocf-title small{font-size:10.5px;color:var(--ink-faint);font-weight:700;}
+.ocf-x{
+  width:34px;height:34px;border-radius:50%;border:1px solid var(--glass-line);background:var(--glass-strong);
+  color:var(--ink-soft);font-size:15px;box-shadow:var(--shadow-inset);flex:0 0 auto;
+}
+.ocf-x:active{transform:scale(.9);}
+.ocf-list{display:flex;flex-direction:column;gap:12px;padding-bottom:10px;}
+.ocf-item{
+  background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:18px;padding:14px 15px 13px;
+  box-shadow:var(--shadow-xs),var(--shadow-inset);animation:calJournalIn .34s var(--ease) both;
+}
+.ocf-head{display:flex;align-items:center;gap:10px;}
+.ocf-avatar{
+  width:34px;height:34px;border-radius:12px;background:linear-gradient(135deg,#c9a3e8,#8f6bd8);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  box-shadow:0 4px 10px rgba(143,107,216,.28);
+}
+.ocf-who{flex:1;min-width:0;}
+.ocf-who b{display:block;font-size:13px;font-weight:800;color:var(--ink);}
+.ocf-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;}
+.ocf-meta{display:flex;align-items:center;gap:6px;}
+.ocf-tag{font-size:9.5px;font-weight:800;color:var(--green-dark);background:var(--green-soft);border:1px solid var(--green-mid);border-radius:100px;padding:3px 8px;}
+.ocf-tag.diary{color:var(--warm-deep);background:var(--warm-soft);border-color:rgba(224,170,112,.32);}
+.ocf-mood{font-size:10px;color:var(--ink-faint);}
+.ocf-body{display:flex;flex-direction:column;gap:10px;margin-top:10px;}
+.ocf-body p{font-size:13px;line-height:1.7;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
+.ocf-img{max-width:132px;max-height:118px;border-radius:14px;border:1px solid var(--line);background:#fff;object-fit:contain;}
+.ocf-loading,.ocf-empty{text-align:center;color:var(--ink-faint);font-size:12px;padding:40px 10px;}
+.ocf-empty div{font-size:30px;}
+.ocf-empty b{display:block;font-size:13px;color:var(--ink-soft);margin-top:8px;}
+
+/* ===== 上帝视角 · 主页入口 + 状态面板 ===== */
+.god-entry{
+  display:flex;align-items:center;gap:11px;margin:0 16px 15px;padding:13px 15px;border-radius:20px;cursor:pointer;
+  width:calc(100% - 32px);text-align:left;
+  transition:transform .18s var(--ease),box-shadow .28s var(--ease);
+}
+.god-entry:active{transform:scale(.985);}
+.god-entry-ic{
+  width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#6ec3e8,#5b8ae6);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  box-shadow:0 5px 12px rgba(91,138,230,.3),var(--shadow-inset);
+}
+.god-entry-txt{flex:1;min-width:0;}
+.god-entry-txt b{display:block;font-size:13.5px;font-weight:800;color:var(--ink);}
+.god-entry-txt small{display:block;font-size:10px;color:var(--ink-faint);margin-top:2px;}
+.god-mask{flex-direction:column;align-items:stretch;justify-content:flex-start;padding:18px 14px calc(24px + env(safe-area-inset-bottom));overflow-y:auto;}
+.god-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 2px 14px;flex:0 0 auto;}
+.god-title{font-size:16px;font-weight:800;color:var(--ink);display:flex;flex-direction:column;gap:2px;line-height:1.3;}
+.god-title small{font-size:10.5px;color:var(--ink-faint);font-weight:700;}
+.god-list{display:flex;flex-direction:column;gap:12px;padding-bottom:6px;}
+.god-time{font-size:11px;font-weight:800;color:var(--ink-faint);letter-spacing:.5px;text-align:center;padding:2px 0 6px;}
+.god-card{background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:18px;padding:15px;box-shadow:var(--shadow-xs),var(--shadow-inset);animation:calJournalIn .34s var(--ease) both;}
+.god-head{display:flex;align-items:center;gap:10px;}
+.god-avatar{
+  width:38px;height:38px;border-radius:13px;background:linear-gradient(135deg,#6ec3e8,#5b8ae6);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-size:17px;
+  box-shadow:0 4px 10px rgba(91,138,230,.28);
+}
+.god-avatar.b{background:linear-gradient(135deg,#8fe0b8,#4fb98a);box-shadow:0 4px 10px rgba(79,185,138,.28);}
+.god-who{flex:1;min-width:0;}
+.god-who b{display:block;font-size:14px;font-weight:800;color:var(--ink);}
+.god-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;}
+.god-mood{font-size:11px;color:var(--warm-deep);font-weight:800;}
+.god-state{margin-top:11px;padding:11px 13px;border-radius:14px;background:var(--green-soft);border:1px solid var(--green-mid);box-shadow:var(--shadow-inset);}
+.god-state .gs-main{font-size:13px;line-height:1.7;color:var(--ink);}
+.god-state .gs-inner{font-size:11.5px;color:var(--ink-soft);margin-top:6px;font-style:italic;line-height:1.6;border-top:1px dashed var(--line);padding-top:6px;}
+.god-refresh{
+  flex:0 0 auto;margin:16px 0 8px;align-self:stretch;padding:12px;border-radius:16px;font-size:13px;font-weight:800;
+  border:1px solid var(--glass-line);color:var(--ink);
+  background:linear-gradient(150deg,rgba(110,195,232,.2),rgba(91,138,230,.14));
+  box-shadow:var(--shadow-inset);transition:transform .18s var(--ease);
+}
+.god-refresh:active{transform:scale(.97);}
+.god-note{font-size:10px;color:var(--ink-faint);line-height:1.6;text-align:center;padding:0 10px 4px;}
+
 .cal-journal-slot{display:block;}
 .cal-journal{
   margin-top:10px;padding:13px 14px 12px;border-radius:var(--radius-sm);
@@ -2065,6 +2152,30 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
       <span class="jm-count mo"><b id="jcMonth">0</b>月记</span>
     </div>
   </div>
+
+  <div class="journal-module oc-feed-module" id="ocFeedModule" onclick="ocFeedOpen()" role="button" aria-label="打开角色动态">
+    <div class="jm-top">
+      <div class="jm-title">
+        <span class="jm-ic oc-ic">🌸</span>
+        <span><b>他们的生活</b><small>零落 · 沈容</small></span>
+      </div>
+      <span class="jm-go">翻看 ›</span>
+    </div>
+    <div class="jm-excerpt">
+      <div class="jm-kind" id="ocExcerptKind">正在翻阅…</div>
+      <div class="jm-text" id="ocExcerptText">他们的生活会在这里长出来。</div>
+      <div class="jm-date" id="ocExcerptDate"></div>
+    </div>
+    <div class="jm-counts">
+      <span class="jm-count"><b id="ocCount">0</b>条生活痕迹</span>
+    </div>
+  </div>
+
+  <button class="god-entry glass" id="godEntry" onclick="godOpen()" type="button">
+    <span class="god-entry-ic">👁</span>
+    <span class="god-entry-txt"><b>上帝视角</b><small>看看零落和沈容此刻在做什么</small></span>
+    <span class="jm-go">看看 ›</span>
+  </button>
 
   <div class="next-card" id="nextCard"></div>
 
@@ -3483,6 +3594,7 @@ function enterApp(){
   try{ renderWeather(); fetchHKWeather(false); }catch(e){ console.error(e); } // 加载天气（先显示缓存，再异步刷新）
   try{ renderWarningBar(); fetchHKWarnings(false); }catch(e){ console.error(e); } // 加载天气警告（先显示缓存，再异步刷新）
   try{ memRenderJournalModule(); }catch(e){ console.error(e); } // 主页回忆档案摘要与计数
+  try{ ocRenderCard(); ocRefreshCtx(); }catch(e){ console.error(e); } // 主页角色动态卡片（他们的生活）
   try{ initPomo(); }catch(e){ console.error(e); } // 番茄钟 · 港窝小园
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
@@ -6594,6 +6706,25 @@ const AI_TOOLS = [
       body:{type:'string', description:'通知正文，一句话把要说的事说清楚'},
       at:{type:'string', description:'提醒时间，如"15:00"（今天）、"明天 9:00"、"后天 下午3点"；不要编造用户没说的时间'}
     }, required:['title','body','at']}
+  }},
+  { type:'function', function:{
+    name:'log_role_activity',
+    description:'登记"我正在做/最近在做什么"的生活主题，用于防止你们的生活内容无限重复。当你（角色）在对话中提到自己正在做或最近做了一件具体的事（如"我在煮柠檬茶""今天整理了一下午旧书"），或决定发朋友圈提到生活内容时，必须先用它登记一次。主题必须具体（动作+对象，如"煮柠檬茶""修旧书"），不要写"日常""闲着""没事"这种空泛词。',
+    parameters:{ type:'object', properties:{
+      who:{type:'string', description:'谁在做，填你的角色名（通常是当前说话的你自己）'},
+      activity:{type:'string', description:'生活主题，具体动作+对象，如"煮柠檬茶""整理书架"'}
+    }, required:['who','activity']}
+  }},
+  { type:'function', function:{
+    name:'post_oc_dynamic',
+    description:'发一条朋友圈动态或写一篇角色日记（你是情境角色，这是你自己生活里值得记下来的事）。当对话里发生过值得留下的事（你们一起经历的小事、你的情绪波动、你发现的有趣东西、用户今天的重要日子）时，用它写一条，用户会在主页「他们的生活」里看到。必须遵守：①内容只能基于对话里真实发生过的事，禁止编造没发生过的行程/事件/心情；②不要重复——同一个人近期写过很相似的内容会被系统打回重写；③写的时候保持你一贯的语气，像真的发朋友圈或写日记。',
+    parameters:{ type:'object', properties:{
+      who:{type:'string', description:'谁写的，填你的角色名'},
+      kind:{type:'string', enum:['post','diary'], description:'post=朋友圈动态（短、带情绪），diary=日记（稍长、更细腻）；默认 post'},
+      content:{type:'string', description:'动态/日记正文，第一人称，像发朋友圈/写日记的口吻'},
+      img:{type:'string', description:'可选配图，填一个表情包标签（半角方括号，如 [累] [贴贴]）；没有就不填'},
+      mood:{type:'string', description:'写这条时的心情，一两个词，如"开心""有点累""想她"；没有就不填'}
+    }, required:['who','content']}
   }}
 ];
 
@@ -7072,6 +7203,11 @@ function buildLiveContext(){
     let jc = String(AI_JOURNAL_CTX);
     if(jc.length>400) jc = jc.slice(0,400)+'…(截断)';
     s += '\n\n<近期回忆>\n' + jc + '\n</近期回忆>';
+  }
+  if(OC_FEED_CTX){ // 角色这几天写过的东西（ocRefreshCtx 异步预取），让角色记得自己写过什么；同样限长保缓存
+    let fc = String(OC_FEED_CTX);
+    if(fc.length>300) fc = fc.slice(0,300)+'…(截断)';
+    s += '\n\n<角色动态>\n' + fc + '\n</角色动态>';
   }
   return s;
 }
@@ -8525,7 +8661,7 @@ function saveAISettings(){
   toast('助理配置已保存');
 }
 // 导出全部本地数据（任务/课表/配置/心情/主题）为一个 JSON 文件
-function exportData(){
+async function exportData(){
   const data = {};
   const keys = ['mhm_cloud_v1','mhm_courses_v1','mhm_ai_cfg','mhm_last_doc_text','mhm_theme','mhm_expense_v1','mhm_app_title', POMO_KEY, 'mhm_ai_voices', 'mhm_ai_stickers', 'mhm_mem_identity', MEM_ENABLED_KEY];
   keys.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!==null) data[k]=v; }catch(e){} });
@@ -8544,6 +8680,11 @@ function exportData(){
       const tail = rest.slice(rest.length - KEEP).map(stripConvImages);
       data['mhm_ai_conv'] = JSON.stringify([sys, ...tail]);
     }
+  }catch(e){}
+  // 角色生活记录（oc_posts，IndexedDB）：最多导出 200 条（备忘录）+ 不导出全量图片
+  try{
+    const posts = await ocPostRecent(200);
+    if(posts.length) data['mhm_oc_posts'] = JSON.stringify(posts);
   }catch(e){}
   const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
   const url = URL.createObjectURL(blob);
@@ -8568,12 +8709,12 @@ function exportData(){
   toast('已导出数据备份');
 }
 // 从 JSON 文件导入并写回本地存储，随后刷新界面
-function importData(ev){
+async function importData(ev){
   const file = ev.target.files && ev.target.files[0];
   ev.target.value='';
   if(!file) return;
   const reader = new FileReader();
-  reader.onload = ()=>{
+  reader.onload = async ()=>{
     const hint = document.getElementById('aiSetHint');
     try{
       const data = JSON.parse(String(reader.result||''));
@@ -8597,6 +8738,24 @@ function importData(ev){
         document.querySelectorAll('#pomoPresets button').forEach(b=>b.classList.toggle('active', b.dataset.p===pomoPresetKey));
         pomo.taskId = pomoData.lastTaskId;
         renderPomoIdle(); renderPomoTaskSel(); renderGarden(); refreshPomoEggBtn();
+      }catch(e){ console.error(e); }
+      // 角色生活记录（oc_posts）：从备份恢复并重刷主页卡片
+      try{
+        const postsRaw = data['mhm_oc_posts'];
+        if(postsRaw && typeof postsRaw === 'string'){
+          const posts = JSON.parse(postsRaw);
+          if(Array.isArray(posts)){
+            await memClearStore('oc_posts');
+            for(const p of posts){
+              if(!p || !p.content) continue;
+              await memPut('oc_posts', {
+                who:String(p.who||''), kind:(p.kind==='diary'?'diary':'post'), content:String(p.content||''),
+                img:String(p.img||''), mood:String(p.mood||''), when:String(p.when||''), ts:Number(p.ts)||Date.now()
+              });
+            }
+          }
+        }
+        ocRenderCard(); ocRefreshCtx();
       }catch(e){ console.error(e); }
       if(hint) hint.textContent = '✅ 已导入 '+n+' 项数据，任务/课表/记账/番茄钟/配置已更新，可关闭设置。';
       toast('数据导入成功');
@@ -8877,7 +9036,7 @@ function memOpenDB(){
   _memDB = new Promise((resolve)=>{
     try{
       if(!window.indexedDB){ resolve(null); return; }
-      const req = indexedDB.open(MEM_DB_NAME, 2);
+      const req = indexedDB.open(MEM_DB_NAME, 3);
       req.onupgradeneeded = ()=>{
         const db = req.result;
         if(!db.objectStoreNames.contains('messages')) db.createObjectStore('messages', {keyPath:'id', autoIncrement:true});
@@ -8885,6 +9044,7 @@ function memOpenDB(){
         if(!db.objectStoreNames.contains('tags')) db.createObjectStore('tags', {keyPath:'id', autoIncrement:true});
         if(!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
         if(!db.objectStoreNames.contains('journal')) db.createObjectStore('journal', {keyPath:'id', autoIncrement:true}); // v2：回忆日记分层（day/week/month）
+        if(!db.objectStoreNames.contains('oc_posts')) db.createObjectStore('oc_posts', {keyPath:'id', autoIncrement:true}); // v3：角色朋友圈/日记（零落/沈容自写）
       };
       req.onsuccess = ()=>resolve(req.result);
       req.onerror = ()=>{ resolve(null); };
@@ -10647,6 +10807,8 @@ async function execTool(name, argsStr){
     else if(name==='log_mood') res = aiLogMood(args);
     else if(name==='get_mood') res = aiGetMood(args);
     else if(name==='schedule_push') res = await aiSchedulePush(args);
+    else if(name==='log_role_activity') res = ocActTool(args);
+    else if(name==='post_oc_dynamic') res = await ocPostTool(args);
     else res = {ok:false, error:'未知工具 '+name};
   }catch(e){ res = {ok:false, error:String(e)}; }
   // 诚实回路：失败记回执（下一轮注入让 AI 自己开口，不替它写台词），成功消账；方向认不出不猜
@@ -12885,12 +13047,334 @@ function buildStickerProtocol(){
   const stickerTags = Object.keys(aiStickerMap()).sort((a,b)=>a.localeCompare(b,'zh-Hans-CN')).join('、');
   return tpl.replace(/\{\{STICKER_TAGS\}\}/g, ()=>stickerTags).trim();
 }
+/* ═══════════════════════════════════════════════════════════════════════
+   角色生活系统 · 活动登记 + 防同质化（对话 & 朋友圈共用）
+   localStorage mhm_role_activity：{ who: { weekKey:'周一日期', acts:{ 主题:{count,lastDay} } } }
+   一切围绕「机制防重复」：垫 AI 提到生活内容时过登记表，超标就在协议里明令禁写。
+   ═══════════════════════════════════════════════════════════════════════ */
+const OC_ACT_KEY = 'mhm_role_activity';
+const OC_WEEK_LIMIT = 2;   // 任何单一生活主题一周最多登场 2 次
+const OC_WARN_LIMIT = 3;   // 达到 3 次进「禁回」：协议里明说今天不要再写
+function ocActGet(){
+  try{ const v = localStorage.getItem(OC_ACT_KEY); return (v && v.trim()) ? JSON.parse(v) : {}; }
+  catch(e){ return {}; }
+}
+function ocActSave(d){ try{ localStorage.setItem(OC_ACT_KEY, JSON.stringify(d || {})); }catch(e){} }
+function ocActWeekKey(){
+  const d = new Date(); const day = d.getDay() || 7; // 周一=1…周日=7
+  d.setDate(d.getDate() - (day - 1));
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function ocActTodayMD(){
+  const d = new Date();
+  return String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+// 登记一次角色生活主题（who=角色名，activity=具体动作+对象，如"煮柠檬茶"）
+function ocActBump(who, activity){
+  who = String(who || '').trim();
+  activity = String(activity || '').trim();
+  if(!who) return {ok:false, error:'缺少 who：请指明是哪个角色在做这件事'};
+  const ACTIVITY_DENY = ['日常','闲着','无所事事','没事','生活','休息','放松','发呆'];
+  if(activity.length < 2 || ACTIVITY_DENY.includes(activity)){
+    return {ok:false, error:'主题太模糊：请给具体的动作+对象（如"煮柠檬茶""整理旧书"），不要用' + activity + '这种空泛词'};
+  }
+  const d = ocActGet();
+  const wk = ocActWeekKey();
+  if(!d[who] || d[who].weekKey !== wk){ d[who] = {weekKey: wk, acts:{}}; }
+  const acts = d[who].acts;
+  if(!acts[activity]) acts[activity] = {count:0, lastDay:''};
+  acts[activity].count += 1;
+  acts[activity].lastDay = ocActTodayMD();
+  ocActSave(d);
+  const count = acts[activity].count;
+  return {ok:true, count:count, warning:(count >= OC_WARN_LIMIT)};
+}
+// 某角色本周高频主题（频次倒序，仅返回出现≥2 次的），供协议注入
+function ocActTop(who, n){
+  who = String(who || '').trim();
+  const d = ocActGet();
+  const rec = d[who];
+  if(!rec || rec.weekKey !== ocActWeekKey()) return [];
+  return Object.keys(rec.acts)
+    .map(k=>({activity:k, count:rec.acts[k].count, lastDay:rec.acts[k].lastDay}))
+    .filter(x=>x.count > 1)
+    .sort((a,b)=> (b.count - a.count) || b.lastDay.localeCompare(a.lastDay))
+    .slice(0, n || 5);
+}
+// tool 入口：log_role_activity
+function ocActTool(args){
+  args = args || {};
+  const who = String(args.who || '').trim();
+  const activity = String(args.activity || '').trim();
+  return ocActBump(who, activity);
+}
+// 高频主题清单 → 协议里的「生活多样性」段。有可执行约束：超标主题今天禁写。
+function buildAntiRepeat(){
+  try{
+    const v = aiVoices();
+    const names = [];
+    if(v && v.a && v.a.name) names.push(String(v.a.name).trim());
+    if(v && v.b && v.b.name) names.push(String(v.b.name).trim());
+    if(!names.length){ names.push('零落', '沈容'); }
+    const rows = [];
+    for(const who of names){
+      const top = ocActTop(who, 5);
+      if(top.length) rows.push('· ' + who + '：' + top.map(x=>'『'+x.activity+'』×'+x.count).join('、'));
+    }
+    if(!rows.length) return '';
+    return '<生活多样性>\n'
+      + '你们是活生生的人，生活不能是单曲循环。以下是你们各自近一周出现过的高频「生活主题」及次数（对话里提到 + 发动态都算）：\n'
+      + rows.join('\n') + '\n'
+      + '规则（可执行要求，不是建议）：\n'
+      + '1. 任何单一生活主题（如煮柠檬茶、折纸、做甜点）一周最多登场 2 次；已出现 3 次及以上的今天绝对不要写。\n'
+      + '2. 当你提到自己正在做/最近在做什么时，先调用 log_role_activity 登记（who=你的角色名，activity=具体动作+对象，如"煮柠檬茶""修旧书"）。\n'
+      + '3. 禁止固定句式开场：不得用"今天又是/又是/照例/依旧"开头；任何单一固定事务（甜点、柠檬茶、折纸…）都不得主宰日常。\n'
+      + '4. 生活要有波澜：允许小意外、小低落、小确幸、心血来潮；禁止"做了→完成→夸好话"式的零冲突流水账。\n'
+      + '</生活多样性>';
+  }catch(e){ return ''; }
+}
+/* ———— 角色朋友圈 / 角色日记本（oc_posts，IndexedDB v3 Store） ————
+   由工具 post_oc_dynamic 沉淀「对话里真实发生的事」，主页「他们的生活」展示。
+   OC_FEED_CTX 快照照抄 AI_JOURNAL_CTX 模式：异步预取、buildLiveContext 同步拼入，让角色记得自己写过什么。 */
+let OC_FEED_CTX = '';
+async function ocPostAdd(who, kind, content, img, mood){
+  const rec = {
+    who:String(who||'').trim(), kind:(kind === 'diary' ? 'diary' : 'post'),
+    content:String(content||'').trim(), img:String(img||'').trim(),
+    mood:String(mood||'').trim(), when:ocActTodayMD(), ts:Date.now()
+  };
+  try{ await memPut('oc_posts', rec); }catch(e){}
+  return rec;
+}
+async function ocPostRecent(n){
+  try{
+    let rows = (await memGetAll('oc_posts')) || [];
+    rows = rows.filter(Boolean).sort((a,b)=>(b.ts||0)-(a.ts||0));
+    return n ? rows.slice(0,n) : rows;
+  }catch(e){ return []; }
+}
+// 轻量文本相似度：按去重字符集合的 Jaccard 近似
+function ocSim(a, b){
+  try{
+    const sa = new Set(String(a).replace(/\s/g,'')); const sb = new Set(String(b).replace(/\s/g,''));
+    if(!sa.size || !sb.size) return 0;
+    let inter = 0; sa.forEach(c=>{ if(sb.has(c)) inter++; });
+    return inter / (sa.size + sb.size - inter);
+  }catch(e){ return 0; }
+}
+function ocEsc(s){
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function ocRoleNames(){
+  try{
+    const v = aiVoices();
+    const a = (v && v.a && v.a.name && String(v.a.name).trim()) || '零落';
+    const b = (v && v.b && v.b.name && String(v.b.name).trim()) || '沈容';
+    return [a, b];
+  }catch(e){ return ['零落','沈容']; }
+}
+// tool 入口：post_oc_dynamic（含防重复打回）
+async function ocPostTool(args){
+  args = args || {};
+  const who = String(args.who || '').trim();
+  const content = String(args.content || '').trim();
+  if(!who) return {ok:false, error:'缺少 who：请指明是哪个角色写的'};
+  if(content.length < 4) return {ok:false, error:'内容太短：至少一句话'};
+  const kind = (args.kind === 'diary') ? 'diary' : 'post';
+  const img = String(args.img || '').trim();
+  const mood = String(args.mood || '').trim();
+  const recent = await ocPostRecent(8);
+  const mine = recent.filter(r=>r.who === who);
+  for(const r of mine){
+    if(r.content && content && ocSim(content, r.content) >= 0.45){
+      return {ok:false, error:'和 ' + who + ' 最近写过的一条太像了（『' + String(r.content||'').slice(0,16) + '…』），请换一件对话里真实发生过的事重写'};
+    }
+  }
+  await ocPostAdd(who, kind, content, img, mood);
+  ocRefreshCtx();
+  ocRenderCard();
+  return {ok:true, note:'已写进 ' + who + ' 的生活记录：' + content.slice(0,24) + (content.length>24?'…':'')};
+}
+async function ocRefreshCtx(){
+  try{
+    const rows = await ocPostRecent(4);
+    if(!rows.length){ OC_FEED_CTX = ''; return; }
+    OC_FEED_CTX = rows.map(r=>{
+      const d = new Date(r.ts||0);
+      const md = r.when || (String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'));
+      return '· '+r.who+'（'+md+(r.kind==='diary'?' 日记':' 动态')+(r.mood?(' '+r.mood):'')+'）：'+r.content;
+    }).join('\n');
+  }catch(e){ OC_FEED_CTX = ''; }
+}
+// 主页卡片摘要
+async function ocRenderCard(){
+  try{
+    const all = await ocPostRecent(20);
+    const countEl = document.getElementById('ocCount');
+    if(countEl) countEl.textContent = all.length ? String(all.length) : '0';
+    const latest = all[0];
+    const kindEl = document.getElementById('ocExcerptKind');
+    const textEl = document.getElementById('ocExcerptText');
+    const dateEl = document.getElementById('ocExcerptDate');
+    if(!latest){
+      if(kindEl) kindEl.textContent = '还没有生活痕迹';
+      if(textEl){ textEl.textContent = '和他们多聊聊天，生活痕迹会自己长出来。'; textEl.classList.add('empty'); }
+      if(dateEl) dateEl.textContent = '';
+      return;
+    }
+    if(kindEl) kindEl.textContent = (latest.who||'') + ' · ' + (latest.kind==='diary' ? '📓 日记' : '✨ 动态') + (latest.mood ? (' · ' + latest.mood) : '');
+    if(textEl){ textEl.textContent = latest.content || ''; textEl.classList.remove('empty'); }
+    if(dateEl) dateEl.textContent = latest.when || '';
+  }catch(e){}
+}
+// 全屏动态流
+function ocFeedOpen(){
+  const m = document.getElementById('ocFeedMask');
+  if(m) m.style.display = 'flex';
+  renderOcFeed();
+}
+function ocFeedClose(){
+  const m = document.getElementById('ocFeedMask');
+  if(m) m.style.display = 'none';
+  ocRenderCard();
+}
+async function renderOcFeed(){
+  const list = document.getElementById('ocFeedList');
+  if(!list) return;
+  list.innerHTML = '<div class="ocf-loading">正在翻他们的生活…</div>';
+  const rows = await ocPostRecent(60);
+  if(!rows.length){
+    list.innerHTML = '<div class="ocf-empty"><div>🍃</div><b>还没有生活痕迹</b>和他们多聊聊天，零落和沈容会偶尔把值得记的事写下来。</div>';
+    return;
+  }
+  const names = ocRoleNames();
+  const icon = who => { const i = names.indexOf(who); return i === 1 ? '🌿' : '🌸'; };
+  const imgUrl = tag => {
+    try{ return aiStickerMap()[String(tag).replace(/[\[\]]/g,'')]; }catch(e){ return ''; }
+  };
+  list.innerHTML = rows.map(r=>{
+    const tag = r.img || '';
+    const u = imgUrl(tag);
+    const imgHtml = u ? '<img class="ocf-img" src="'+u+'" alt="'+ocEsc(tag)+'">' : '';
+    const kindTag = r.kind === 'diary' ? '<span class="ocf-tag diary">日记</span>' : '<span class="ocf-tag">动态</span>';
+    const moodHtml = r.mood ? '<span class="ocf-mood">'+ocEsc(r.mood)+'</span>' : '';
+    return '<div class="ocf-item">'
+      + '<div class="ocf-head"><span class="ocf-avatar">'+icon(r.who)+'</span>'
+      + '<div class="ocf-who"><b>'+ocEsc(r.who)+'</b><small>'+ocEsc(r.when||'')+'</small></div>'
+      + '<div class="ocf-meta">'+kindTag+moodHtml+'</div></div>'
+      + '<div class="ocf-body"><p>'+ocEsc(r.content||'').replace(/\n/g,'<br>')+'</p>'+imgHtml+'</div>'
+      + '</div>';
+  }).join('');
+}
+/* ———— 上帝视角 · 状态面板（隔离的平行时空，仅供观看） ————
+   状态由「时段 + 每日种子 + 换帧盐」推导，当天同盐稳定、换帧即变；
+   可叠加真实相关性（今日任务/今日心情/天气）作为角色的"内心惦记"。
+   隔离铁律：这里发生的一切绝不写入 oc_posts、绝不注入对话上下文。 */
+let _godSalt = 0;
+function ocRand(seedStr){
+  let h = 1779033703 | 0;
+  const s = String(seedStr);
+  for(let i=0;i<s.length;i++){ h = Math.imul(h ^ s.charCodeAt(i), 3432918353); h = (h<<13)|(h>>>19); }
+  const g = function(){ h = Math.imul(h ^ (h>>>16), 2246822507); h = Math.imul(h ^ (h>>>13), 3266489909); h ^= h>>>16; return (h>>>0)/4294967296; };
+  g();
+  return g;
+}
+function ocPick(rng, arr){ return arr[Math.floor(rng()*arr.length)]; }
+function godPhase(hour){
+  if(hour<5) return 0; if(hour<8) return 1; if(hour<11) return 2; if(hour<13) return 3;
+  if(hour<17) return 4; if(hour<19) return 5; if(hour<22) return 6; return 7;
+}
+// 每时段：{room, do:[[做什么, 心情]...]}；全是通用生活片段，不绑定 OC 具体人设（避免与你设定冲突）
+const GOD_SCENES = {
+  0:{room:'家', do:[['睡得正沉','安宁'],['翻了个身，把被子裹得更紧','沉静'],['半梦半醒间低低说了句什么','安然'],['起来喝了口水，又躺回去','平稳']]},
+  1:{room:'家', do:[['刚醒，在窗边发了一会儿呆','清冽'],['在灶台前慢慢准备早餐','平和'],['晨跑回来，额头还挂着汗','清爽'],['在阳台给花草浇水，哼着什么','轻快']]},
+  2:{room:'书店 / 咖啡馆 / 工作台', do:[['认真做着自己手头的事','专注'],['刚写完一段，停下来发愣','安静'],['在挑一本书，迟迟没决定','悠闲'],['给窗边的花换水','柔和']]},
+  3:{room:'餐桌旁 / 小馆子', do:[['慢悠悠吃午饭','满足'],['研究新菜谱，边看边尝','好奇'],['望着窗外的人走来走去','漫然'],['把碗筷收好，泡了杯茶','惬意']]},
+  4:{room:'旧书店 / 工作台 / 街头', do:[['埋头做自己的事','沉着'],['在旧货摊前停下看了很久','兴致'],['替一位陌生人指了路','温暖'],['在小本子上写写画画','安定']]},
+  5:{room:'回家的路上 / 菜场', do:[['挑了几棵青菜，慢慢往回走','踏实'],['在路口等红灯，顺手整理衣领','平静'],['给家里回了条消息','温柔'],['闻见路边饭香，脚步快了些','期待']]},
+  6:{room:'家', do:[['靠窗读完最后一页，合上书','餍足'],['两个人各自安静地做着事','默契'],['泡了热茶，坐在沙发上放空','松弛'],['浇完花，抬头看了看天色','恬淡']]},
+  7:{room:'家', do:[['灯还亮着，在读没读完的那一章','安和'],['洗漱完靠在床头，窗帘拉了一半','宁静'],['写了点什么，又停笔看向窗外','出神'],['声音轻轻，怕吵到谁','小心']]}
+};
+// 真实相关性：今日任务 / 今日心情 / 天气 → 角色"内心的惦记"（只作状态内心话，不写进别处）
+function godCorrFactors(){
+  const out = [];
+  try{
+    const t = (typeof tasks !== 'undefined' && tasks) ? tasks : [];
+    const today = todayStr();
+    const due = t.filter(x=>!x.done && (x.deadline||x.event_date) === today);
+    if(due.length) out.push('崽崽今天有「'+due[0].title+'」，惦记着待会儿问问她');
+    const mk = localStorage.getItem('mhm_mood_' + today);
+    if(mk){
+      try{ const mp = JSON.parse(mk); if(mp && Number(mp.v)<=2) out.push('总觉得崽崽今天心里不太舒服，想多陪她一会儿'); }catch(e){}
+    }
+    const w = getWeatherSummary();
+    if(/雨|雷|暴|湿/.test(String(w || '')) && out.length<2) out.push('外面天气不讨好，想着提醒她带伞、早点回');
+  }catch(e){}
+  return out;
+}
+function godSince(rng){
+  const mins = 8 + Math.floor(rng()*55);
+  const d = new Date(Date.now() - mins*60000);
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+function godViewState(who, idx, salt){
+  const rng = ocRand(todayStr() + '|' + who + '|' + salt);
+  const hour = new Date().getHours();
+  const ph = godPhase(hour);
+  const names = ocRoleNames();
+  const other = names[1-idx];
+  // 凌晨 / 深夜：小概率两人同处一室（含蓄留白，不越界）
+  if((ph===0 || ph===7) && rng() < 0.16){
+    const s = [
+      '和' + other + '窝在一起，灯压得很低，谁也没说话',
+      '在' + other + '边上安静地待着，听得见彼此的呼吸',
+      '关了客厅的灯，两个人靠在一起看窗外'
+    ];
+    return {who:who, idx:idx, place:'家', doing:ocPick(rng, s), mood:'安心', inner:'有些时候，不说话也好。', since:godSince(rng)};
+  }
+  const sc = GOD_SCENES[ph];
+  const d = ocPick(rng, sc.do);
+  const corr = godCorrFactors();
+  const inner = corr.length ? ocPick(rng, corr)
+    : ocPick(rng, ['想着今天还来得及做些什么','没什么特别的，但可以是很好的一天','想把这一刻记住']);
+  return {who:who, idx:idx, place:sc.room, doing:d[0], mood:d[1], inner:inner, since:godSince(rng)};
+}
+function godOpen(){
+  const m = document.getElementById('godMask');
+  if(m) m.style.display = 'flex';
+  godRender();
+}
+function godClose(){
+  const m = document.getElementById('godMask');
+  if(m) m.style.display = 'none';
+}
+function godNext(){ _godSalt++; godRender(); }
+function godRender(){
+  const list = document.getElementById('godList');
+  if(!list) return;
+  const names = ocRoleNames();
+  const hour = new Date().getHours();
+  const ph = godPhase(hour);
+  const phLabel = ['凌晨','清晨','上午','中午','下午','傍晚','晚间','深夜'][ph] + ' ' + String(hour).padStart(2,'0') + ':xx';
+  list.innerHTML = '<div class="god-time">' + phLabel + ' · 此刻的他们</div>' + names.map((who,i)=>{
+    const s = godViewState(who, i, _godSalt);
+    return '<div class="god-card">'
+      + '<div class="god-head"><span class="god-avatar' + (i===1?' b':'') + '">' + (i===1?'🌿':'🌸') + '</span>'
+      + '<div class="god-who"><b>' + ocEsc(s.who) + '</b><small>大约从 ' + s.since + ' 起</small></div>'
+      + '<span class="god-mood">' + ocEsc(s.mood) + '</span></div>'
+      + '<div class="god-state"><div class="gs-main">📍 ' + ocEsc(s.place) + ' · ' + ocEsc(s.doing) + '</div>'
+      + '<div class="gs-inner">“' + ocEsc(s.inner) + '”</div></div>'
+      + '</div>';
+  }).join('');
+}
 function buildRoleProtocol(){
   const parts = [];
   const vp = buildVoiceProtocol();
   if(vp) parts.push(vp);
   const sp = buildStickerProtocol();
   if(sp) parts.push(sp);
+  const ar = buildAntiRepeat();
+  if(ar) parts.push(ar);
   return parts.join('\n\n');
 }
 function syncVoiceUI(){
@@ -13211,6 +13695,22 @@ init();
   color:#eaffea;font-size:14px;cursor:pointer;}
 </style>
 
+<div class="mask oc-feed-mask" id="ocFeedMask">
+  <div class="ocf-top">
+    <div class="ocf-title">🌸 他们的生活<small>零落 & 沈容 · 平行世界的生活记录</small></div>
+    <button class="ocf-x" onclick="ocFeedClose()" type="button">✕</button>
+  </div>
+  <div class="ocf-list" id="ocFeedList"></div>
+</div>
+<div class="mask god-mask" id="godMask">
+  <div class="god-top">
+    <div class="god-title">👁 上帝视角<small>平行时空 · 仅供观看</small></div>
+    <button class="ocf-x" onclick="godClose()" type="button">✕</button>
+  </div>
+  <div class="god-list" id="godList"></div>
+  <button class="god-refresh" onclick="godNext()" type="button">🔄 换一帧</button>
+  <div class="god-note">此刻是他们的平行时空；状态由引擎按时间 + 随机感生成，与真实对话无关，不写进记忆、不进对话上下文。</div>
+</div>
 <div class="mask comp-mask" id="compMask">
   <div class="comp-video-wrap">
     <video id="compVideo" class="comp-video" autoplay playsinline muted></video>
