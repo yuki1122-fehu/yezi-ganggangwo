@@ -7412,6 +7412,7 @@ async function syncCloudContext(){
    原理：Worker 每次推送主动消息会把内容存 KV cloudmsg:日期；App 打开/聊完后 GET /msgs
    拉最近 3 天，按 id（cloudmsg:<ts>）去重后追加进 aiConv，让消息页能看到记录（不只是弹窗）。 */
 const CLOUD_MSG_PREFIX = 'cloudmsg';
+const CLOUD_LAST_SEEN_KEY = 'mhm_cloud_last_seen'; // 消费水位：已同步到的最大云端消息 ts，防止已删的消息刷新后复活
 let __cloudMsgMerged = {}; // 本次会话已合并的 id 集合（防重复拉取重复注入）
 async function pullCloudMsgs(){
   try{
@@ -7419,19 +7420,33 @@ async function pullCloudMsgs(){
     const r = await fetch(PUSH_WORKER + '/msgs', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({secret:PUSH_SECRET})});
     const d = await r.json().catch(()=>({}));
     if(!d || !d.ok || !Array.isArray(d.msgs) || !d.msgs.length) return;
+    // 水位过滤：只消费上次同步之后的新消息；已删的消息 ts ≤ 水位，不会再回来
+    let lastSeen = 0, firstSync = false;
+    try{ lastSeen = parseInt(localStorage.getItem(CLOUD_LAST_SEEN_KEY) || '0', 10) || 0; }catch(e){}
+    if(lastSeen === 0) firstSync = true; // 首次同步：不过滤（让历史云端消息全部可见），注入后建立水位
     if(!aiConv) aiReset();
     const have = {};
     for(const m of aiConv){ if(m && m.id) have[m.id] = true; }
-    let added = 0, lastTs = 0;
+    let added = 0, mergedMaxTs = 0;
     for(const m of d.msgs){
       if(!m || !m.text) continue;
-      const id = CLOUD_MSG_PREFIX + ':' + m.ts;
-      if(have[id] || __cloudMsgMerged[id]) continue;
+      const ts = Number(m.ts) || 0;
+      if(!firstSync && lastSeen > 0 && ts && ts <= lastSeen) continue; // 已消费过（含已删除）的跳过
+      const id = CLOUD_MSG_PREFIX + ':' + ts;
+      if(!ts || have[id] || __cloudMsgMerged[id]) continue;
       have[id] = true; __cloudMsgMerged[id] = true;
-      aiConv.push({role:'assistant', content: String(m.text).slice(0,300), id, ts: m.ts});
-      lastTs = m.ts; added++;
+      aiConv.push({role:'assistant', content: String(m.text).slice(0,300), id, ts});
+      if(ts > mergedMaxTs) mergedMaxTs = ts;
+      added++;
     }
-    if(!added) return;
+    if(!added && !firstSync) return;
+    // 更新消费水位：取本次列表最大 ts（首次=建立水位；平时=推进到已消费的最大 ts；拉取失败时水位不前进）
+    const listMaxTs = d.msgs.reduce((mx,m)=>Math.max(mx, Number(m.ts)||0), 0);
+    const targetSeen = Math.max(mergedMaxTs, listMaxTs);
+    if(targetSeen > lastSeen){
+      try{ localStorage.setItem(CLOUD_LAST_SEEN_KEY, String(targetSeen)); }catch(e){}
+    }
+    if(!added) return; // 首次同步但全被 have 挡住（旧版已注入过）：不渲染不红点，仅建水位
     saveConv();
     const mask = document.getElementById('aiMask');
     if(mask && mask.classList.contains('show')) renderConvFromState(); // 对话面板开着：直接渲染出来
