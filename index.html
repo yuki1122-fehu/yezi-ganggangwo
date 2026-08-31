@@ -1018,24 +1018,43 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-btn.ghost{background:var(--glass-strong);}
 .god-btn:disabled{opacity:.5;}
 
-/* ===== 主页角色栏（合并入口，今日任务不再被推远） ===== */
-.role-bar{display:flex;gap:10px;margin:0 16px 15px;}
+/* ===== 主页角色栏（合并入口，今日任务不再被推远） =====
+   2026-08-31 瘦身：高度 58→40、外边距 15→9，背景降到半透 glass + 极淡阴影，
+   视觉重量刻意压低，让眼睛不停留在这里、尽快下移到任务列表。 */
+.role-bar{display:flex;gap:8px;margin:0 16px 9px;}
 .role-btn{
-  flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:12px 13px;border-radius:18px;text-align:left;cursor:pointer;
-  background:var(--glass-strong);border:1px solid var(--glass-line);box-shadow:var(--shadow-sm),var(--shadow-inset);
+  flex:1;min-width:0;display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:14px;text-align:left;cursor:pointer;
+  background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow-xs),var(--shadow-inset);
   transition:transform .18s var(--ease),box-shadow .28s var(--ease);
 }
 .role-btn:active{transform:scale(.98);}
 .role-ic{
-  width:34px;height:34px;border-radius:11px;flex:0 0 auto;color:#fff;font-size:16px;
+  width:24px;height:24px;border-radius:9px;flex:0 0 auto;color:#fff;font-size:12px;line-height:1;
   display:flex;align-items:center;justify-content:center;
-  box-shadow:0 5px 12px rgba(143,107,216,.30),var(--shadow-inset);
+  box-shadow:0 2px 6px rgba(154,128,196,.22);
 }
-.role-btn:first-child .role-ic{background:linear-gradient(135deg,#c9a3e8,#8f6bd8);}
-.role-btn:last-child .role-ic{background:linear-gradient(135deg,#6ec3e8,#5b8ae6);box-shadow:0 5px 12px rgba(91,138,230,.30),var(--shadow-inset);}
+.role-btn:first-child .role-ic{background:linear-gradient(135deg,#c3a8dd,#9a80c4);}
+.role-btn:last-child .role-ic{background:linear-gradient(135deg,#8fb8d6,#6f9ac4);box-shadow:0 2px 6px rgba(111,154,196,.22);}
 .role-txt{flex:1;min-width:0;}
-.role-txt b{display:block;font-size:13px;font-weight:800;color:var(--ink);letter-spacing:.3px;white-space:nowrap;}
-.role-txt small{display:block;font-size:10px;color:var(--ink-faint);font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.role-txt b{display:block;font-size:12px;font-weight:700;color:var(--ink);letter-spacing:.2px;white-space:nowrap;}
+.role-txt small{display:block;font-size:9.5px;color:var(--ink-faint);font-weight:600;margin-top:1px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* 全局 .empty 带 padding:52px 24px，而 ocRenderCard 在无动态时会给这个 small 加 .empty；
+   不覆盖的话卡片会被撑到 ~149px（首次安装/清空后必现）。特异性 0-2-1 压过 0-1-0。 */
+.role-txt small.empty{padding:0;font-size:9.5px;text-align:left;font-weight:600;color:var(--ink-faint);}
+/* ===== 内联 SVG 图标系统（2026-08-31）=====
+   替换 UI 控件层的 emoji：描边走 currentColor，明暗主题自动适配、无网络请求。
+   规格：24x24 网格 · 圆头端点 · 描边随尺寸等比缩放。 */
+#icoSprite{position:absolute;width:0;height:0;overflow:hidden;}
+.ico{
+  display:inline-block;flex:0 0 auto;vertical-align:-.14em;
+  fill:none;stroke:currentColor;stroke-width:1.85;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.ico .if{fill:currentColor;stroke:none;}
+button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
+/* 暖橙渐变底上的白色描边对比度只有 ~2.2:1，改深褐拉到 ~4.5:1 */
+.jm-ic .ico{color:#6b4423;}
+
 
 .cal-journal-slot{display:block;}
 .cal-journal{
@@ -2071,6 +2090,26 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 </head>
 <body>
 
+<svg id="icoSprite" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M12 21V9"/><path d="M12 14c0-3.6-2.6-6.4-6.2-6.4 0 3.6 2.6 6.4 6.2 6.4z"/><path d="M12 11c0-3.6 2.6-6.4 6.2-6.4 0 3.6-2.6 6.4-6.2 6.4z"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.6 12S6.2 5.9 12 5.9 21.4 12 21.4 12 17.8 18.1 12 18.1 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="3.1"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M5.5 4.2h11.8a2.2 2.2 0 0 1 2.2 2.2v13.2a2.2 2.2 0 0 1-2.2 2.2H5.5z"/><path d="M9.2 4.2v17.6"/><path d="M12.6 8.6h4.4M12.6 12.4h4.4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 15.2a2 2 0 0 1-2 2h-5.4l-3.6 2.8V17.2H6a2 2 0 0 1-2-2V7.6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/><circle class="if" cx="9" cy="11.4" r=".9"/><circle class="if" cx="12" cy="11.4" r=".9"/><circle class="if" cx="15" cy="11.4" r=".9"/></symbol>
+  <symbol id="i-sprout" viewBox="0 0 24 24"><path d="M4.5 20.5h15"/><path d="M12 20.5v-8"/><path d="M12 15c0-2.8-2-5-4.8-5 0 2.8 2 5 4.8 5z"/><path d="M12 13c0-2.8 2-5 4.8-5 0 2.8-2 5-4.8 5z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 6.8h15M9.6 6.8V4.3h4.8v2.5M6.6 6.8l.9 13h9l.9-13"/><path d="M10.4 10.6v5.6M13.6 10.6v5.6"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4.2 19.8l1-4.1L15.6 5.3a2.2 2.2 0 0 1 3.1 3.1L8.3 18.8z"/><path d="M14.6 6.3l3.1 3.1"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7.5h9.5M18.5 7.5H20M4 16.5h1.5M10.5 16.5H20"/><circle cx="16.5" cy="7.5" r="2.4"/><circle cx="7.5" cy="16.5" r="2.4"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.2 6.2l11.6 11.6M17.8 6.2L6.2 17.8"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="10" r="1.6"/><path d="M4 17l4.5-4 3.5 3 3-2.5 5 4.5"/></symbol>
+  <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="M15.2 8.2L8.8 14.6a2.6 2.6 0 0 0 3.7 3.7l6.4-6.4a4.7 4.7 0 0 0-6.6-6.6L6 11.6a6.6 6.6 0 0 0 9.3 9.3l2.9-2.9"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 6.5a1.8 1.8 0 0 1 1.8-1.8h3.9l1.9 2.4h7.1a1.8 1.8 0 0 1 1.8 1.8v8.6a1.8 1.8 0 0 1-1.8 1.8H5.3a1.8 1.8 0 0 1-1.8-1.8z"/></symbol>
+  <symbol id="i-export" viewBox="0 0 24 24"><path d="M12 15.8V4.2M8.2 8L12 4.2 15.8 8"/><path d="M4.5 14.6v3.8a2.2 2.2 0 0 0 2.2 2.2h10.6a2.2 2.2 0 0 0 2.2-2.2v-3.8"/></symbol>
+  <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4.2v11.6M8.2 12l3.8 3.8L15.8 12"/><path d="M4.5 14.6v3.8a2.2 2.2 0 0 0 2.2 2.2h10.6a2.2 2.2 0 0 0 2.2-2.2v-3.8"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.3 4.1L2.6 17.9a1.9 1.9 0 0 0 1.7 2.9h15.4a1.9 1.9 0 0 0 1.7-2.9L13.7 4.1a1.9 1.9 0 0 0-3.4 0z"/><path d="M12 9.4v4.4"/><path d="M12 17.2h.01"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4"/><path class="if" d="M12 3.6v16.8a8.4 8.4 0 0 0 0-16.8z"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.8" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><path d="M12 18v3.2M8.8 21.2h6.4"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8M10 9H8"/></symbol>
+</defs></svg>
 <!-- 主应用 -->
 <div id="appPage" class="app">
   <!-- 首页环境微光点（沉浸感氛围层） -->
@@ -2087,7 +2126,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <div class="top-actions">
       <button onclick="openExpenseAdd()" title="记一笔">¥</button>
       <button onclick="openAdd()" title="添加任务">+</button>
-      <button onclick="toggleTheme()" title="切换主题">◐</button>
+      <button onclick="toggleTheme()" title="切换主题"><svg class="ico" style="width:16px;height:16px;"><use href="#i-moon"/></svg></button>
     </div>
   </div>
 
@@ -2161,7 +2200,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   </header>
 
   <div class="warning-bar" id="warningBar" style="display:none;" onclick="tapWarningBar()">
-    <div class="w-icon" id="warningIcon">⚠️</div>
+    <div class="w-icon" id="warningIcon"><svg class="ico" style="width:18px;height:18px;"><use href="#i-warn"/></svg></div>
     <div class="w-main">
       <div class="w-title" id="warningTitle">天气警告</div>
       <div class="w-desc" id="warningDesc">点击查看详情</div>
@@ -2172,7 +2211,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   <div class="journal-module" id="journalModule" onclick="memViewJournal()" role="button" aria-label="打开回忆档案">
     <div class="jm-top">
       <div class="jm-title">
-        <span class="jm-ic">📓</span>
+        <span class="jm-ic"><svg class="ico" style="width:17px;height:17px;"><use href="#i-book"/></svg></span>
         <span><b>回忆档案</b><small>日记 · 周记 · 月记</small></span>
       </div>
       <span class="jm-go">翻看 ›</span>
@@ -2204,11 +2243,11 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 
   <div class="role-bar" id="roleBar">
     <button class="role-btn" onclick="ocFeedOpen()" type="button">
-      <span class="role-ic">🌸</span>
+      <span class="role-ic"><svg class="ico" style="width:14px;height:14px;"><use href="#i-leaf"/></svg></span>
       <span class="role-txt"><b>他们的生活</b><small id="ocExcerptText">多聊聊天，生活痕迹会长出来</small></span>
     </button>
     <button class="role-btn" onclick="godOpen()" type="button">
-      <span class="role-ic">👁</span>
+      <span class="role-ic"><svg class="ico" style="width:14px;height:14px;"><use href="#i-eye"/></svg></span>
       <span class="role-txt"><b>上帝视角</b><small>看看他们此刻在做什么</small></span>
     </button>
   </div>
@@ -2245,7 +2284,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   </nav>
 </div>
 
-<button class="ai-fab" id="aiFab" onclick="openAI()">💬<span class="ai-fab-dot" id="aiFabDot"></span></button>
+<button class="ai-fab" id="aiFab" onclick="openAI()"><svg class="ico" style="width:26px;height:26px;"><use href="#i-chat"/></svg><span class="ai-fab-dot" id="aiFabDot"></span></button>
 
 <!-- 添加任务弹窗 -->
 <div class="mask" id="addMask">
@@ -2358,13 +2397,13 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 <!-- 助理面板 -->
 <div id="aiMask">
   <div class="ai-head glass-strong" style="border-radius:0;">
-    <div class="ai-title">🌿 工作台助理</div>
+    <div class="ai-title"><svg class="ico" style="width:16px;height:16px;"><use href="#i-sprout"/></svg> 工作台助理</div>
     <div class="ai-head-actions">
-      <button onclick="clearAIConv()" title="清空对话（不影响任务/课表）">🗑</button>
-      <button onclick="openPayloadView()" title="查看发送给助理的内容"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg></button>
-      <button onclick="openPromptCenter()" title="提示词中心：按发送顺序查看并修改所有发给 AI 的提示词">✎</button>
-      <button onclick="openAISettings()" title="设置" style="font-size:20px;">⚙</button>
-      <button onclick="closeAI()" title="关闭">✕</button>
+      <button onclick="clearAIConv()" title="清空对话（不影响任务/课表）"><svg class="ico" style="width:17px;height:17px;"><use href="#i-trash"/></svg></button>
+      <button onclick="openPayloadView()" title="查看发送给助理的内容"><svg class="ico" style="width:18px;height:18px;"><use href="#i-file"/></svg></button>
+      <button onclick="openPromptCenter()" title="提示词中心：按发送顺序查看并修改所有发给 AI 的提示词"><svg class="ico" style="width:17px;height:17px;"><use href="#i-pencil"/></svg></button>
+      <button onclick="openAISettings()" title="设置" style="font-size:16px;"><svg class="ico" style="width:18px;height:18px;"><use href="#i-sliders"/></svg></button>
+      <button onclick="closeAI()" title="关闭"><svg class="ico" style="width:17px;height:17px;"><use href="#i-close"/></svg></button>
     </div>
   </div>
   <div class="ai-msgs" id="aiMsgs"></div>
@@ -2378,8 +2417,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   </div>
   <div class="ai-input-row">
     <div class="ai-attach">
-      <button type="button" onclick="document.getElementById('aiFileImg').click()" title="发图片">📷</button>
-      <button type="button" onclick="document.getElementById('aiFileDoc').click()" title="发文件（txt/md/csv/json/pdf/word/excel/图片）">📎</button>
+      <button type="button" onclick="document.getElementById('aiFileImg').click()" title="发图片"><svg class="ico" style="width:19px;height:19px;"><use href="#i-image"/></svg></button>
+      <button type="button" onclick="document.getElementById('aiFileDoc').click()" title="发文件（txt/md/csv/json/pdf/word/excel/图片）"><svg class="ico" style="width:19px;height:19px;"><use href="#i-paperclip"/></svg></button>
       <input type="file" id="aiFileImg" accept="image/*" hidden onchange="aiPickFile(event,true)">
       <input type="file" id="aiFileDoc" accept=".txt,.md,.csv,.json,.pdf,.doc,.docx,.xls,.xlsx,image/*" hidden onchange="aiPickFile(event,false)">
     </div>
@@ -2398,10 +2437,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
     <input id="appTitle" placeholder="叶子港港窝" maxlength="20" style="margin-bottom:10px;">
 
     <div style="padding:14px 16px;margin-bottom:14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
-      <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:8px;">🗂 备份与恢复</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:8px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-folder"/></svg>备份与恢复</div>
       <div class="row" style="margin:0;gap:8px;">
-        <button class="btn ghost" type="button" onclick="exportData()" style="flex:1;background:var(--glass-strong);">📤 导出数据</button>
-        <button class="btn ghost" type="button" onclick="document.getElementById('dataFile').click()" style="flex:1;background:var(--glass-strong);">📥 导入数据</button>
+        <button class="btn ghost" type="button" onclick="exportData()" style="flex:1;background:var(--glass-strong);display:flex;align-items:center;justify-content:center;gap:6px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-export"/></svg>导出数据</button>
+        <button class="btn ghost" type="button" onclick="document.getElementById('dataFile').click()" style="flex:1;background:var(--glass-strong);display:flex;align-items:center;justify-content:center;gap:6px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-import"/></svg>导入数据</button>
         <input type="file" id="dataFile" accept=".json,application/json" hidden onchange="importData(event)">
       </div>
       <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">上次备份：<span id="lastBackupTime">暂无</span>。数据只存本机浏览器，换设备或清缓存会丢失，建议每周导出一次。</p>
@@ -2775,7 +2814,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 
 <!-- 手动选择气泡 → 记忆：底部工具条 -->
 <div id="memPickBar" class="mem-pick-bar" hidden>
-  <button class="btn ghost ic" title="取消" onclick="memExitPick()">✕</button>
+  <button class="btn ghost ic" title="取消" onclick="memExitPick()"><svg class="ico" style="width:15px;height:15px;"><use href="#i-close"/></svg></button>
   <span class="cnt" id="memPickBarCount">已选 0 条</span>
   <button class="btn primary" onclick="openMemPick()">⭐ 记为记忆</button>
 </div>
@@ -2879,7 +2918,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   <div class="pomo-top">
     <button class="pomo-iconbtn" onclick="closePomodoro()" aria-label="返回">‹</button>
     <div class="pomo-title">番 茄 钟</div>
-    <button class="pomo-iconbtn" onclick="openPomoSettings()" aria-label="设置">⚙</button>
+    <button class="pomo-iconbtn" onclick="openPomoSettings()" aria-label="设置"><svg class="ico" style="width:17px;height:17px;"><use href="#i-sliders"/></svg></button>
   </div>
   <div class="pomo-stage">
     <div class="pomo-ring" id="pomoRing">
@@ -3126,7 +3165,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 <!-- 植物简介弹窗（点小园里的植物弹出） -->
 <div class="mask" id="pomoPlantMask" onclick="closePomoPlant()">
   <div class="pomo-plant-card" onclick="event.stopPropagation()">
-    <button class="pomo-plant-x" onclick="closePomoPlant()" aria-label="关闭">✕</button>
+    <button class="pomo-plant-x" onclick="closePomoPlant()" aria-label="关闭"><svg class="ico" style="width:16px;height:16px;"><use href="#i-close"/></svg></button>
     <div class="pomo-plant-svg" id="pomoPlantSVG"></div>
     <div class="pomo-plant-name" id="pomoPlantName"></div>
     <div class="pomo-plant-lv" id="pomoPlantLv"></div>
@@ -13898,15 +13937,15 @@ init();
 
 <div class="mask oc-feed-mask" id="ocFeedMask">
   <div class="ocf-top">
-    <div class="ocf-title">🌸 他们的生活<small>零落 & 沈容 · 平行世界的生活记录</small></div>
-    <button class="ocf-x" onclick="ocFeedClose()" type="button">✕</button>
+    <div class="ocf-title"><svg class="ico" style="width:17px;height:17px;"><use href="#i-leaf"/></svg> 他们的生活<small>零落 & 沈容 · 平行世界的生活记录</small></div>
+    <button class="ocf-x" onclick="ocFeedClose()" type="button"><svg class="ico" style="width:16px;height:16px;"><use href="#i-close"/></svg></button>
   </div>
   <div class="ocf-list" id="ocFeedList"></div>
 </div>
 <div class="mask god-mask" id="godMask">
   <div class="god-top">
-    <div class="god-title">👁 上帝视角<small>他们的世界 · 关系与生活互相关联</small></div>
-    <button class="ocf-x" onclick="godClose()" type="button">✕</button>
+    <div class="god-title"><svg class="ico" style="width:17px;height:17px;"><use href="#i-eye"/></svg> 上帝视角<small>他们的世界 · 关系与生活互相关联</small></div>
+    <button class="ocf-x" onclick="godClose()" type="button"><svg class="ico" style="width:16px;height:16px;"><use href="#i-close"/></svg></button>
   </div>
   <div class="god-rel" id="godRel"></div>
   <div class="god-list" id="godList"></div>
@@ -13923,11 +13962,11 @@ init();
   </div>
   <div class="comp-top">
     <div class="comp-pills">
-      <span id="compSee" class="comp-pill">👁 看</span>
-      <span id="compHear" class="comp-pill">🎤 听</span>
-      <span id="compSpeak" class="comp-pill">💬 说</span>
+      <span id="compSee" class="comp-pill"><svg class="ico" style="width:13px;height:13px;"><use href="#i-eye"/></svg> 看</span>
+      <span id="compHear" class="comp-pill"><svg class="ico" style="width:13px;height:13px;"><use href="#i-mic"/></svg> 听</span>
+      <span id="compSpeak" class="comp-pill"><svg class="ico" style="width:13px;height:13px;"><use href="#i-chat"/></svg> 说</span>
     </div>
-    <button class="comp-x" onclick="closeCompanion()">✕</button>
+    <button class="comp-x" onclick="closeCompanion()"><svg class="ico" style="width:16px;height:16px;"><use href="#i-close"/></svg></button>
   </div>
 
   <div class="comp-center">
@@ -13951,7 +13990,7 @@ init();
       <input id="compTask" class="comp-taskinput" placeholder="例如：写论文第三章（可留空）" maxlength="60">
     </div>
     <div class="comp-btns">
-      <button id="compMicBtn" class="comp-btn" onclick="compToggleMic()">🎤 点我说</button>
+      <button id="compMicBtn" class="comp-btn" onclick="compToggleMic()"><svg class="ico" style="width:15px;height:15px;"><use href="#i-mic"/></svg> 点我说</button>
       <button id="compCloudBtn" class="comp-btn" onclick="tcAsrSetup()" title="腾讯云语音识别：解决安卓识别器一两个回合后失聪">☁️ 云识别</button>
       <button id="compProBtn" class="comp-btn on" onclick="compToggleProactive()">🗣 主动开口</button>
       <button id="compSaveBtn" class="comp-btn on" onclick="compToggleSaveFlow()">🌱 省流</button>
