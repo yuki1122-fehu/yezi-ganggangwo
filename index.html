@@ -1000,6 +1000,23 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 }
 .god-refresh:active{transform:scale(.97);}
 .god-note{font-size:10px;color:var(--ink-faint);line-height:1.6;text-align:center;padding:0 10px 4px;}
+.god-rel{
+  display:flex;align-items:flex-start;gap:8px;margin:0 2px 12px;padding:11px 13px;border-radius:14px;font-size:12px;line-height:1.65;
+  color:var(--ink);background:var(--warm-soft);border:1px solid rgba(224,170,112,.32);border-left:3px solid var(--warm-deep);
+  box-shadow:var(--shadow-inset);animation:calJournalIn .34s var(--ease) both;
+}
+.god-rel-ic{flex:0 0 auto;font-size:13px;}
+.god-src{flex:0 0 auto;font-size:9.5px;font-weight:800;color:var(--ink-faint);margin-left:2px;}
+.god-tools{display:flex;gap:10px;margin:14px 0 10px;flex:0 0 auto;}
+.god-btn{
+  flex:1;padding:12px 6px;border-radius:16px;font-size:13px;font-weight:800;color:var(--ink);
+  border:1px solid var(--glass-line);background:var(--glass-strong);box-shadow:var(--shadow-inset);
+  transition:transform .18s var(--ease),opacity .18s;
+}
+.god-btn:active{transform:scale(.97);}
+.god-btn.primary{background:linear-gradient(150deg,rgba(110,195,232,.22),rgba(91,138,230,.16));}
+.god-btn.ghost{background:var(--glass-strong);}
+.god-btn:disabled{opacity:.5;}
 
 .cal-journal-slot{display:block;}
 .cal-journal{
@@ -3595,6 +3612,7 @@ function enterApp(){
   try{ renderWarningBar(); fetchHKWarnings(false); }catch(e){ console.error(e); } // 加载天气警告（先显示缓存，再异步刷新）
   try{ memRenderJournalModule(); }catch(e){ console.error(e); } // 主页回忆档案摘要与计数
   try{ ocRenderCard(); ocRefreshCtx(); }catch(e){ console.error(e); } // 主页角色动态卡片（他们的生活）
+  try{ ocRelNow(); }catch(e){ console.error(e); } // 角色世界关系预热（tick 演化）
   try{ initPomo(); }catch(e){ console.error(e); } // 番茄钟 · 港窝小园
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
@@ -7209,6 +7227,8 @@ function buildLiveContext(){
     if(fc.length>300) fc = fc.slice(0,300)+'…(截断)';
     s += '\n\n<角色动态>\n' + fc + '\n</角色动态>';
   }
+  const wctx = ocWorldCtx(); // 关系现状 + 今天共同事件（角色世界单一事实源，对话与镜头不拆台）
+  if(wctx) s += '\n\n' + wctx;
   return s;
 }
 /* ---- 打开页面后的自动主动开口：角色不等用户问就先发一条（每日限次） ----
@@ -13317,14 +13337,101 @@ function godSince(rng){
   const d = new Date(Date.now() - mins*60000);
   return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
 }
-function godViewState(who, idx, salt){
+/* ———— 角色世界状态（唯一事实源：关系 + 共同事件）————
+   mhm_oc_world = { rel:{state,note,since,updatedAt,lastEventAt,seed}, days:{'MM-DD':[{t,src}]} }
+   ocRelNow 是关系演化的唯一 tick：90 分钟窗口确定性伪随机；48h 内不反复争吵；
+   上帝视角本地引擎与 AI 旁白都读这份世界；AI 旁白是唯一编剧入口（可写回关系+共同事件）。
+   对话注入的只有关系状态 + 今天共同事件摘要（让三块不拆台、问起彼此接得住）；即时镜头细节不进对话。 */
+const OC_WORLD_KEY = 'mhm_oc_world';
+function ocWorldGet(){
+  const fallback = {rel:{state:'warm',note:'',since:Date.now(),updatedAt:Date.now(),seed:0}, days:{}};
+  try{
+    const v = localStorage.getItem(OC_WORLD_KEY);
+    return (v && v.trim()) ? JSON.parse(v) : fallback;
+  }catch(e){ return fallback; }
+}
+function ocWorldSave(w){
+  try{ localStorage.setItem(OC_WORLD_KEY, JSON.stringify(w)); }catch(e){}
+}
+function ocRelDesc(state){
+  return (
+    {hot:'关系正热络：黏黏糊糊，恨不得总是呆在一起。',
+     warm:'关系稳定日常：偶尔斗嘴，但马上就会和好。',
+     cool:'闹小别扭中：话变少了，问起对方会先哼一声。',
+     cold:'在冷战：谁都不先开口，情绪明显比平时低。'}[state] || ''
+  );
+}
+function ocRelNow(){
+  try{
+    const w = ocWorldGet();
+    let rel = w.rel || {state:'warm',note:'',since:Date.now(),updatedAt:Date.now(),seed:0};
+    const now = Date.now();
+    const minAgo = ts => (now-(ts||0))/60000;
+    if(minAgo(rel.updatedAt) < 90) return rel; // 防抖：90 分钟窗口内不动
+    const p = ocRand('rel|' + Math.floor(now/(90*60000)) + '|' + (rel.seed||0))();
+    let next = Object.assign({}, rel), changed = false;
+    if(rel.state==='hot'){
+      if(p<0.06){ next={state:'cool',note:'因为一件小事拌了几句，谁都不太高兴',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; changed=true; }
+      else if(rel.note!=='黏糊糊的一天，做什么都想挨在一起'){ next.note='黏糊糊的一天，做什么都想挨在一起'; changed=true; }
+    } else if(rel.state==='warm'){
+      const sinceEv = minAgo(rel.lastEventAt||0);
+      if(!(rel.lastEventAt && sinceEv<1440)){
+        if(p<0.05){ next={state:'cool',note:'因为一件小事拌了几句，谁都不太高兴',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; changed=true; }
+        else if(p<0.22 && minAgo(rel.since)>600){ next={state:'hot',note:'最近几天黏得厉害，舍不得分开',since:now,updatedAt:now,lastEventAt:(rel.lastEventAt||0),seed:(rel.seed||0)+1}; changed=true; }
+      }
+      if(!changed && rel.note){ next.note=''; changed=true; }
+    } else if(rel.state==='cool'){
+      if(minAgo(rel.since)>120){
+        if(p<0.5){
+          if(p<0.25){ next={state:'cold',note:'那件事还没过去，谁都不肯先低头',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; }
+          else { next={state:'warm',note:'吵完自己消了气，早上和好了',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; }
+          changed=true;
+        }
+      }
+    } else if(rel.state==='cold'){
+      if(minAgo(rel.since)>360 && p<0.42){ next={state:'warm',note:'冷战没撑太久，先开口的那方道了歉',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; changed=true; }
+    }
+    if(changed){ w.rel = next; ocWorldSave(w); }
+    return next;
+  }catch(e){ return {state:'warm',note:'',since:Date.now(),updatedAt:Date.now(),seed:0}; }
+}
+function ocWorldDays(w){
+  return (w && w.days && w.days[ocActTodayMD()]) || [];
+}
+function ocWorldAppend(w, text, src){
+  text = String(text||'').trim();
+  if(!text) return w;
+  const today = ocActTodayMD();
+  if(!w.days) w.days = {};
+  if(!w.days[today]) w.days[today] = [];
+  if(w.days[today].some(e=>e.t===text)) return w;
+  w.days[today].push({t:text, src:(src==='ai'?'ai':'tool'), ts:Date.now()});
+  if(w.days[today].length > 8) w.days[today].splice(0, w.days[today].length - 8);
+  const y = new Date(); y.setDate(y.getDate()-1);
+  const yk = String(y.getMonth()+1).padStart(2,'0')+'-'+String(y.getDate()).padStart(2,'0');
+  Object.keys(w.days).forEach(k=>{ if(k!==today && k!==yk) delete w.days[k]; });
+  return w;
+}
+// 对话注入段：关系 + 今天共同事件（低频，对缓存影响小）
+function ocWorldCtx(){
+  try{
+    const rel = ocRelNow();
+    const days = ocWorldDays(ocWorldGet());
+    let s = '<关系现状>\n' + ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '') + '\n';
+    if(days.length) s += '今天你们之间发生过：' + days.map(e=>'『'+e.t+'』').join('、') + '\n';
+    s += '这是你们两人世界里的状态。用户问起彼此、或问"你们还好吗"时按此自然回应：冷战可以回避、不想提、脾气差一点；热恋可以自然地撒糖。不要主动到处提，不要复读这段文字，不要硬塞进无关话题。\n</关系现状>';
+    return s;
+  }catch(e){ return ''; }
+}
+function godViewState(who, idx, salt, rel){
   const rng = ocRand(todayStr() + '|' + who + '|' + salt);
   const hour = new Date().getHours();
   const ph = godPhase(hour);
   const names = ocRoleNames();
   const other = names[1-idx];
-  // 凌晨 / 深夜：小概率两人同处一室（含蓄留白，不越界）
-  if((ph===0 || ph===7) && rng() < 0.16){
+  const state = (rel && rel.state) || 'warm';
+  const cuddleP = (ph===0 || ph===7) ? (state==='hot' ? 0.28 : 0.16) : 0;
+  if(state!=='cold' && rng() < cuddleP){
     const s = [
       '和' + other + '窝在一起，灯压得很低，谁也没说话',
       '在' + other + '边上安静地待着，听得见彼此的呼吸',
@@ -13335,37 +13442,125 @@ function godViewState(who, idx, salt){
   const sc = GOD_SCENES[ph];
   const d = ocPick(rng, sc.do);
   const corr = godCorrFactors();
-  const inner = corr.length ? ocPick(rng, corr)
+  let inner = corr.length ? ocPick(rng, corr)
     : ocPick(rng, ['想着今天还来得及做些什么','没什么特别的，但可以是很好的一天','想把这一刻记住']);
-  return {who:who, idx:idx, place:sc.room, doing:d[0], mood:d[1], inner:inner, since:godSince(rng)};
+  let mood = d[1];
+  if(state==='cold'){
+    inner = idx===0 ? '……不太想提起他。' : '先低头的念头在嘴边转了一圈，又咽回去了。';
+    mood = ocPick(rng, ['低落','闷','发凉']);
+  } else if(state==='cool'){
+    inner = '在等他先开口。';
+  } else if(state==='hot' && !corr.length){
+    inner = '有点想 ' + other + ' 了。';
+  }
+  return {who:who, idx:idx, place:sc.room, doing:d[0], mood:mood, inner:inner, since:godSince(rng)};
 }
+let _godAI = null;      // AI 旁白帧：{rel, roles, ts}
+let _godAiBusy = false;
 function godOpen(){
   const m = document.getElementById('godMask');
   if(m) m.style.display = 'flex';
+  ocRelNow();
   godRender();
 }
 function godClose(){
   const m = document.getElementById('godMask');
   if(m) m.style.display = 'none';
 }
-function godNext(){ _godSalt++; godRender(); }
+function godNext(){
+  _godSalt++;
+  _godAI = null; // 换帧回到本地镜头（新随机）
+  godRender();
+}
 function godRender(){
   const list = document.getElementById('godList');
+  const relEl = document.getElementById('godRel');
   if(!list) return;
+  const rel = ocRelNow();
   const names = ocRoleNames();
   const hour = new Date().getHours();
   const ph = godPhase(hour);
   const phLabel = ['凌晨','清晨','上午','中午','下午','傍晚','晚间','深夜'][ph] + ' ' + String(hour).padStart(2,'0') + ':xx';
-  list.innerHTML = '<div class="god-time">' + phLabel + ' · 此刻的他们</div>' + names.map((who,i)=>{
-    const s = godViewState(who, i, _godSalt);
+  const useAI = !!( _godAI && _godAI.roles && _godAI.roles.length );
+  const aiRel = useAI ? _godAI.rel : null;
+  const relDesc = (aiRel ? (ocRelDesc(aiRel.state||'warm') + ((aiRel.note)?('（'+aiRel.note+'）'):''))
+    : (ocRelDesc(rel.state) + (rel.note ? ('（'+rel.note+'）') : '')));
+  if(relEl){
+    relEl.innerHTML = '<span class="god-rel-ic">💞</span>他们之间：' + ocEsc(relDesc)
+      + ' <small class="god-src">' + (useAI ? 'AI 旁白' : '本地镜头') + '</small>';
+  }
+  const cards = names.map((who,i)=>{
+    let s;
+    if(useAI && _godAI.roles[i] && _godAI.roles[i].who){
+      const r = _godAI.roles[i];
+      s = {who:r.who, place:r.place, doing:r.doing, mood:r.mood, inner:r.inner, since:(r.since||'')};
+    } else {
+      s = godViewState(who, i, _godSalt, rel);
+    }
     return '<div class="god-card">'
       + '<div class="god-head"><span class="god-avatar' + (i===1?' b':'') + '">' + (i===1?'🌿':'🌸') + '</span>'
-      + '<div class="god-who"><b>' + ocEsc(s.who) + '</b><small>大约从 ' + s.since + ' 起</small></div>'
+      + '<div class="god-who"><b>' + ocEsc(s.who) + '</b><small>' + (s.since ? ('大约从 ' + s.since + ' 起') : '') + '</small></div>'
       + '<span class="god-mood">' + ocEsc(s.mood) + '</span></div>'
       + '<div class="god-state"><div class="gs-main">📍 ' + ocEsc(s.place) + ' · ' + ocEsc(s.doing) + '</div>'
-      + '<div class="gs-inner">“' + ocEsc(s.inner) + '”</div></div>'
-      + '</div>';
+      + (s.inner ? ('<div class="gs-inner">“' + ocEsc(s.inner) + '”</div>') : '')
+      + '</div></div>';
   }).join('');
+  list.innerHTML = '<div class="god-time">' + phLabel + (useAI ? ' · AI 旁白' : ' · 此刻的他们') + '</div>' + cards;
+}
+// AI 旁白：唯一编剧入口。带世界状态去写，写回关系与共同事件。
+async function godAskAI(){
+  if(_godAiBusy) return;
+  _godAiBusy = true;
+  const btn = document.getElementById('godAiBtn');
+  if(btn){ btn.textContent = '⋯ 剧情书写中'; btn.disabled = true; }
+  try{
+    const cfg = getAiCfg();
+    if(!cfg || !cfg.apiKey){ toast('AI 旁白需要 API Key：请先在 AI 设置里填写'); return; }
+    const names = ocRoleNames();
+    const rel = ocRelNow();
+    const days = ocWorldDays(ocWorldGet());
+    const sys = '你是「他们的世界」的编剧与旁白。用户打开上帝视角，想看到两个情境角色此刻的生活切片，以及两人之间的关系状态。你用第三人称含蓄、留白地叙述，有真实生活的质感；不夸张、不解释自己在叙述、不出戏。';
+    const user = '<当前时间>\n' + nowAnchor() + '</当前时间>\n'
+      + '<他们此刻的世界>\n关系：' + ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '')
+      + (days.length ? '\n今天他们之间发生过：' + days.map(e=>'『'+e.t+'』').join('、') : '')
+      + '\n最近生活痕迹：' + (OC_FEED_CTX || '（暂未留下痕迹）')
+      + '\n</他们此刻的世界>\n'
+      + '请输出两个角色的「此刻切片」和「当前关系状态」。两个角色名必须是：' + names[0] + ' 与 ' + names[1] + '。\n'
+      + '严格按下面的 JSON 输出，不要有任何多余文字：\n'
+      + '{"rel":{"state":"hot|warm|cool|cold","note":"一句当下关系说明","changed":true或false,"events":["0~2条今天发生的共同事件短句；没有就空数组"]},"roles":[{"who":"'+names[0]+'","place":"他现在在哪","doing":"正在做什么","mood":"心情词","inner":"一句内心话"},{"who":"'+names[1]+'","place":"...","doing":"...","mood":"...","inner":"..."}]}\n'
+      + '要求：①状态要符合当前时段（深夜不做室外长场景）；②关系要有连续性——除非 changed=true 且 note 写清发生了什么，否则必须延续上面给的关系与共同事件，不要凭空反转；③events 优先承接上面已存在的共同事件，安排新事要自然合理；④内心话含蓄真实；⑤严禁露骨描写；⑥不要安排与用户相关的虚构互动（用户没参与的事，别写进角色的世界里）。';
+    const r = await aiCall([{role:'system', content:sys},{role:'user', content:user}], cfg, 1, {noTools:true});
+    if(r && r.error){ toast('AI 旁白失败：' + String(r.error).slice(0,60)); return; }
+    const msg = r && r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message;
+    const content = (typeof msg.content === 'string') ? msg.content : '';
+    let j = null;
+    try{ j = JSON.parse(content.replace(/```json|```/g,'').trim()); }catch(e){ j = null; }
+    if(!j || !Array.isArray(j.roles) || !j.roles.length){ toast('旁白返回格式不对，已用本地镜头'); return; }
+    const OK = ['hot','warm','cool','cold'];
+    let relNext = null;
+    if(j.rel && OK.indexOf(j.rel.state) >= 0){
+      relNext = {
+        state:j.rel.state, note:String(j.rel.note || ''),
+        since:(j.rel.changed ? Date.now() : rel.since),
+        updatedAt:Date.now(),
+        lastEventAt:(j.rel.changed ? Date.now() : (rel.lastEventAt || 0)),
+        seed:(rel.seed || 0)
+      };
+    }
+    let w2 = ocWorldGet();
+    if(relNext){ w2.rel = relNext; }
+    if(j.rel && Array.isArray(j.rel.events)){
+      for(const ev of j.rel.events){ if(ev && String(ev).trim()) w2 = ocWorldAppend(w2, String(ev).trim(), 'ai'); }
+    }
+    ocWorldSave(w2);
+    _godAI = {rel:(relNext || rel), roles:j.roles, ts:Date.now()};
+    ocRefreshCtx();
+    godRender();
+  }catch(e){ toast('AI 旁白异常：' + String(e && e.message || e)); }
+  finally{
+    _godAiBusy = false;
+    if(btn){ btn.textContent = '✨ AI 旁白'; btn.disabled = false; }
+  }
 }
 function buildRoleProtocol(){
   const parts = [];
@@ -13704,12 +13899,16 @@ init();
 </div>
 <div class="mask god-mask" id="godMask">
   <div class="god-top">
-    <div class="god-title">👁 上帝视角<small>平行时空 · 仅供观看</small></div>
+    <div class="god-title">👁 上帝视角<small>他们的世界 · 关系与生活互相关联</small></div>
     <button class="ocf-x" onclick="godClose()" type="button">✕</button>
   </div>
+  <div class="god-rel" id="godRel"></div>
   <div class="god-list" id="godList"></div>
-  <button class="god-refresh" onclick="godNext()" type="button">🔄 换一帧</button>
-  <div class="god-note">此刻是他们的平行时空；状态由引擎按时间 + 随机感生成，与真实对话无关，不写进记忆、不进对话上下文。</div>
+  <div class="god-tools">
+    <button class="god-btn primary" id="godAiBtn" onclick="godAskAI()" type="button">✨ AI 旁白</button>
+    <button class="god-btn ghost" onclick="godNext()" type="button">🔄 换一帧</button>
+  </div>
+  <div class="god-note">他们是活的：这里发生的关系波折与共同事件会写进「他们的世界」，朋友圈与对话都接得住；即时镜头细节仅供观看。AI 旁白每次会调用一次 AI 生成剧情（与你自己的 API Key 计费）。</div>
 </div>
 <div class="mask comp-mask" id="compMask">
   <div class="comp-video-wrap">
