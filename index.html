@@ -977,7 +977,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-title small{font-size:10.5px;color:var(--ink-faint);font-weight:700;}
 .god-list{display:flex;flex-direction:column;gap:12px;padding-bottom:6px;}
 .god-time{font-size:11px;font-weight:800;color:var(--ink-faint);letter-spacing:.5px;text-align:center;padding:2px 0 6px;}
-.god-card{background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:18px;padding:15px;box-shadow:var(--shadow-xs),var(--shadow-inset);animation:calJournalIn .34s var(--ease) both;}
+.god-card{background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:20px;padding:16px 17px 15px;box-shadow:var(--shadow-sm),var(--shadow-inset);animation:calJournalIn .34s var(--ease) both;}
 .god-head{display:flex;align-items:center;gap:10px;}
 .god-avatar{
   width:38px;height:38px;border-radius:13px;background:linear-gradient(135deg,#6ec3e8,#5b8ae6);color:#fff;
@@ -990,8 +990,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;}
 .god-mood{font-size:11px;color:var(--warm-deep);font-weight:800;}
 .god-state{margin-top:11px;padding:11px 13px;border-radius:14px;background:var(--green-soft);border:1px solid var(--green-mid);box-shadow:var(--shadow-inset);}
-.god-state .gs-main{font-size:13px;line-height:1.7;color:var(--ink);}
-.god-state .gs-inner{font-size:11.5px;color:var(--ink-soft);margin-top:6px;font-style:italic;line-height:1.6;border-top:1px dashed var(--line);padding-top:6px;}
+.god-state .gs-main{font-size:13.5px;line-height:1.78;color:var(--ink);letter-spacing:.1px;}
+.god-state .gs-inner{font-size:12px;color:var(--ink-soft);margin-top:8px;font-style:italic;line-height:1.7;border-top:1px dashed var(--line);padding-top:8px;}
 .god-refresh{
   flex:0 0 auto;margin:16px 0 8px;align-self:stretch;padding:12px;border-radius:16px;font-size:13px;font-weight:800;
   border:1px solid var(--glass-line);color:var(--ink);
@@ -1009,9 +1009,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-src{flex:0 0 auto;font-size:9.5px;font-weight:800;color:var(--ink-faint);margin-left:2px;}
 .god-tools{display:flex;gap:10px;margin:14px 0 10px;flex:0 0 auto;}
 .god-btn{
-  flex:1;padding:12px 6px;border-radius:16px;font-size:13px;font-weight:800;color:var(--ink);
+  flex:1;padding:13px 10px;border-radius:18px;font-size:13.5px;font-weight:800;color:var(--ink);
   border:1px solid var(--glass-line);background:var(--glass-strong);box-shadow:var(--shadow-inset);
-  transition:transform .18s var(--ease),opacity .18s;
+  transition:transform .18s var(--ease),opacity .18s;white-space:nowrap;letter-spacing:.3px;
 }
 .god-btn:active{transform:scale(.97);}
 .god-btn.primary{background:linear-gradient(150deg,rgba(110,195,232,.22),rgba(91,138,230,.16));}
@@ -13485,8 +13485,11 @@ function godRender(){
   const aiRel = useAI ? _godAI.rel : null;
   const relDesc = (aiRel ? (ocRelDesc(aiRel.state||'warm') + ((aiRel.note)?('（'+aiRel.note+'）'):''))
     : (ocRelDesc(rel.state) + (rel.note ? ('（'+rel.note+'）') : '')));
+  const relEmojis = {hot:'💗', warm:'💞', cool:'💙', cold:'💔'};
+  const relState = aiRel ? aiRel.state : rel.state;
+  const relIcon = relEmojis[relState] || '💞';
   if(relEl){
-    relEl.innerHTML = '<span class="god-rel-ic">💞</span>他们之间：' + ocEsc(relDesc)
+    relEl.innerHTML = '<span class="god-rel-ic">' + relIcon + '</span>他们之间：' + ocEsc(relDesc)
       + ' <small class="god-src">' + (useAI ? 'AI 旁白' : '本地镜头') + '</small>';
   }
   const cards = names.map((who,i)=>{
@@ -13528,7 +13531,8 @@ async function godAskAI(){
       + '请输出两个角色的「此刻切片」和「当前关系状态」。两个角色名必须是：' + names[0] + ' 与 ' + names[1] + '。\n'
       + '严格按下面的 JSON 输出，不要有任何多余文字：\n'
       + '{"rel":{"state":"hot|warm|cool|cold","note":"一句当下关系说明","changed":true或false,"events":["0~2条今天发生的共同事件短句；没有就空数组"]},"roles":[{"who":"'+names[0]+'","place":"他现在在哪","doing":"正在做什么","mood":"心情词","inner":"一句内心话"},{"who":"'+names[1]+'","place":"...","doing":"...","mood":"...","inner":"..."}]}\n'
-      + '要求：①状态要符合当前时段（深夜不做室外长场景）；②关系要有连续性——除非 changed=true 且 note 写清发生了什么，否则必须延续上面给的关系与共同事件，不要凭空反转；③events 优先承接上面已存在的共同事件，安排新事要自然合理；④内心话含蓄真实；⑤严禁露骨描写；⑥不要安排与用户相关的虚构互动（用户没参与的事，别写进角色的世界里）。';
+      + '要求：①状态要符合当前时段（深夜不做室外长场景）；②关系要有连续性——除非 changed=true 且 note 写清发生了什么，否则必须延续上面给的关系与共同事件，不要凭空反转；③events 优先承接上面已存在的共同事件，安排新事要自然合理；④内心话含蓄真实；⑤严禁露骨描写。\n'
+  + '【金规·金线】⑥零落和沈容的"生活"完全独立于用户。用户有自己的课表/任务/账单/复诊/出行/心情……这些**只属于叶子本人**——不要把它们套用到角色身上。零落不会替用户去上课、复诊、买菜、上班、出差。⑦不要安排与用户相关的虚构互动（用户没参与的事，别写进角色的世界里）。这是当年删除 buildDayTraces 的根本原因，**禁止重蹈**。';
     const r = await aiCall([{role:'system', content:sys},{role:'user', content:user}], cfg, 1, {noTools:true});
     if(r && r.error){ toast('AI 旁白失败：' + String(r.error).slice(0,60)); return; }
     const msg = r && r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message;
@@ -13905,7 +13909,7 @@ init();
   <div class="god-rel" id="godRel"></div>
   <div class="god-list" id="godList"></div>
   <div class="god-tools">
-    <button class="god-btn primary" id="godAiBtn" onclick="godAskAI()" type="button">✨ AI 旁白</button>
+    <button class="god-btn primary" id="godAiBtn" onclick="godAskAI()" type="button">✨ 旁白</button>
     <button class="god-btn ghost" onclick="godNext()" type="button">🔄 换一帧</button>
   </div>
   <div class="god-note">他们是活的：这里发生的关系波折与共同事件会写进「他们的世界」，朋友圈与对话都接得住；即时镜头细节仅供观看。AI 旁白每次会调用一次 AI 生成剧情（与你自己的 API Key 计费）。</div>
