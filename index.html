@@ -7050,6 +7050,18 @@ function buildSystem(){
   return sys;
 }
 
+/* 云端苏醒专用精简 sys：buildSystem() 的完整版含大量「工具使用/输出规范」规则（<助手任务清单>/<行为规则>），
+   云端 auto-wake 只说一句话根本用不上，还会诱导模型输出结构化内容（工具规则里全是 JSON/字段/标签）。
+   这里剔除两大块只留：时间/天气/学年规则 + 记忆关系块 + 角色协议（含音色/表情包）+ 粤语模式。
+   Worker 端 cloudGenText 优先读 /sync 上传的 sysCloud 字段（见 push-worker.js）。 */
+function buildCloudSys(){
+  const sys = buildSystem();
+  return sys
+    .replace(/<助手任务清单>[\s\S]*?<\/助手任务清单>/g, '')
+    .replace(/<行为规则>[\s\S]*?<\/行为规则>/g, '')
+    .trim();
+}
+
 function aiReset(){ aiConv = [{role:'system', content: buildSystem()}]; }
 
 // ---- 对话持久化：刷新/重开不丢 ----
@@ -7624,9 +7636,10 @@ async function syncCloudContext(){
     if(!cfg.apiKey || !pushWorkerReady() || !pushEnabled()) return false; // 没配 key 或没开推送就不同步
     const sys = buildSystem(); // 角色设定稳定部分（含记忆常驻块/角色协议/粤语模式等，不含动态时间/天气/日程）
     if(!sys || sys.length < 40) return false;
+    const sysCloud = buildCloudSys(); // 云端苏醒专用精简版：剔除<助手任务清单>/<行为规则>工具规范，防止模型在云端场景联想输出 <plans>/<tonight> 结构化标签（Worker 优先读此字段）
     const live = buildLiveContext(); // 当天动态：时间/天气/警告/任务/课表/关系摘要/近期回忆
     const recent = cloudRecentText();
-    const payload = { secret:PUSH_SECRET, sys, live, recent, ts: Date.now() };
+    const payload = { secret:PUSH_SECRET, sys, sysCloud, live, recent, ts: Date.now() };
     const r = await fetch(PUSH_WORKER + '/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
     const d = await r.json().catch(()=>({}));
     if(d && d.ok){
@@ -7642,7 +7655,7 @@ async function syncCloudContext(){
 }
 /* ---- 云端主动消息回填：云端 auto-wake 推的主动消息，App 打开时拉取并合并进对话页 ----
    原理：Worker 每次推送主动消息会把内容存 KV cloudmsg:日期；App 打开/聊完后 GET /msgs
-   拉最近 3 天，按 id（cloudmsg:<ts>）去重后追加进 aiConv，让消息页能看到记录（不只是弹窗）。 */
+   拉最近 7 天（2026-09-01 起从 3 天扩到 7 天），按 id（cloudmsg:<ts>）去重后追加进 aiConv，让消息页能看到记录（不只是弹窗）。 */
 const CLOUD_MSG_PREFIX = 'cloudmsg';
 const CLOUD_LAST_SEEN_KEY = 'mhm_cloud_last_seen'; // 消费水位：已同步到的最大云端消息 ts，防止已删的消息刷新后复活
 let __cloudMsgMerged = {}; // 本次会话已合并的 id 集合（防重复拉取重复注入）
