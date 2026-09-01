@@ -1205,6 +1205,11 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 .exp-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;}
 .exp-title{font-size:12.5px;font-weight:800;color:var(--ink-soft);letter-spacing:.3px;}
 .exp-title small{font-weight:600;color:var(--ink-faint);margin-left:4px;font-size:11px;}
+.exp-nav{display:inline-flex;align-items:center;gap:2px;vertical-align:-3px;margin-right:3px;}
+.exp-mbtn{width:24px;height:24px;display:flex;align-items:center;justify-content:center;padding:0;border:none;background:var(--green-soft);color:var(--green-dark);border-radius:50%;font-size:15px;font-weight:800;line-height:1;cursor:pointer;box-shadow:var(--shadow-inset);transition:transform .15s var(--ease);}
+.exp-mbtn:active{transform:scale(.9);}
+.exp-mbtn:disabled{opacity:.32;pointer-events:none;}
+.exp-mlabel{font-size:13px;font-weight:800;color:var(--ink);min-width:58px;text-align:center;font-variant-numeric:tabular-nums;letter-spacing:.3px;}
 .exp-actions{display:flex;gap:7px;}
 .exp-btn{font-size:12px;font-weight:700;padding:7px 12px;border-radius:var(--radius-pill);cursor:pointer;
   background:var(--green-soft);color:var(--green-dark);border:1px solid var(--green-mid);box-shadow:var(--shadow-inset);transition:transform .16s var(--ease);}
@@ -6020,6 +6025,7 @@ async function doAdd(){
 /* ====== 记账 ====== */
 let EXPENSES = {budget: DEFAULT_BUDGET, items: []};
 let expenseFullOpen = false; // 本月明细展开状态（重渲染后保持）
+let expenseMonth = null; // 记账卡查看的月份：null=本月；'YYYY-MM'=历史月
 
 function loadExpenses(){
   try{
@@ -6056,7 +6062,9 @@ function fmtHKD(n){
 }
 
 function renderExpenseCard(){
-  const mk = monthKey();
+  const mk = expenseMonth || monthKey();
+  const curMk = monthKey();
+  const isNow = (mk === curMk);
   const items = expensesOfMonth(mk);
   const total = items.reduce((s,e)=>s+(+e.amount||0),0);
   const budget = EXPENSES.budget;
@@ -6109,11 +6117,18 @@ function renderExpenseCard(){
         <span class="exp-row-del" onclick="deleteExpense('${e.id}')" title="删除此笔">×</span>
       </div>`).join('')}
     </div>`;
-  }).join('') : `<div class="exp-full-empty">本月还没有记账 🌿</div>`;
+  }).join('') : `<div class="exp-full-empty">${isNow?'本月':mk} 还没有记账 🌿</div>`;
   const summaryHtml = dayGroups.length ? `<div class="exp-full-summary">${mk} · <b>${items.length} 笔</b><span class="sep"></span>日均 <b>${fmtHKD(avg)}</b><span class="sep"></span>共 <b>${dayGroups.length} 天</b></div>` : '';
   return `<div class="expense-card glass">
     <div class="exp-head">
-      <div class="exp-title">本月支出 <small>${mk}</small></div>
+      <div class="exp-title">
+        <span class="exp-nav">
+          <button class="exp-mbtn" onclick="expenseShiftMonth(-1)" title="查看上个月">‹</button>
+          <b class="exp-mlabel">${mk}</b>
+          <button class="exp-mbtn" onclick="expenseShiftMonth(1)" title="查看下个月" ${isNow?'disabled':''}>›</button>
+        </span>
+        <small>${isNow?'本月':'历史'}</small>
+      </div>
       <div class="exp-actions">
         <button class="exp-btn" onclick="openExpenseExport()">导出</button>
         <button class="exp-btn" onclick="openBudgetSet()">预算</button>
@@ -6125,7 +6140,7 @@ function renderExpenseCard(){
     <div class="exp-remain ${over?'over':''}">${over ? '已超支 '+fmtHKD(-remain) : '预算剩余 '+fmtHKD(remain)}<span class="exp-remain-pct">${pct}%</span></div>
     <div class="exp-cats">${topHtml}</div>
     ${recentHtml ? `<div class="exp-recent" style="max-height:210px;overflow:auto;-webkit-overflow-scrolling:touch;">${recentHtml}</div>` : ''}
-    <div class="exp-full-toggle" onclick="toggleExpenseFull()"><span id="expFullLabel">${expenseFullOpen ? '收起本月明细 ▴' : '展开本月明细 ▾'}</span></div>
+    <div class="exp-full-toggle" onclick="toggleExpenseFull()"><span id="expFullLabel">${expenseFullLabelText()}</span></div>
     <div class="exp-full-wrap" id="expFullWrap" style="display:${expenseFullOpen ? 'block' : 'none'}">
       ${summaryHtml}
       ${fullHtml}
@@ -6153,7 +6168,23 @@ function toggleExpenseFull(){
   const wrap = document.getElementById('expFullWrap');
   const label = document.getElementById('expFullLabel');
   if(wrap) wrap.style.display = expenseFullOpen ? 'block' : 'none';
-  if(label) label.textContent = expenseFullOpen ? '收起本月明细 ▴' : '展开本月明细 ▾';
+  if(label) label.textContent = expenseFullLabelText();
+}
+function expenseFullLabelText(){
+  const mk = expenseMonth || monthKey();
+  const isNow = (mk === monthKey());
+  const dim = isNow ? '本月明细' : mk+' 明细';
+  return (expenseFullOpen ? '收起 '+dim+' ▴' : '展开 '+dim+' ▾');
+}
+/* 记账卡月份切换：d=-1 上个月 / +1 下个月（不允许看未来）；expenseMonth=null 表示「本月」 */
+function expenseShiftMonth(d){
+  const cur = monthKey();
+  const base = expenseMonth || cur;
+  const dt = new Date(Number(base.slice(0,4)), Number(base.slice(5,7))-1+d, 1);
+  const next = dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');
+  if(next > cur) return;
+  expenseMonth = (next === cur) ? null : next;
+  renderList();
 }
 
 function openExpenseAdd(){
