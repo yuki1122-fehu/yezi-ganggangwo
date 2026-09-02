@@ -3667,7 +3667,7 @@ function enterApp(){
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
   try{ scheduleProactiveWake(); }catch(e){ console.error(e); } // 后台定时苏醒：开着时每约 45 分钟静默补一条主动分享
-  try{ setTimeout(()=>{ pushInit(); }, 800); }catch(e){ console.error(e); } // 后台消息推送：开启时订阅并上报（/sub）
+  try{ setTimeout(()=>{ pushInit(); pushStartHeartbeat(); }, 800); }catch(e){ console.error(e); } // 后台消息推送：开启时订阅并上报（/sub）；心跳持续上报用户活跃时间
   try{ setTimeout(()=>{ syncCloudContext().catch(()=>{}); }, 1500); }catch(e){ console.error(e); } // 云端语境同步：打开时把角色设定+最近对话+当天动态传给 Worker（/sync）
   try{ setTimeout(()=>{ pullCloudMsgs().catch(()=>{}); }, 2400); }catch(e){ console.error(e); } // 云端主动消息回填：打开时拉云端推过的消息，合并进对话页
   try{
@@ -7629,6 +7629,44 @@ function cloudRecentText(){
     }).filter(Boolean).join('\n');
   }catch(e){ return ''; }
 }
+
+/* ---- 用户活跃上报（2026-09-02 新增）----
+   Worker 的唤醒判据已从「距 AI 上次推送 45 分钟」改成「距用户最后活动 + 沉默退避」：
+   沉默 <6h 隔 60~70 分钟 / 6~24h 隔 3~3.5 小时 / >24h 隔 6~7 小时。
+   判据依赖 App 侧上报活跃时间。不上报的话，用户一直开着 App 但不说话也会被判成沉默，
+   结果 App 就在眼前还一直弹消息——这正是旧判据「用户正忙时照样每小时戳一条」的根因。
+   节流：2 分钟内不重复上报（切前台/切后台会频繁触发，避免刷接口）。 */
+const PUSH_ACTIVE_MIN_GAP = 2*60*1000;
+const PUSH_HEARTBEAT_MS  = 10*60*1000;
+let __lastActivePush = 0;
+let __pushHbTimer = null;
+async function pushActive(force){
+  try{
+    if(!pushWorkerReady()) return false;
+    const now = Date.now();
+    if(!force && (now - __lastActivePush) < PUSH_ACTIVE_MIN_GAP) return false;
+    __lastActivePush = now;
+    const r = await fetch(PUSH_WORKER + '/active', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({secret:PUSH_SECRET})});
+    const d = await r.json().catch(()=>({}));
+    return !!(d && d.ok);
+  }catch(e){ return false; }
+}
+/* 前台心跳：App 开着时每 10 分钟上报一次活跃，切回前台也补一次。
+   只在页面可见时跑——切到后台本来就该算沉默，不该继续上报。 */
+function pushStartHeartbeat(){
+  try{
+    if(!pushWorkerReady()) return;
+    pushActive(true);                                   // 启动即报一次
+    if(__pushHbTimer) clearInterval(__pushHbTimer);
+    __pushHbTimer = setInterval(function(){
+      if(document.visibilityState === 'visible') pushActive(true);
+    }, PUSH_HEARTBEAT_MS);
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState === 'visible') pushActive(false);  // 切回前台（走节流）
+    });
+  }catch(e){}
+}
+
 async function syncCloudContext(){
   try{
     if(!CLOUD_CTX_SYNC_ON) return false;
@@ -10452,6 +10490,7 @@ async function sendAI(){
   aiPendingFiles = [];
   renderAiAttach();
   ttsWarmup(); // iOS 手势解锁：让本轮 AI 回复可以自动语音朗读
+  pushActive(true); // 用户发话 = 明确活跃：上报云端重置沉默计时（Worker 唤醒判据的数据源）
 
   if(!aiConv) aiReset();
   else aiConv[0] = { role:'system', content: buildSystem() }; // 每轮重建 system（内容已绝对稳定，动态时间/天气/日程在发送时注入最后一条 user 消息，见 injectTimeAnchor/buildLiveContext）
