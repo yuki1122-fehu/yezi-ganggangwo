@@ -3671,18 +3671,45 @@ function enterApp(){
   try{ setTimeout(()=>{ syncCloudContext().catch(()=>{}); }, 1500); }catch(e){ console.error(e); } // 云端语境同步：打开时把角色设定+最近对话+当天动态传给 Worker（/sync）
   try{ setTimeout(()=>{ pullCloudMsgs().catch(()=>{}); }, 2400); }catch(e){ console.error(e); } // 云端主动消息回填：打开时拉云端推过的消息，合并进对话页
   try{
+    // 点系统通知冷启动（sw.js 会带 ?chat=1 打开）：等云端消息回填（上面 2.4s）完成后再自动打开对话页，
+    // 让「刚推的话」一进来就能看到，不用手动点红点、更不用退出重进。
+    if(/[?&]chat=1([&#]|$)/.test(location.search)){
+      setTimeout(()=>{ try{ openAI(); }catch(e){ console.error(e); } }, 3200);
+    }
+  }catch(e){ console.error(e); }
+  try{
     // v2：App 切回前台时再补一次订阅（解决 iOS/Android PWA 在 KV 端点过期后收不到 push）
+    // v3（2026-09-02）：切回前台同时回填一次云端消息——「点系统通知回到 App」时若消息只在通知里、
+    //   还没合并进对话，立即补拉，配合 openAI 重绘让内容直接可见（原来必须退出重进才看得到）。
     document.addEventListener('visibilitychange', function(){
-      if(document.visibilityState === 'visible' && pushEnabled() && pushWorkerReady()) pushSubscribe();
+      if(document.visibilityState === 'visible' && pushEnabled() && pushWorkerReady()){
+        pushSubscribe();
+        schedulePullCloudMsgs();
+      }
+    });
+    window.addEventListener('focus', function(){
+      if(document.visibilityState !== 'hidden' && pushEnabled() && pushWorkerReady()) schedulePullCloudMsgs();
     });
     // v2：接收 sw.js 弹窗诊断回执（push 真的被弹了/没弹），写到 localStorage 方便排查
+    // v3：接收 sw.js 通知点击回执（openChat）——点系统通知回到 App 时先回填云端消息再打开对话页
     if('serviceWorker' in navigator){
       navigator.serviceWorker.addEventListener('message', function(ev){
         try{
           var d = ev && ev.data;
-          if(d && d.kind === 'pushShowResult'){
+          if(!d) return;
+          if(d.kind === 'pushShowResult'){
             try{ localStorage.setItem('mhm_push_last_show', JSON.stringify({t: Date.now(), ok: !!d.ok, err: d.err || '', title: d.title || ''})); }catch(e){}
             try{ setPushHint(d.ok ? ('上一次推送已弹窗 ✅ ' + (d.title ? '「'+d.title+'」' : '')) : ('上一次推送被拦截：' + (d.err || '未知原因'))); }catch(e){}
+          }else if(d.kind === 'openChat'){
+            // 点通知回 App：先把云端刚推的消息拉回来，再打开对话页 → 刚推的话直接可见
+            setTimeout(function(){
+              pullCloudMsgs().catch(function(){}).then(function(){
+                try{
+                  var m = document.getElementById('aiMask');
+                  if(!(m && m.classList.contains('show'))) openAI();
+                }catch(e){}
+              });
+            }, 200);
           }
         }catch(e){}
       });
@@ -7697,6 +7724,17 @@ async function syncCloudContext(){
 const CLOUD_MSG_PREFIX = 'cloudmsg';
 const CLOUD_LAST_SEEN_KEY = 'mhm_cloud_last_seen'; // 消费水位：已同步到的最大云端消息 ts，防止已删的消息刷新后复活
 let __cloudMsgMerged = {}; // 本次会话已合并的 id 集合（防重复拉取重复注入）
+/* 前台回填节流（2026-09-02 新增）：切回前台/获得焦点时高频事件合并为一次拉取，
+   配合 openAI 的每次重绘，解决「点通知回来看到红点、打开对话却看不到刚推的话」。
+   本身幂等：已合并过的消息会被 __cloudMsgMerged 挡住，重复触发只多一次轻量 POST。 */
+let __pullCloudTimer = null;
+function schedulePullCloudMsgs(){
+  try{
+    if(!pushWorkerReady() || !pushEnabled()) return;
+    clearTimeout(__pullCloudTimer);
+    __pullCloudTimer = setTimeout(()=>{ pullCloudMsgs().catch(()=>{}); }, 500);
+  }catch(e){}
+}
 async function pullCloudMsgs(){
   try{
     if(!pushWorkerReady() || !pushEnabled()) return;
@@ -8184,9 +8222,17 @@ function addSysStep(text){
 function openAI(){
   if(!aiConv) aiReset();
   markAIRead(); // 打开面板即视为已读，清掉悬浮按钮红点
+  // ★ 2026-09-02 修复「点进对话看不见刚推送的话，要退出重进才有」：
+  //   云端主动消息是打开后约 2.4s 异步回填的（pullCloudMsgs），若回填发生在面板关闭期间，
+  //   对话 DOM 仍是页面加载时的旧快照——只亮红点、打开却看不到新内容。
+  //   这里每次打开都按 aiConv 全量重绘（云端回填/删除/恢复都可能改过 aiConv），保证打开即见最新。
+  const busyBefore = aiBusy; // 若此刻 AI 正在回复，重绘会清掉「正在想」三点气泡，重绘后补回
+  renderConvFromState();
   const wrap = document.getElementById('aiMsgs');
   if(!wrap.children.length){
     addAIMsg('sys','我是你的工作台助理 🌿 直接跟我说就行，比如"9月12号10点有个迎新活动""学费交了""我还有啥没做"。');
+  }else if(busyBefore && !document.getElementById('aiTypingBubble')){
+    showTyping(); // 回复进行中：补回三点气泡，避免看起来像卡住
   }
   openMask(document.getElementById('aiMask'));
   // 进入即滚到最新对话，不用手动下滑。
