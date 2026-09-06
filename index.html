@@ -8595,6 +8595,30 @@ function pcResetStickerProto(){
   const h = document.getElementById('promptCenterHint');
   if(h) h.textContent = '已恢复默认表情包协议，点「保存修改」生效。';
 }
+function pcResetGodSysTpl(){
+  const ta = document.getElementById('pcGodSysTpl');
+  if(!ta) return;
+  ta.value = DEFAULT_GOD_SYS_TPL;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认上帝视角系统提示词，点「保存修改」生效。';
+}
+function pcResetGodUserTpl(){
+  const ta = document.getElementById('pcGodUserTpl');
+  if(!ta) return;
+  // 重新替换占位符
+  const names = ocRoleNames();
+  let tpl = DEFAULT_GOD_USER_TPL.replace(/\{\{ROLE_A\}\}/g, names[0]).replace(/\{\{ROLE_B\}\}/g, names[1]);
+  ta.value = tpl;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认上帝视角用户指令，点「保存修改」生效。';
+}
+function pcResetCompanionRules(){
+  const ta = document.getElementById('pcCompanionRules');
+  if(!ta) return;
+  ta.value = DEFAULT_COMPANION_RULES;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认陪伴规则，点「保存修改」生效。';
+}
 function renderPromptCenter(){
   const wrap = document.getElementById('promptCenterBody');
   if(!wrap) return;
@@ -8649,7 +8673,29 @@ function renderPromptCenter(){
     + '<p class="prompt-desc">开启后追加下面的 &lt;粤语模式&gt; 块，让助理用简单粤语回复。</p>'
     + '<div class="prompt-actions" style="margin-bottom:8px;"><label><input type="checkbox" id="pcYueText"'+(yueOn ? ' checked' : '')+'> 开启（与助理设置/番茄钟设置联动）</label></div>'
     + '<pre class="prompt-pre">'+escHtml(yueText)+'</pre></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">6</span><span>实时上下文（发送时自动生成）</span></div>'
+  
+  // 新增：上帝视角 AI旁白提示词
+  const godSysTpl = (cfg.godSysTpl && cfg.godSysTpl.trim()) ? cfg.godSysTpl.trim() : DEFAULT_GOD_SYS_TPL;
+  let godUserTpl = (cfg.godUserTpl && cfg.godUserTpl.trim()) ? cfg.godUserTpl.trim() : DEFAULT_GOD_USER_TPL;
+  const names = ocRoleNames();
+  godUserTpl = godUserTpl.replace(/\{\{ROLE_A\}\}/g, names[0]).replace(/\{\{ROLE_B\}\}/g, names[1]);
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">6</span><span>上帝视角 · AI旁白系统提示词</span></div>'
+    + '<p class="prompt-desc">定义AI如何生成角色生活切片。{{ROLE_A}}/{{ROLE_B}}会自动替换为实际角色名。</p>'
+    + '<textarea id="pcGodSysTpl" class="prompt-body" rows="6">'+escHtml(godSysTpl)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetGodSysTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">7</span><span>上帝视角 · AI旁白用户指令</span></div>'
+    + '<p class="prompt-desc">控制输出格式和要求，JSON结构必须严格匹配。</p>'
+    + '<textarea id="pcGodUserTpl" class="prompt-body" rows="10">'+escHtml(godUserTpl)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetGodUserTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  
+  // 新增：陪伴规则提示词
+  const companionRules = (cfg.companionRules && cfg.companionRules.trim()) ? cfg.companionRules.trim() : DEFAULT_COMPANION_RULES;
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">8</span><span>陪伴模式 · 实时陪伴规则</span></div>'
+    + '<p class="prompt-desc">专注模式下AI的行为准则，控制开口频率、语气和互动方式。</p>'
+    + '<textarea id="pcCompanionRules" class="prompt-body" rows="8">'+escHtml(companionRules)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetCompanionRules()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">9</span><span>实时上下文（发送时自动生成）</span></div>'
     + '<p class="prompt-desc">插在最新一条用户消息的开头，每轮实时刷新，这里只列出占位符；天数/轮数可在这里一并修改。</p>'
     + '<div class="prompt-actions" style="margin-bottom:8px;">'
     + '<label>近 <input type="number" id="pcDaysTask" min="0" max="120" value="'+daysTask+'"> 日任务</label>'
@@ -8657,10 +8703,10 @@ function renderPromptCenter(){
     + '<label>近 <input type="number" id="pcRounds" min="0" max="40" value="'+rounds+'"> 轮对话</label>'
     + '</div>'
     + '<pre class="prompt-pre">'+escHtml(liveParts)+'</pre></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">7</span><span>对话历史</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">10</span><span>对话历史</span></div>'
     + '<p class="prompt-desc">发送时保留最近 '+rounds+' 轮往来消息（每轮含用户+助理一条）。</p>'
     + '<pre class="prompt-pre"><对话历史>\n{{最近 '+rounds+' 轮对话历史}}\n</对话历史></pre></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">8</span><span>用户最新指令</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">11</span><span>用户最新指令</span></div>'
     + '<p class="prompt-desc">最新这条用户消息会单独包起来，与上面的实时上下文区分。</p>'
     + '<pre class="prompt-pre"><用户当前指令>\n{{用户最新这句话}}\n</用户当前指令></pre></div>');
   wrap.innerHTML = sc.join('');
@@ -8678,10 +8724,22 @@ function savePromptCenter(){
   const dt = document.getElementById('pcDaysTask');
   const dc = document.getElementById('pcDaysCourse');
   const rr = document.getElementById('pcRounds');
+  
+  // 新增：上帝视角和陪伴规则
+  const godSysEl = document.getElementById('pcGodSysTpl');
+  const godUserEl = document.getElementById('pcGodUserTpl');
+  const compRulesEl = document.getElementById('pcCompanionRules');
+  
   if(sysEl) cfg.systemTpl = sysEl.value;
   if(idEl) localStorage.setItem(MEM_IDENTITY_KEY, idEl.value.trim());
   if(vpEl) cfg.voiceProtoTpl = vpEl.value;
   if(spEl) cfg.stickerProtoTpl = spEl.value;
+  
+  // 保存新字段
+  if(godSysEl) cfg.godSysTpl = godSysEl.value;
+  if(godUserEl) cfg.godUserTpl = godUserEl.value;
+  if(compRulesEl) cfg.companionRules = compRulesEl.value;
+  
   if(vOn){
     const vv = aiVoices();
     vv.on = vOn.checked;
@@ -8719,7 +8777,7 @@ function savePromptCenter(){
   if(aiConv && aiConv.length && aiConv[0].role === 'system') aiConv[0].content = buildSystem();
   renderPromptCenter();
   const h = document.getElementById('promptCenterHint');
-  if(h) h.textContent = '已保存：系统提示词、关系身份、音色协议、表情包协议、角色名、粤语模式与发送范围都已更新。';
+  if(h) h.textContent = '已保存：系统提示词、关系身份、音色协议、表情包协议、角色名、粤语模式、上帝视角提示词、陪伴规则与发送范围都已更新。';
   toast('提示词已保存');
 }
 function copyPromptCenter(){
@@ -13684,6 +13742,13 @@ function godRender(){
   list.innerHTML = '<div class="god-time">' + phLabel + (useAI ? ' · AI 旁白' : ' · 此刻的他们') + '</div>' + cards;
 }
 // AI 旁白：唯一编剧入口。带世界状态去写，写回关系与共同事件。
+const DEFAULT_GOD_SYS_TPL = '你是「他们的世界」的编剧与旁白。用户打开上帝视角，想看到两个情境角色此刻的生活切片，以及两人之间的关系状态。你用第三人称含蓄、留白地叙述，有真实生活的质感；不夸张、不解释自己在叙述、不出戏。';
+const DEFAULT_GOD_USER_TPL = '请输出两个角色的「此刻切片」和「当前关系状态」。两个角色名必须是：{{ROLE_A}} 与 {{ROLE_B}}。\n'
+  + '严格按下面的 JSON 输出，不要有任何多余文字：\n'
+  + '{"rel":{"state":"hot|warm|cool|cold","note":"一句当下关系说明","changed":true或false,"events":["0~2条今天发生的共同事件短句；没有就空数组"]},"roles":[{"who":"{{ROLE_A}}","place":"他现在在哪","doing":"正在做什么","mood":"心情词","inner":"一句内心话"},{"who":"{{ROLE_B}}","place":"...","doing":"...","mood":"...","inner":"..."}]}\n'
+  + '要求：①状态要符合当前时段（深夜不做室外长场景）；②关系要有连续性——除非 changed=true 且 note 写清发生了什么，否则必须延续上面给的关系与共同事件，不要凭空反转；③events 优先承接上面已存在的共同事件，安排新事要自然合理；④内心话含蓄真实；⑤严禁露骨描写。\n'
++ '【金规·金线】⑥{{ROLE_A}}和{{ROLE_B}}的"生活"完全独立于用户。用户有自己的课表/任务/账单/复诊/出行/心情……这些**只属于叶子本人**——不要把它们套用到角色身上。{{ROLE_A}}不会替用户去上课、复诊、买菜、上班、出差。⑦不要安排与用户相关的虚构互动（用户没参与的事，别写进角色的世界里）。这是当年删除 buildDayTraces 的根本原因，**禁止重蹈**。';
+
 async function godAskAI(){
   if(_godAiBusy) return;
   _godAiBusy = true;
@@ -13695,17 +13760,21 @@ async function godAskAI(){
     const names = ocRoleNames();
     const rel = ocRelNow();
     const days = ocWorldDays(ocWorldGet());
-    const sys = '你是「他们的世界」的编剧与旁白。用户打开上帝视角，想看到两个情境角色此刻的生活切片，以及两人之间的关系状态。你用第三人称含蓄、留白地叙述，有真实生活的质感；不夸张、不解释自己在叙述、不出戏。';
+    
+    // 读取用户自定义模板，未设置则用默认值
+    const godSysTpl = (cfg.godSysTpl && cfg.godSysTpl.trim()) ? cfg.godSysTpl.trim() : DEFAULT_GOD_SYS_TPL;
+    let godUserTpl = (cfg.godUserTpl && cfg.godUserTpl.trim()) ? cfg.godUserTpl.trim() : DEFAULT_GOD_USER_TPL;
+    
+    // 替换占位符
+    godUserTpl = godUserTpl.replace(/\{\{ROLE_A\}\}/g, names[0]).replace(/\{\{ROLE_B\}\}/g, names[1]);
+    
+    const sys = godSysTpl;
     const user = '<当前时间>\n' + nowAnchor() + '</当前时间>\n'
       + '<他们此刻的世界>\n关系：' + ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '')
       + (days.length ? '\n今天他们之间发生过：' + days.map(e=>'『'+e.t+'』').join('、') : '')
       + '\n最近生活痕迹：' + (OC_FEED_CTX || '（暂未留下痕迹）')
       + '\n</他们此刻的世界>\n'
-      + '请输出两个角色的「此刻切片」和「当前关系状态」。两个角色名必须是：' + names[0] + ' 与 ' + names[1] + '。\n'
-      + '严格按下面的 JSON 输出，不要有任何多余文字：\n'
-      + '{"rel":{"state":"hot|warm|cool|cold","note":"一句当下关系说明","changed":true或false,"events":["0~2条今天发生的共同事件短句；没有就空数组"]},"roles":[{"who":"'+names[0]+'","place":"他现在在哪","doing":"正在做什么","mood":"心情词","inner":"一句内心话"},{"who":"'+names[1]+'","place":"...","doing":"...","mood":"...","inner":"..."}]}\n'
-      + '要求：①状态要符合当前时段（深夜不做室外长场景）；②关系要有连续性——除非 changed=true 且 note 写清发生了什么，否则必须延续上面给的关系与共同事件，不要凭空反转；③events 优先承接上面已存在的共同事件，安排新事要自然合理；④内心话含蓄真实；⑤严禁露骨描写。\n'
-  + '【金规·金线】⑥零落和沈容的"生活"完全独立于用户。用户有自己的课表/任务/账单/复诊/出行/心情……这些**只属于叶子本人**——不要把它们套用到角色身上。零落不会替用户去上课、复诊、买菜、上班、出差。⑦不要安排与用户相关的虚构互动（用户没参与的事，别写进角色的世界里）。这是当年删除 buildDayTraces 的根本原因，**禁止重蹈**。';
+      + godUserTpl;
     const r = await aiCall([{role:'system', content:sys},{role:'user', content:user}], cfg, 1, {noTools:true});
     if(r && r.error){ toast('AI 旁白失败：' + String(r.error).slice(0,60)); return; }
     const msg = r && r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message;
@@ -15415,6 +15484,8 @@ init();
   }
 
   // ── 专注轻量提示词装配（会话开始冻结 3 常驻 + 每轮替换 volatile 视觉）──
+  const DEFAULT_COMPANION_RULES = '你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n你有本次会话的记忆：下方对话记录里能看到你们之前聊过什么（包括你自己说过的话），主动开口前先回想自己刚才说过什么——已经提醒过的事不要重复说，换个时机或换个说法；用户主动接话时基于上下文自然延续，而不是每次都像第一次见面。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。';
+  
   async function buildFocusPrefix(){
     const blocks=[];
     // <身份> 用用户自定义的「关系身份」（memIdentity()，未设置时回退默认）——之前硬编码 DEFAULT_MEM_IDENTITY，用户配的身份没被引用
@@ -15425,7 +15496,12 @@ init();
     const task=(session&&session.taskNow&&session.taskNow.trim())?session.taskNow.trim():'这场的专注任务未设定，随意陪伴即可。';
     blocks.push('<当前任务>\n'+task+'\n</当前任务>');
     const rp=(typeof buildRoleProtocol==='function')?buildRoleProtocol():null; if(rp) blocks.push(rp);
-    blocks.push('<陪伴规则>\n你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n你有本次会话的记忆：下方对话记录里能看到你们之前聊过什么（包括你自己说过的话），主动开口前先回想自己刚才说过什么——已经提醒过的事不要重复说，换个时机或换个说法；用户主动接话时基于上下文自然延续，而不是每次都像第一次见面。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。\n</陪伴规则>');
+    
+    // 读取用户自定义陪伴规则，未设置则用默认值
+    const cfg = getAiCfg();
+    const companionRules = (cfg.companionRules && cfg.companionRules.trim()) ? cfg.companionRules.trim() : DEFAULT_COMPANION_RULES;
+    blocks.push('<陪伴规则>\n' + companionRules + '\n</陪伴规则>');
+    
     // 粤语文字输出开关：开启后自动注入"用粤语回复"指令（练粤语用），配合语音粤语 language_boost=Chinese,Yue 成完整粤语对话
     try{
       const _ps=(pomoData&&pomoData.settings)?pomoData.settings:{};
