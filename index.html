@@ -922,39 +922,65 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   display:flex;align-items:center;justify-content:center;
   box-shadow:0 6px 14px rgba(143,107,216,.34),var(--shadow-inset);
 }
-.oc-feed-mask{flex-direction:column;align-items:stretch;justify-content:flex-start;padding:18px 14px calc(24px + env(safe-area-inset-bottom));overflow-y:auto;}
-.ocf-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 2px 14px;flex:0 0 auto;}
-.ocf-title{font-size:16px;font-weight:800;color:var(--ink);display:flex;flex-direction:column;gap:2px;line-height:1.3;}
-.ocf-title small{font-size:10.5px;color:var(--ink-faint);font-weight:700;}
-.ocf-x{
-  width:34px;height:34px;border-radius:50%;border:1px solid var(--glass-line);background:var(--glass-strong);
-  color:var(--ink-soft);font-size:15px;box-shadow:var(--shadow-inset);flex:0 0 auto;
-}
-.ocf-x:active{transform:scale(.9);}
-.ocf-list{display:flex;flex-direction:column;gap:12px;padding-bottom:10px;}
-.ocf-item{
-  background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:18px;padding:14px 15px 13px;
-  box-shadow:var(--shadow-xs),var(--shadow-inset);animation:calJournalIn .34s var(--ease) both;
-}
-.ocf-head{display:flex;align-items:center;gap:10px;}
-.ocf-avatar{
-  width:34px;height:34px;border-radius:12px;background:linear-gradient(135deg,#c9a3e8,#8f6bd8);color:#fff;
-  display:flex;align-items:center;justify-content:center;font-size:16px;
-  box-shadow:0 4px 10px rgba(143,107,216,.28);
-}
+/* 全屏页基座（2026-09-06 重设计）：
+   之前 .oc-feed-mask/.god-mask 定义在 .mask 基类（align-items:flex-end，为底部弹层而设）之前，
+   同特异性被基类反杀 → flex-direction:column + align-items:flex-end = 所有内容贴右。
+   修：双类选择器(.mask.xxx)提升特异性 + .show 门控，并纳入 openMask/closeMask 动画族（与 #aiMask 全屏页一致）。 */
+.mask.oc-feed-mask,.mask.god-mask{flex-direction:column;align-items:stretch;justify-content:flex-start;padding:0;overflow:hidden;background:var(--bg);}
+.mask.oc-feed-mask.show,.mask.god-mask.show{display:flex;animation:pageIn .44s var(--ease) both;}
+.mask.oc-feed-mask.closing,.mask.god-mask.closing{display:flex;animation:pageOut .3s var(--ease) both;}
+.mask.oc-feed-mask{background-image:
+  radial-gradient(55% 45% at 10% -3%, rgba(201,163,232,.20), transparent 62%),
+  radial-gradient(48% 42% at 92% 4%, rgba(224,170,112,.14), transparent 58%);}
+.mask.god-mask{background-image:
+  radial-gradient(58% 46% at 8% -4%, rgba(110,195,232,.18), transparent 62%),
+  radial-gradient(50% 42% at 90% 6%, rgba(224,170,112,.12), transparent 56%);}
+/* 顶栏：毛玻璃固定条，图标与标题同排 */
+.ocf-top,.god-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:calc(13px + var(--safe-t)) 16px 12px;flex:0 0 auto;
+  background:rgba(255,255,255,.55);border-bottom:1px solid var(--line);
+  backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);}
+.ocf-tt,.god-tt{display:flex;align-items:center;gap:11px;min-width:0;}
+.ocf-ic,.god-ic{width:38px;height:38px;border-radius:13px;color:#fff;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 5px 12px rgba(120,100,180,.28),var(--shadow-inset);}
+.ocf-ic{background:linear-gradient(135deg,#c9a3e8,#8f6bd8);}
+.god-ic{background:linear-gradient(135deg,#6ec3e8,#5b8ae6);box-shadow:0 5px 12px rgba(91,138,230,.3),var(--shadow-inset);}
+.ocf-txt,.god-txt{display:flex;flex-direction:column;gap:2px;min-width:0;}
+.ocf-txt b,.god-txt b{font-size:16.5px;font-weight:800;color:var(--ink);letter-spacing:.3px;line-height:1.25;}
+.ocf-txt small,.god-txt small{font-size:10.5px;color:var(--ink-faint);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ocf-x{width:36px;height:36px;border-radius:50%;border:1px solid var(--glass-line);background:var(--glass-strong);color:var(--ink-soft);
+  display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-inset);flex:0 0 auto;cursor:pointer;
+  transition:transform .16s var(--ease),color .2s;-webkit-tap-highlight-color:transparent;}
+.ocf-x:active{transform:scale(.86);color:var(--ink);}
+/* 列表滚动区 */
+.ocf-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:13px;padding:16px 15px calc(22px + env(safe-area-inset-bottom));}
+@keyframes ocfItemIn{from{opacity:0;transform:translateY(10px) scale(.988);}to{opacity:1;transform:none;}}
+/* 动态卡片：左缘角色色条 + 圆形双色头像（A 紫花 / B 绿草，跨页面一致） */
+.ocf-item{position:relative;background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:20px;padding:15px 16px 14px;
+  box-shadow:var(--shadow-xs),var(--shadow-inset);overflow:hidden;animation:ocfItemIn .38s var(--ease) both;}
+.ocf-item::before{content:"";position:absolute;left:0;top:16px;bottom:16px;width:3.5px;border-radius:0 4px 4px 0;background:linear-gradient(180deg,#c9a3e8,#8f6bd8);}
+.ocf-item.b::before{background:linear-gradient(180deg,#8fe0b8,#4fb98a);}
+.ocf-head{display:flex;align-items:center;gap:11px;}
+.ocf-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#c9a3e8,#8f6bd8);color:#fff;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;font-size:17px;
+  box-shadow:0 4px 10px rgba(143,107,216,.3),var(--shadow-inset);}
+.ocf-avatar.b{background:linear-gradient(135deg,#8fe0b8,#4fb98a);box-shadow:0 4px 10px rgba(79,185,138,.3),var(--shadow-inset);}
 .ocf-who{flex:1;min-width:0;}
-.ocf-who b{display:block;font-size:13px;font-weight:800;color:var(--ink);}
-.ocf-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;}
-.ocf-meta{display:flex;align-items:center;gap:6px;}
-.ocf-tag{font-size:9.5px;font-weight:800;color:var(--green-dark);background:var(--green-soft);border:1px solid var(--green-mid);border-radius:100px;padding:3px 8px;}
+.ocf-who b{display:block;font-size:13.5px;font-weight:800;color:var(--ink);letter-spacing:.2px;}
+.ocf-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;display:block;margin-top:1px;}
+.ocf-meta{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
+.ocf-tag{font-size:9.5px;font-weight:800;color:var(--green-dark);background:var(--green-soft);border:1px solid var(--green-mid);border-radius:100px;padding:3px 9px;}
 .ocf-tag.diary{color:var(--warm-deep);background:var(--warm-soft);border-color:rgba(224,170,112,.32);}
-.ocf-mood{font-size:10px;color:var(--ink-faint);}
-.ocf-body{display:flex;flex-direction:column;gap:10px;margin-top:10px;}
-.ocf-body p{font-size:13px;line-height:1.7;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
+.ocf-mood{font-size:10px;font-weight:700;color:var(--warm-deep);background:var(--warm-soft);border:1px solid rgba(224,170,112,.28);border-radius:100px;padding:3px 9px;}
+.ocf-body{display:flex;flex-direction:column;gap:10px;margin-top:11px;}
+.ocf-body p{font-size:14px;line-height:1.78;color:var(--ink);white-space:pre-wrap;word-break:break-word;margin:0;}
 .ocf-img{max-width:132px;max-height:118px;border-radius:14px;border:1px solid var(--line);background:#fff;object-fit:contain;}
-.ocf-loading,.ocf-empty{text-align:center;color:var(--ink-faint);font-size:12px;padding:40px 10px;}
-.ocf-empty div{font-size:30px;}
-.ocf-empty b{display:block;font-size:13px;color:var(--ink-soft);margin-top:8px;}
+/* 空态 / 加载：列表内垂直居中 */
+.ocf-loading,.ocf-empty{margin:auto;text-align:center;color:var(--ink-faint);font-size:12.5px;padding:36px 22px;display:flex;flex-direction:column;align-items:center;gap:7px;line-height:1.75;}
+.ocf-loading{font-size:12px;}
+.ocf-empty div{width:66px;height:66px;border-radius:50%;background:linear-gradient(150deg,rgba(201,163,232,.16),rgba(224,170,112,.13));box-shadow:var(--shadow-inset);
+  display:flex;align-items:center;justify-content:center;font-size:31px;margin-bottom:6px;}
+.ocf-empty b{font-size:14px;color:var(--ink-soft);font-weight:800;letter-spacing:.3px;}
+.ocf-empty p{margin:0;font-size:11.5px;color:var(--ink-faint);line-height:1.75;}
 
 /* ===== 上帝视角 · 主页入口 + 状态面板 ===== */
 .god-entry{
@@ -971,52 +997,47 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-entry-txt{flex:1;min-width:0;}
 .god-entry-txt b{display:block;font-size:13.5px;font-weight:800;color:var(--ink);}
 .god-entry-txt small{display:block;font-size:10px;color:var(--ink-faint);margin-top:2px;}
-.god-mask{flex-direction:column;align-items:stretch;justify-content:flex-start;padding:18px 14px calc(24px + env(safe-area-inset-bottom));overflow-y:auto;}
-.god-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 2px 14px;flex:0 0 auto;}
-.god-title{font-size:16px;font-weight:800;color:var(--ink);display:flex;flex-direction:column;gap:2px;line-height:1.3;}
-.god-title small{font-size:10.5px;color:var(--ink-faint);font-weight:700;}
-.god-list{display:flex;flex-direction:column;gap:12px;padding-bottom:6px;}
-.god-time{font-size:11px;font-weight:800;color:var(--ink-faint);letter-spacing:.5px;text-align:center;padding:2px 0 6px;}
-.god-card{background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:20px;padding:16px 17px 15px;box-shadow:var(--shadow-sm),var(--shadow-inset);animation:calJournalIn .34s var(--ease) both;}
-.god-head{display:flex;align-items:center;gap:10px;}
-.god-avatar{
-  width:38px;height:38px;border-radius:13px;background:linear-gradient(135deg,#6ec3e8,#5b8ae6);color:#fff;
-  display:flex;align-items:center;justify-content:center;font-size:17px;
-  box-shadow:0 4px 10px rgba(91,138,230,.28);
-}
-.god-avatar.b{background:linear-gradient(135deg,#8fe0b8,#4fb98a);box-shadow:0 4px 10px rgba(79,185,138,.28);}
+/* 关系横幅：柔和玻璃卡，来源标签做胶囊 */
+.god-rel{display:flex;align-items:flex-start;gap:10px;margin:14px 15px 0;padding:12px 14px;border-radius:18px;font-size:12.5px;line-height:1.7;
+  color:var(--ink);background:var(--glass-strong);border:1px solid var(--glass-line);box-shadow:var(--shadow-xs),var(--shadow-inset);flex:0 0 auto;
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:ocfItemIn .36s var(--ease) both;}
+.god-rel-ic{flex:0 0 auto;font-size:15px;line-height:1.5;}
+.god-rel-txt{flex:1;min-width:0;}
+.god-src{flex:0 0 auto;align-self:center;font-size:9px;font-weight:800;color:var(--green-dark);background:var(--green-soft);border:1px solid var(--green-mid);
+  border-radius:100px;padding:3px 9px;white-space:nowrap;margin-left:8px;}
+/* 镜头列表滚动区 */
+.god-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:14px 15px 8px;}
+.god-time{display:flex;align-items:center;gap:6px;align-self:center;font-size:10.5px;font-weight:800;color:var(--cool);letter-spacing:.4px;
+  background:rgba(120,165,190,.1);border:1px solid rgba(120,165,190,.24);padding:6px 13px;border-radius:100px;margin-bottom:2px;}
+/* 镜头卡 */
+.god-card{position:relative;background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:22px;padding:16px 16px 15px;
+  box-shadow:var(--shadow-sm),var(--shadow-inset);overflow:hidden;animation:ocfItemIn .4s var(--ease) both;}
+.god-head{display:flex;align-items:center;gap:11px;}
+.god-avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#c9a3e8,#8f6bd8);color:#fff;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;font-size:18px;
+  box-shadow:0 4px 10px rgba(143,107,216,.3),var(--shadow-inset);}
+.god-avatar.b{background:linear-gradient(135deg,#8fe0b8,#4fb98a);box-shadow:0 4px 10px rgba(79,185,138,.3),var(--shadow-inset);}
 .god-who{flex:1;min-width:0;}
-.god-who b{display:block;font-size:14px;font-weight:800;color:var(--ink);}
-.god-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;}
-.god-mood{font-size:11px;color:var(--warm-deep);font-weight:800;}
-.god-state{margin-top:11px;padding:11px 13px;border-radius:14px;background:var(--green-soft);border:1px solid var(--green-mid);box-shadow:var(--shadow-inset);}
-.god-state .gs-main{font-size:13.5px;line-height:1.78;color:var(--ink);letter-spacing:.1px;}
-.god-state .gs-inner{font-size:12px;color:var(--ink-soft);margin-top:8px;font-style:italic;line-height:1.7;border-top:1px dashed var(--line);padding-top:8px;}
-.god-refresh{
-  flex:0 0 auto;margin:16px 0 8px;align-self:stretch;padding:12px;border-radius:16px;font-size:13px;font-weight:800;
-  border:1px solid var(--glass-line);color:var(--ink);
-  background:linear-gradient(150deg,rgba(110,195,232,.2),rgba(91,138,230,.14));
-  box-shadow:var(--shadow-inset);transition:transform .18s var(--ease);
-}
-.god-refresh:active{transform:scale(.97);}
-.god-note{font-size:10px;color:var(--ink-faint);line-height:1.6;text-align:center;padding:0 10px 4px;}
-.god-rel{
-  display:flex;align-items:flex-start;gap:8px;margin:0 2px 12px;padding:11px 13px;border-radius:14px;font-size:12px;line-height:1.65;
-  color:var(--ink);background:var(--warm-soft);border:1px solid rgba(224,170,112,.32);border-left:3px solid var(--warm-deep);
-  box-shadow:var(--shadow-inset);animation:calJournalIn .34s var(--ease) both;
-}
-.god-rel-ic{flex:0 0 auto;font-size:13px;}
-.god-src{flex:0 0 auto;font-size:9.5px;font-weight:800;color:var(--ink-faint);margin-left:2px;}
-.god-tools{display:flex;gap:10px;margin:14px 0 10px;flex:0 0 auto;}
-.god-btn{
-  flex:1;padding:13px 10px;border-radius:18px;font-size:13.5px;font-weight:800;color:var(--ink);
+.god-who b{display:block;font-size:14.5px;font-weight:800;color:var(--ink);letter-spacing:.2px;}
+.god-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;display:block;margin-top:1px;}
+.god-mood{font-size:10.5px;font-weight:800;color:var(--warm-deep);background:var(--warm-soft);border:1px solid rgba(224,170,112,.3);border-radius:100px;padding:3px 10px;flex:0 0 auto;}
+.god-state{margin-top:12px;padding:12px 14px;border-radius:16px;background:linear-gradient(150deg,rgba(255,255,255,.72),rgba(165,192,162,.14));
+  border:1px solid var(--green-mid);box-shadow:var(--shadow-inset);}
+.god-state .gs-main{font-size:14px;line-height:1.8;color:var(--ink);letter-spacing:.1px;font-weight:600;}
+.god-state .gs-inner{font-size:12.5px;color:var(--ink-soft);margin-top:9px;font-style:italic;line-height:1.75;border-top:1px dashed var(--line);padding-top:9px;}
+/* 底部操作区：毛玻璃固定条 */
+.god-tools{display:flex;gap:12px;padding:11px 15px calc(12px + env(safe-area-inset-bottom));flex:0 0 auto;
+  background:rgba(255,255,255,.6);border-top:1px solid var(--line);
+  backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);}
+.god-btn{flex:1;padding:14px 10px;border-radius:18px;font-size:14px;font-weight:800;color:var(--ink);
   border:1px solid var(--glass-line);background:var(--glass-strong);box-shadow:var(--shadow-inset);
-  transition:transform .18s var(--ease),opacity .18s;white-space:nowrap;letter-spacing:.3px;
-}
-.god-btn:active{transform:scale(.97);}
-.god-btn.primary{background:linear-gradient(150deg,rgba(110,195,232,.22),rgba(91,138,230,.16));}
-.god-btn.ghost{background:var(--glass-strong);}
+  transition:transform .18s var(--ease),opacity .18s;white-space:nowrap;letter-spacing:.3px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.god-btn:active{transform:scale(.965);}
+.god-btn.primary{background:linear-gradient(135deg,#6ec3e8,#5b8ae6);color:#fff;border:none;box-shadow:0 8px 20px rgba(91,138,230,.34);}
+.god-btn.ghost{background:var(--green-soft);color:var(--green-dark);border:1px solid var(--green-mid);}
 .god-btn:disabled{opacity:.5;}
+.god-note{font-size:10px;color:var(--ink-faint);line-height:1.65;text-align:center;padding:2px 22px 4px;background:rgba(255,255,255,.45);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);}
 
 /* ===== 主页角色栏（合并入口，今日任务不再被推远） =====
    2026-08-31 瘦身：高度 58→40、外边距 15→9，背景降到半透 glass + 极淡阴影，
@@ -13494,12 +13515,12 @@ async function ocRenderCard(){
 // 全屏动态流
 function ocFeedOpen(){
   const m = document.getElementById('ocFeedMask');
-  if(m) m.style.display = 'flex';
+  if(m) openMask(m);
   renderOcFeed();
 }
 function ocFeedClose(){
   const m = document.getElementById('ocFeedMask');
-  if(m) m.style.display = 'none';
+  if(m) closeMask(m);
   ocRenderCard();
 }
 async function renderOcFeed(){
@@ -13517,13 +13538,15 @@ async function renderOcFeed(){
     try{ return aiStickerMap()[String(tag).replace(/[\[\]]/g,'')]; }catch(e){ return ''; }
   };
   list.innerHTML = rows.map(r=>{
+    const i = names.indexOf(r.who);
+    const rc = i === 1 ? ' b' : '';
     const tag = r.img || '';
     const u = imgUrl(tag);
     const imgHtml = u ? '<img class="ocf-img" src="'+u+'" alt="'+ocEsc(tag)+'">' : '';
     const kindTag = r.kind === 'diary' ? '<span class="ocf-tag diary">日记</span>' : '<span class="ocf-tag">动态</span>';
     const moodHtml = r.mood ? '<span class="ocf-mood">'+ocEsc(r.mood)+'</span>' : '';
-    return '<div class="ocf-item">'
-      + '<div class="ocf-head"><span class="ocf-avatar">'+icon(r.who)+'</span>'
+    return '<div class="ocf-item'+rc+'">'
+      + '<div class="ocf-head"><span class="ocf-avatar'+rc+'">'+icon(r.who)+'</span>'
       + '<div class="ocf-who"><b>'+ocEsc(r.who)+'</b><small>'+ocEsc(r.when||'')+'</small></div>'
       + '<div class="ocf-meta">'+kindTag+moodHtml+'</div></div>'
       + '<div class="ocf-body"><p>'+ocEsc(r.content||'').replace(/\n/g,'<br>')+'</p>'+imgHtml+'</div>'
@@ -13703,13 +13726,13 @@ let _godAI = null;      // AI 旁白帧：{rel, roles, ts}
 let _godAiBusy = false;
 function godOpen(){
   const m = document.getElementById('godMask');
-  if(m) m.style.display = 'flex';
+  if(m) openMask(m);
   ocRelNow();
   godRender();
 }
 function godClose(){
   const m = document.getElementById('godMask');
-  if(m) m.style.display = 'none';
+  if(m) closeMask(m);
 }
 function godNext(){
   _godSalt++;
@@ -13733,9 +13756,12 @@ function godRender(){
   const relState = aiRel ? aiRel.state : rel.state;
   const relIcon = relEmojis[relState] || '💞';
   if(relEl){
-    relEl.innerHTML = '<span class="god-rel-ic">' + relIcon + '</span>他们之间：' + ocEsc(relDesc)
-      + ' <small class="god-src">' + (useAI ? 'AI 旁白' : '本地镜头') + '</small>';
+    relEl.innerHTML = '<span class="god-rel-ic">' + relIcon + '</span>'
+      + '<span class="god-rel-txt">他们之间：' + ocEsc(relDesc) + '</span>'
+      + '<span class="god-src">' + (useAI ? 'AI 旁白' : '本地镜头') + '</span>';
   }
+  // 两人不该同屏做一模一样的事：本地镜头撞帧时给后一位换盐重摇（同池 1/4 概率撞车太高）
+  let prevDoing = null, prevPlace = null;
   const cards = names.map((who,i)=>{
     let s;
     if(useAI && _godAI.roles[i] && _godAI.roles[i].who){
@@ -13743,6 +13769,11 @@ function godRender(){
       s = {who:r.who, place:r.place, doing:r.doing, mood:r.mood, inner:r.inner, since:(r.since||'')};
     } else {
       s = godViewState(who, i, _godSalt, rel);
+      let tries = 0;
+      while(prevDoing != null && s.doing === prevDoing && s.place === prevPlace && tries < 6){
+        s = godViewState(who, i, _godSalt + '.' + (++tries), rel);
+      }
+      prevDoing = s.doing; prevPlace = s.place;
     }
     return '<div class="god-card">'
       + '<div class="god-head"><span class="god-avatar' + (i===1?' b':'') + '">' + (i===1?'🌿':'🌸') + '</span>'
@@ -14154,15 +14185,21 @@ init();
 
 <div class="mask oc-feed-mask" id="ocFeedMask">
   <div class="ocf-top">
-    <div class="ocf-title"><svg class="ico" style="width:17px;height:17px;"><use href="#i-leaf"/></svg> 他们的生活<small>零落 & 沈容 · 平行世界的生活记录</small></div>
-    <button class="ocf-x" onclick="ocFeedClose()" type="button"><svg class="ico" style="width:16px;height:16px;"><use href="#i-close"/></svg></button>
+    <div class="ocf-tt">
+      <span class="ocf-ic"><svg class="ico" style="width:19px;height:19px;"><use href="#i-leaf"/></svg></span>
+      <div class="ocf-txt"><b>他们的生活</b><small>零落 &amp; 沈容 · 平行世界的生活记录</small></div>
+    </div>
+    <button class="ocf-x" onclick="ocFeedClose()" type="button" aria-label="关闭"><svg class="ico" style="width:17px;height:17px;"><use href="#i-close"/></svg></button>
   </div>
   <div class="ocf-list" id="ocFeedList"></div>
 </div>
 <div class="mask god-mask" id="godMask">
   <div class="god-top">
-    <div class="god-title"><svg class="ico" style="width:17px;height:17px;"><use href="#i-eye"/></svg> 上帝视角<small>他们的世界 · 关系与生活互相关联</small></div>
-    <button class="ocf-x" onclick="godClose()" type="button"><svg class="ico" style="width:16px;height:16px;"><use href="#i-close"/></svg></button>
+    <div class="god-tt">
+      <span class="god-ic"><svg class="ico" style="width:19px;height:19px;"><use href="#i-eye"/></svg></span>
+      <div class="god-txt"><b>上帝视角</b><small>他们的世界 · 关系与生活互相关联</small></div>
+    </div>
+    <button class="ocf-x" onclick="godClose()" type="button" aria-label="关闭"><svg class="ico" style="width:17px;height:17px;"><use href="#i-close"/></svg></button>
   </div>
   <div class="god-rel" id="godRel"></div>
   <div class="god-list" id="godList"></div>
