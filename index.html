@@ -925,60 +925,78 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* 全屏页基座（2026-09-06 重设计）：
    之前 .oc-feed-mask/.god-mask 定义在 .mask 基类（align-items:flex-end，为底部弹层而设）之前，
    同特异性被基类反杀 → flex-direction:column + align-items:flex-end = 所有内容贴右。
-   修：双类选择器(.mask.xxx)提升特异性 + .show 门控，并纳入 openMask/closeMask 动画族（与 #aiMask 全屏页一致）。 */
-.mask.oc-feed-mask,.mask.god-mask{flex-direction:column;align-items:stretch;justify-content:flex-start;padding:0;overflow:hidden;background:var(--bg);}
+   修：双类选择器(.mask.xxx)提升特异性 + .show 门控，并纳入 openMask/closeMask 动画族（与 #aiMask 全屏页一致）。
+   二次打磨：底图铺低饱和光斑供玻璃透出；卡片/顶栏半透 + 高光描边，--gl-* 为两页共享玻璃变量。 */
+.mask.oc-feed-mask,.mask.god-mask{
+  flex-direction:column;align-items:stretch;justify-content:flex-start;padding:0;overflow:hidden;background:var(--bg);
+  --gl-a:rgba(255,255,255,.56);
+  --gl-b:rgba(255,255,255,.28);
+  --gl-brd:rgba(255,255,255,.64);
+  --gl-hi:rgba(255,255,255,.9);
+  --gl-bar:rgba(255,255,255,.42);
+  --gl-top-brd:rgba(255,255,255,.55);
+}
 .mask.oc-feed-mask.show,.mask.god-mask.show{display:flex;animation:pageIn .44s var(--ease) both;}
 .mask.oc-feed-mask.closing,.mask.god-mask.closing{display:flex;animation:pageOut .3s var(--ease) both;}
 .mask.oc-feed-mask{background-image:
-  radial-gradient(55% 45% at 10% -3%, rgba(201,163,232,.20), transparent 62%),
-  radial-gradient(48% 42% at 92% 4%, rgba(224,170,112,.14), transparent 58%);}
+  radial-gradient(60% 36% at 16% -4%, rgba(196,160,235,.30), transparent 62%),
+  radial-gradient(48% 32% at 94% 0%, rgba(233,184,126,.22), transparent 60%),
+  radial-gradient(56% 36% at -8% 48%, rgba(176,206,158,.24), transparent 62%),
+  radial-gradient(46% 32% at 106% 82%, rgba(190,168,236,.20), transparent 62%);}
 .mask.god-mask{background-image:
-  radial-gradient(58% 46% at 8% -4%, rgba(110,195,232,.18), transparent 62%),
-  radial-gradient(50% 42% at 90% 6%, rgba(224,170,112,.12), transparent 56%);}
-/* 顶栏：毛玻璃固定条，图标与标题同排 */
+  radial-gradient(60% 36% at 12% -4%, rgba(110,190,228,.24), transparent 62%),
+  radial-gradient(50% 34% at 92% 0%, rgba(233,184,126,.20), transparent 60%),
+  radial-gradient(56% 36% at -8% 46%, rgba(178,208,170,.20), transparent 62%),
+  radial-gradient(46% 32% at 106% 84%, rgba(150,168,236,.18), transparent 62%);}
+/* 顶栏：液态玻璃固定条，图标与标题同排 */
 .ocf-top,.god-top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:calc(13px + var(--safe-t)) 16px 12px;flex:0 0 auto;
-  background:rgba(255,255,255,.55);border-bottom:1px solid var(--line);
-  backdrop-filter:blur(30px) saturate(180%);-webkit-backdrop-filter:blur(30px) saturate(180%);}
+  background:var(--gl-bar);border-bottom:1px solid var(--gl-top-brd);
+  backdrop-filter:blur(38px) saturate(200%);-webkit-backdrop-filter:blur(38px) saturate(200%);}
 .ocf-tt,.god-tt{display:flex;align-items:center;gap:11px;min-width:0;}
 .ocf-ic,.god-ic{width:38px;height:38px;border-radius:13px;color:#fff;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
-  box-shadow:0 5px 12px rgba(120,100,180,.28),var(--shadow-inset);}
-.ocf-ic{background:linear-gradient(135deg,#c9a3e8,#8f6bd8);}
-.god-ic{background:linear-gradient(135deg,#6ec3e8,#5b8ae6);box-shadow:0 5px 12px rgba(91,138,230,.3),var(--shadow-inset);}
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.72),0 5px 12px rgba(120,100,180,.22);}
+.ocf-ic{background:linear-gradient(135deg,#c4ade8,#9a80d6);}
+.god-ic{background:linear-gradient(135deg,#7fc5e2,#6e92de);box-shadow:inset 0 1px 0 rgba(255,255,255,.72),0 5px 12px rgba(91,138,230,.24);}
 .ocf-txt,.god-txt{display:flex;flex-direction:column;gap:2px;min-width:0;}
 .ocf-txt b,.god-txt b{font-size:16.5px;font-weight:800;color:var(--ink);letter-spacing:.3px;line-height:1.25;}
 .ocf-txt small,.god-txt small{font-size:10.5px;color:var(--ink-faint);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.ocf-x{width:36px;height:36px;border-radius:50%;border:1px solid var(--glass-line);background:var(--glass-strong);color:var(--ink-soft);
-  display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-inset);flex:0 0 auto;cursor:pointer;
+.ocf-x{width:36px;height:36px;border-radius:50%;border:1px solid var(--gl-brd);background:var(--gl-bar);color:var(--ink-soft);
+  display:flex;align-items:center;justify-content:center;box-shadow:inset 0 1px 0 var(--gl-hi);flex:0 0 auto;cursor:pointer;
+  backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);
   transition:transform .16s var(--ease),color .2s;-webkit-tap-highlight-color:transparent;}
 .ocf-x:active{transform:scale(.86);color:var(--ink);}
 /* 列表滚动区 */
 .ocf-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:13px;padding:16px 15px calc(22px + env(safe-area-inset-bottom));}
 @keyframes ocfItemIn{from{opacity:0;transform:translateY(10px) scale(.988);}to{opacity:1;transform:none;}}
-/* 动态卡片：左缘角色色条 + 圆形双色头像（A 紫花 / B 绿草，跨页面一致） */
-.ocf-item{position:relative;background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:20px;padding:15px 16px 14px;
-  box-shadow:var(--shadow-xs),var(--shadow-inset);overflow:hidden;animation:ocfItemIn .38s var(--ease) both;}
-.ocf-item::before{content:"";position:absolute;left:0;top:16px;bottom:16px;width:3.5px;border-radius:0 4px 4px 0;background:linear-gradient(180deg,#c9a3e8,#8f6bd8);}
-.ocf-item.b::before{background:linear-gradient(180deg,#8fe0b8,#4fb98a);}
+/* 动态卡片：半透玻璃 + 顶部高光；左缘角色色条 + 圆形头像（A 紫花 / B 绿叶 SVG，跨页面一致） */
+.ocf-item{position:relative;background:linear-gradient(163deg,var(--gl-a),var(--gl-b));border:1px solid var(--gl-brd);border-radius:20px;padding:15px 16px 14px;
+  box-shadow:var(--shadow-xs),inset 0 1px 0 var(--gl-hi);overflow:hidden;animation:ocfItemIn .38s var(--ease) both;
+  backdrop-filter:blur(24px) saturate(175%);-webkit-backdrop-filter:blur(24px) saturate(175%);}
+.ocf-item::before{content:"";position:absolute;left:0;top:16px;bottom:16px;width:3.5px;border-radius:0 4px 4px 0;background:linear-gradient(180deg,rgba(181,149,228,.9),rgba(134,103,202,.9));}
+.ocf-item.b::before{background:linear-gradient(180deg,rgba(134,209,168,.9),rgba(80,168,116,.9));}
 .ocf-head{display:flex;align-items:center;gap:11px;}
-.ocf-avatar{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#c9a3e8,#8f6bd8);color:#fff;flex:0 0 auto;
-  display:flex;align-items:center;justify-content:center;font-size:17px;
-  box-shadow:0 4px 10px rgba(143,107,216,.3),var(--shadow-inset);}
-.ocf-avatar.b{background:linear-gradient(135deg,#8fe0b8,#4fb98a);box-shadow:0 4px 10px rgba(79,185,138,.3),var(--shadow-inset);}
+.ocf-avatar{width:38px;height:38px;border-radius:50%;color:#fff;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#c4ade8,#9a80d6);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75),0 4px 10px rgba(150,110,200,.24);}
+.ocf-avatar svg{width:19px;height:19px;}
+.ocf-avatar.b{background:linear-gradient(135deg,#a0dab9,#61bf92);box-shadow:inset 0 1px 0 rgba(255,255,255,.75),0 4px 10px rgba(88,178,126,.23);}
 .ocf-who{flex:1;min-width:0;}
 .ocf-who b{display:block;font-size:13.5px;font-weight:800;color:var(--ink);letter-spacing:.2px;}
 .ocf-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;display:block;margin-top:1px;}
 .ocf-meta{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
-.ocf-tag{font-size:9.5px;font-weight:800;color:var(--green-dark);background:var(--green-soft);border:1px solid var(--green-mid);border-radius:100px;padding:3px 9px;}
-.ocf-tag.diary{color:var(--warm-deep);background:var(--warm-soft);border-color:rgba(224,170,112,.32);}
-.ocf-mood{font-size:10px;font-weight:700;color:var(--warm-deep);background:var(--warm-soft);border:1px solid rgba(224,170,112,.28);border-radius:100px;padding:3px 9px;}
+.ocf-tag{font-size:9.5px;font-weight:800;color:var(--green-dark);background:var(--green-soft);border:1px solid rgba(165,192,162,.5);border-radius:100px;padding:3px 9px;}
+.ocf-tag.diary{color:var(--warm-deep);background:var(--warm-soft);border-color:rgba(224,170,112,.42);}
+.ocf-mood{font-size:10px;font-weight:700;color:var(--warm-deep);background:var(--warm-soft);border:1px solid rgba(224,170,112,.4);border-radius:100px;padding:3px 9px;}
 .ocf-body{display:flex;flex-direction:column;gap:10px;margin-top:11px;}
 .ocf-body p{font-size:14px;line-height:1.78;color:var(--ink);white-space:pre-wrap;word-break:break-word;margin:0;}
 .ocf-img{max-width:132px;max-height:118px;border-radius:14px;border:1px solid var(--line);background:#fff;object-fit:contain;}
 /* 空态 / 加载：列表内垂直居中 */
 .ocf-loading,.ocf-empty{margin:auto;text-align:center;color:var(--ink-faint);font-size:12.5px;padding:36px 22px;display:flex;flex-direction:column;align-items:center;gap:7px;line-height:1.75;}
 .ocf-loading{font-size:12px;}
-.ocf-empty div{width:66px;height:66px;border-radius:50%;background:linear-gradient(150deg,rgba(201,163,232,.16),rgba(224,170,112,.13));box-shadow:var(--shadow-inset);
-  display:flex;align-items:center;justify-content:center;font-size:31px;margin-bottom:6px;}
+.ocf-empty div{width:66px;height:66px;border-radius:50%;background:linear-gradient(150deg,rgba(201,163,232,.18),rgba(224,170,112,.15));box-shadow:inset 0 1px 0 rgba(255,255,255,.8),var(--shadow-xs);
+  display:flex;align-items:center;justify-content:center;margin-bottom:6px;}
+.ocf-empty div svg{width:30px;height:30px;color:#a18bd8;}
 .ocf-empty b{font-size:14px;color:var(--ink-soft);font-weight:800;letter-spacing:.3px;}
 .ocf-empty p{margin:0;font-size:11.5px;color:var(--ink-faint);line-height:1.75;}
 
@@ -997,47 +1015,84 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-entry-txt{flex:1;min-width:0;}
 .god-entry-txt b{display:block;font-size:13.5px;font-weight:800;color:var(--ink);}
 .god-entry-txt small{display:block;font-size:10px;color:var(--ink-faint);margin-top:2px;}
-/* 关系横幅：柔和玻璃卡，来源标签做胶囊 */
-.god-rel{display:flex;align-items:flex-start;gap:10px;margin:14px 15px 0;padding:12px 14px;border-radius:18px;font-size:12.5px;line-height:1.7;
-  color:var(--ink);background:var(--glass-strong);border:1px solid var(--glass-line);box-shadow:var(--shadow-xs),var(--shadow-inset);flex:0 0 auto;
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:ocfItemIn .36s var(--ease) both;}
-.god-rel-ic{flex:0 0 auto;font-size:15px;line-height:1.5;}
+/* 关系横幅：液态玻璃卡，状态心形做低饱和印章，来源标签做胶囊 */
+.god-rel{display:flex;align-items:center;gap:11px;margin:14px 15px 0;padding:11px 13px;border-radius:18px;font-size:12.5px;line-height:1.65;
+  color:var(--ink);background:linear-gradient(163deg,var(--gl-a),var(--gl-b));border:1px solid var(--gl-brd);
+  box-shadow:var(--shadow-xs),inset 0 1px 0 var(--gl-hi);flex:0 0 auto;
+  backdrop-filter:blur(24px) saturate(175%);-webkit-backdrop-filter:blur(24px) saturate(175%);animation:ocfItemIn .36s var(--ease) both;}
+.god-rel-ic{flex:0 0 auto;width:28px;height:28px;border-radius:10px;display:flex;align-items:center;justify-content:center;}
+.god-rel-ic svg{width:15px;height:15px;}
+.god-rel-ic.hot{color:#c96a82;background:rgba(226,126,150,.20);}
+.god-rel-ic.warm{color:#c08a55;background:rgba(224,170,112,.22);}
+.god-rel-ic.cool{color:#7c9ab2;background:rgba(124,164,190,.18);}
+.god-rel-ic.cold{color:#8d929b;background:rgba(150,155,165,.16);}
 .god-rel-txt{flex:1;min-width:0;}
-.god-src{flex:0 0 auto;align-self:center;font-size:9px;font-weight:800;color:var(--green-dark);background:var(--green-soft);border:1px solid var(--green-mid);
+.god-src{flex:0 0 auto;align-self:center;font-size:9px;font-weight:800;color:var(--green-dark);background:var(--green-soft);border:1px solid rgba(165,192,162,.5);
   border-radius:100px;padding:3px 9px;white-space:nowrap;margin-left:8px;}
 /* 镜头列表滚动区 */
 .god-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:14px 15px 8px;}
 .god-time{display:flex;align-items:center;gap:6px;align-self:center;font-size:10.5px;font-weight:800;color:var(--cool);letter-spacing:.4px;
-  background:rgba(120,165,190,.1);border:1px solid rgba(120,165,190,.24);padding:6px 13px;border-radius:100px;margin-bottom:2px;}
+  background:rgba(124,164,190,.10);border:1px solid rgba(124,164,190,.28);padding:6px 13px;border-radius:100px;margin-bottom:2px;}
 /* 镜头卡 */
-.god-card{position:relative;background:var(--glass-strong);border:1px solid var(--glass-line);border-radius:22px;padding:16px 16px 15px;
-  box-shadow:var(--shadow-sm),var(--shadow-inset);overflow:hidden;animation:ocfItemIn .4s var(--ease) both;}
+.god-card{position:relative;background:linear-gradient(163deg,var(--gl-a),var(--gl-b));border:1px solid var(--gl-brd);border-radius:22px;padding:16px 16px 15px;
+  box-shadow:var(--shadow-sm),inset 0 1px 0 var(--gl-hi);overflow:hidden;animation:ocfItemIn .4s var(--ease) both;
+  backdrop-filter:blur(24px) saturate(175%);-webkit-backdrop-filter:blur(24px) saturate(175%);}
 .god-head{display:flex;align-items:center;gap:11px;}
-.god-avatar{width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#c9a3e8,#8f6bd8);color:#fff;flex:0 0 auto;
-  display:flex;align-items:center;justify-content:center;font-size:18px;
-  box-shadow:0 4px 10px rgba(143,107,216,.3),var(--shadow-inset);}
-.god-avatar.b{background:linear-gradient(135deg,#8fe0b8,#4fb98a);box-shadow:0 4px 10px rgba(79,185,138,.3),var(--shadow-inset);}
+.god-avatar{width:40px;height:40px;border-radius:50%;color:#fff;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#c4ade8,#9a80d6);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75),0 4px 10px rgba(150,110,200,.24);}
+.god-avatar svg{width:19px;height:19px;}
+.god-avatar.b{background:linear-gradient(135deg,#a0dab9,#61bf92);box-shadow:inset 0 1px 0 rgba(255,255,255,.75),0 4px 10px rgba(88,178,126,.23);}
 .god-who{flex:1;min-width:0;}
 .god-who b{display:block;font-size:14.5px;font-weight:800;color:var(--ink);letter-spacing:.2px;}
 .god-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;display:block;margin-top:1px;}
-.god-mood{font-size:10.5px;font-weight:800;color:var(--warm-deep);background:var(--warm-soft);border:1px solid rgba(224,170,112,.3);border-radius:100px;padding:3px 10px;flex:0 0 auto;}
-.god-state{margin-top:12px;padding:12px 14px;border-radius:16px;background:linear-gradient(150deg,rgba(255,255,255,.72),rgba(165,192,162,.14));
-  border:1px solid var(--green-mid);box-shadow:var(--shadow-inset);}
+.god-mood{font-size:10.5px;font-weight:800;color:var(--warm-deep);background:var(--warm-soft);border:1px solid rgba(224,170,112,.42);border-radius:100px;padding:3px 10px;flex:0 0 auto;}
+.god-state{margin-top:12px;padding:12px 14px;border-radius:16px;background:linear-gradient(150deg,rgba(255,255,255,.6),rgba(200,220,193,.16));
+  border:1px solid rgba(165,192,162,.38);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.85);}
 .god-state .gs-main{font-size:14px;line-height:1.8;color:var(--ink);letter-spacing:.1px;font-weight:600;}
 .god-state .gs-inner{font-size:12.5px;color:var(--ink-soft);margin-top:9px;font-style:italic;line-height:1.75;border-top:1px dashed var(--line);padding-top:9px;}
-/* 底部操作区：毛玻璃固定条 */
+/* 底部操作区：液态玻璃固定条 */
 .god-tools{display:flex;gap:12px;padding:11px 15px calc(12px + env(safe-area-inset-bottom));flex:0 0 auto;
-  background:rgba(255,255,255,.6);border-top:1px solid var(--line);
-  backdrop-filter:blur(24px) saturate(180%);-webkit-backdrop-filter:blur(24px) saturate(180%);}
-.god-btn{flex:1;padding:14px 10px;border-radius:18px;font-size:14px;font-weight:800;color:var(--ink);
-  border:1px solid var(--glass-line);background:var(--glass-strong);box-shadow:var(--shadow-inset);
+  background:var(--gl-bar);border-top:1px solid var(--gl-top-brd);
+  backdrop-filter:blur(32px) saturate(190%);-webkit-backdrop-filter:blur(32px) saturate(190%);}
+.god-btn{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;padding:14px 10px;border-radius:18px;font-size:14px;font-weight:800;color:var(--ink);
+  border:1px solid var(--gl-brd);background:linear-gradient(163deg,var(--gl-a),var(--gl-b));box-shadow:inset 0 1px 0 var(--gl-hi);
   transition:transform .18s var(--ease),opacity .18s;white-space:nowrap;letter-spacing:.3px;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.god-btn svg{width:15px;height:15px;}
 .god-btn:active{transform:scale(.965);}
-.god-btn.primary{background:linear-gradient(135deg,#6ec3e8,#5b8ae6);color:#fff;border:none;box-shadow:0 8px 20px rgba(91,138,230,.34);}
-.god-btn.ghost{background:var(--green-soft);color:var(--green-dark);border:1px solid var(--green-mid);}
+.god-btn.primary{background:linear-gradient(135deg,#7fc5e2,#6e92de);color:#fff;border:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 20px rgba(96,130,220,.26);}
+.god-btn.ghost{background:var(--green-soft);color:var(--green-dark);border:1px solid rgba(165,192,162,.5);}
 .god-btn:disabled{opacity:.5;}
-.god-note{font-size:10px;color:var(--ink-faint);line-height:1.65;text-align:center;padding:2px 22px 4px;background:rgba(255,255,255,.45);
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);}
+.god-note{font-size:10px;color:var(--ink-faint);line-height:1.65;text-align:center;padding:2px 22px 4px;background:var(--gl-bar);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);}
+/* ===== 两页深色模式：玻璃压暗、文字/描边提亮 ===== */
+[data-theme="dark"] .mask.oc-feed-mask,[data-theme="dark"] .mask.god-mask{
+  --gl-a:rgba(26,33,25,.66);--gl-b:rgba(26,33,25,.40);
+  --gl-brd:rgba(255,255,255,.14);--gl-hi:rgba(255,255,255,.14);--gl-bar:rgba(20,26,19,.5);--gl-top-brd:rgba(255,255,255,.09);}
+[data-theme="dark"] .mask.oc-feed-mask{background-image:
+  radial-gradient(60% 36% at 16% -4%, rgba(154,118,192,.20), transparent 62%),
+  radial-gradient(48% 32% at 94% 0%, rgba(190,134,80,.13), transparent 60%),
+  radial-gradient(56% 36% at -8% 48%, rgba(130,164,116,.15), transparent 62%),
+  radial-gradient(46% 32% at 106% 82%, rgba(140,118,190,.13), transparent 62%);}
+[data-theme="dark"] .mask.god-mask{background-image:
+  radial-gradient(60% 36% at 12% -4%, rgba(88,152,188,.18), transparent 62%),
+  radial-gradient(50% 34% at 92% 0%, rgba(190,134,80,.12), transparent 60%),
+  radial-gradient(56% 36% at -8% 46%, rgba(128,160,120,.13), transparent 62%),
+  radial-gradient(46% 32% at 106% 84%, rgba(116,130,192,.13), transparent 62%);}
+[data-theme="dark"] .ocf-tag,[data-theme="dark"] .god-src{color:#b4d0af;background:rgba(165,192,162,.13);border-color:rgba(165,192,162,.3);}
+[data-theme="dark"] .ocf-tag.diary,[data-theme="dark"] .ocf-mood,[data-theme="dark"] .god-mood{color:#e6b684;background:rgba(224,170,112,.12);border-color:rgba(224,170,112,.28);}
+[data-theme="dark"] .god-state{background:linear-gradient(150deg,rgba(30,38,28,.42),rgba(22,28,20,.16));border-color:rgba(165,192,162,.24);box-shadow:inset 0 1px 0 rgba(255,255,255,.08);}
+[data-theme="dark"] .god-btn.ghost{color:#b4d0af;background:rgba(165,192,162,.12);border-color:rgba(165,192,162,.3);}
+[data-theme="dark"] .god-btn.primary{box-shadow:inset 0 1px 0 rgba(255,255,255,.18),0 10px 22px rgba(0,0,0,.35);}
+[data-theme="dark"] .god-rel-ic.hot{color:#df93a6;background:rgba(226,126,150,.16);}
+[data-theme="dark"] .god-rel-ic.warm{color:#ddaa78;background:rgba(224,170,112,.16);}
+[data-theme="dark"] .god-rel-ic.cool{color:#93b6cc;background:rgba(124,164,190,.14);}
+[data-theme="dark"] .god-rel-ic.cold{color:#a5aab3;background:rgba(150,155,165,.13);}
+[data-theme="dark"] .ocf-empty div{background:linear-gradient(150deg,rgba(160,130,196,.22),rgba(180,140,100,.18));}
+[data-theme="dark"] .ocf-empty div svg{color:#c3aee8;}
+[data-theme="dark"] .god-avatar,[data-theme="dark"] .ocf-avatar{box-shadow:inset 0 1px 0 rgba(255,255,255,.22),0 4px 10px rgba(0,0,0,.3);}
 
 /* ===== 主页角色栏（合并入口，今日任务不再被推远） =====
    2026-08-31 瘦身：高度 58→40、外边距 15→9，背景降到半透 glass + 极淡阴影，
@@ -2118,6 +2173,11 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 
 <svg id="icoSprite" aria-hidden="true" focusable="false"><defs>
   <symbol id="i-leaf" viewBox="0 0 24 24"><path d="M12 21V9"/><path d="M12 14c0-3.6-2.6-6.4-6.2-6.4 0 3.6 2.6 6.4 6.2 6.4z"/><path d="M12 11c0-3.6 2.6-6.4 6.2-6.4 0 3.6-2.6 6.4-6.2 6.4z"/></symbol>
+  <symbol id="i-blossom" viewBox="0 0 24 24"><g style="fill:currentColor;stroke:none"><circle cx="12" cy="12" r="2.7"/><circle cx="12" cy="6.9" r="3.4"/><circle cx="16.6" cy="9.6" r="3.4"/><circle cx="14.9" cy="15.2" r="3.4"/><circle cx="9.1" cy="15.2" r="3.4"/><circle cx="7.4" cy="9.6" r="3.4"/></g></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.1C7.6 16.8 4.4 13.9 4.4 10.6 4.4 8.4 6.2 6.7 8.4 6.7c1.5 0 2.9.8 3.6 2 .7-1.2 2.1-2 3.6-2 2.2 0 4 1.7 4 3.9 0 3.3-3.2 6.2-7.6 9.5z"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3.4c.8 4.3 2.4 6.6 6.6 7.4-4.2.9-5.8 3.2-6.6 7.4-.8-4.2-2.4-6.5-6.6-7.4 4.2-.8 5.8-3.1 6.6-7.4z" style="fill:currentColor;stroke:none"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.2-5.4-6.2-10.2a6.2 6.2 0 0 1 12.4 0C18.2 15.6 12 21 12 21z"/><circle cx="12" cy="10.6" r="2.4"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.6 12S6.2 5.9 12 5.9 21.4 12 21.4 12 17.8 18.1 12 18.1 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="3.1"/></symbol>
   <symbol id="i-book" viewBox="0 0 24 24"><path d="M5.5 4.2h11.8a2.2 2.2 0 0 1 2.2 2.2v13.2a2.2 2.2 0 0 1-2.2 2.2H5.5z"/><path d="M9.2 4.2v17.6"/><path d="M12.6 8.6h4.4M12.6 12.4h4.4"/></symbol>
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 15.2a2 2 0 0 1-2 2h-5.4l-3.6 2.8V17.2H6a2 2 0 0 1-2-2V7.6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/><circle class="if" cx="9" cy="11.4" r=".9"/><circle class="if" cx="12" cy="11.4" r=".9"/><circle class="if" cx="15" cy="11.4" r=".9"/></symbol>
@@ -13529,11 +13589,16 @@ async function renderOcFeed(){
   list.innerHTML = '<div class="ocf-loading">正在翻他们的生活…</div>';
   const rows = await ocPostRecent(60);
   if(!rows.length){
-    list.innerHTML = '<div class="ocf-empty"><div>🍃</div><b>还没有生活痕迹</b>和他们多聊聊天，零落和沈容会偶尔把值得记的事写下来。</div>';
+    list.innerHTML = '<div class="ocf-empty"><div><svg class="ico" style="width:30px;height:30px;"><use href="#i-leaf"/></svg></div><b>还没有生活痕迹</b>和他们多聊聊天，零落和沈容会偶尔把值得记的事写下来。</div>';
     return;
   }
   const names = ocRoleNames();
-  const icon = who => { const i = names.indexOf(who); return i === 1 ? '🌿' : '🌸'; };
+  const avatarOf = who => {
+    const i = names.indexOf(who);
+    return i === 1
+      ? '<svg class="ico" style="width:19px;height:19px;"><use href="#i-leaf"/></svg>'
+      : '<svg class="ico" style="width:19px;height:19px;"><use href="#i-blossom"/></svg>';
+  };
   const imgUrl = tag => {
     try{ return aiStickerMap()[String(tag).replace(/[\[\]]/g,'')]; }catch(e){ return ''; }
   };
@@ -13546,7 +13611,7 @@ async function renderOcFeed(){
     const kindTag = r.kind === 'diary' ? '<span class="ocf-tag diary">日记</span>' : '<span class="ocf-tag">动态</span>';
     const moodHtml = r.mood ? '<span class="ocf-mood">'+ocEsc(r.mood)+'</span>' : '';
     return '<div class="ocf-item'+rc+'">'
-      + '<div class="ocf-head"><span class="ocf-avatar'+rc+'">'+icon(r.who)+'</span>'
+      + '<div class="ocf-head"><span class="ocf-avatar'+rc+'">'+avatarOf(r.who)+'</span>'
       + '<div class="ocf-who"><b>'+ocEsc(r.who)+'</b><small>'+ocEsc(r.when||'')+'</small></div>'
       + '<div class="ocf-meta">'+kindTag+moodHtml+'</div></div>'
       + '<div class="ocf-body"><p>'+ocEsc(r.content||'').replace(/\n/g,'<br>')+'</p>'+imgHtml+'</div>'
@@ -13752,11 +13817,10 @@ function godRender(){
   const aiRel = useAI ? _godAI.rel : null;
   const relDesc = (aiRel ? (ocRelDesc(aiRel.state||'warm') + ((aiRel.note)?('（'+aiRel.note+'）'):''))
     : (ocRelDesc(rel.state) + (rel.note ? ('（'+rel.note+'）') : '')));
-  const relEmojis = {hot:'💗', warm:'💞', cool:'💙', cold:'💔'};
   const relState = aiRel ? aiRel.state : rel.state;
-  const relIcon = relEmojis[relState] || '💞';
+  const relTint = {hot:'hot', warm:'warm', cool:'cool', cold:'cold'}[relState] || 'warm';
   if(relEl){
-    relEl.innerHTML = '<span class="god-rel-ic">' + relIcon + '</span>'
+    relEl.innerHTML = '<span class="god-rel-ic ' + relTint + '"><svg class="ico" style="width:15px;height:15px;"><use href="#i-heart"/></svg></span>'
       + '<span class="god-rel-txt">他们之间：' + ocEsc(relDesc) + '</span>'
       + '<span class="god-src">' + (useAI ? 'AI 旁白' : '本地镜头') + '</span>';
   }
@@ -13776,10 +13840,14 @@ function godRender(){
       prevDoing = s.doing; prevPlace = s.place;
     }
     return '<div class="god-card">'
-      + '<div class="god-head"><span class="god-avatar' + (i===1?' b':'') + '">' + (i===1?'🌿':'🌸') + '</span>'
+      + '<div class="god-head"><span class="god-avatar' + (i===1?' b':'') + '">'
+      + (i===1
+        ? '<svg class="ico" style="width:19px;height:19px;"><use href="#i-leaf"/></svg>'
+        : '<svg class="ico" style="width:19px;height:19px;"><use href="#i-blossom"/></svg>')
+      + '</span>'
       + '<div class="god-who"><b>' + ocEsc(s.who) + '</b><small>' + (s.since ? ('大约从 ' + s.since + ' 起') : '') + '</small></div>'
       + '<span class="god-mood">' + ocEsc(s.mood) + '</span></div>'
-      + '<div class="god-state"><div class="gs-main">📍 ' + ocEsc(s.place) + ' · ' + ocEsc(s.doing) + '</div>'
+      + '<div class="god-state"><div class="gs-main"><svg class="ico" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"><use href="#i-pin"/></svg>' + ocEsc(s.place) + ' · ' + ocEsc(s.doing) + '</div>'
       + (s.inner ? ('<div class="gs-inner">“' + ocEsc(s.inner) + '”</div>') : '')
       + '</div></div>';
   }).join('');
@@ -13852,7 +13920,7 @@ async function godAskAI(){
   }catch(e){ toast('AI 旁白异常：' + String(e && e.message || e)); }
   finally{
     _godAiBusy = false;
-    if(btn){ btn.textContent = '✨ AI 旁白'; btn.disabled = false; }
+    if(btn){ btn.innerHTML = '<svg class="ico" style="width:15px;height:15px;"><use href="#i-sparkle"/></svg>旁白'; btn.disabled = false; }
   }
 }
 function buildRoleProtocol(){
@@ -14204,8 +14272,8 @@ init();
   <div class="god-rel" id="godRel"></div>
   <div class="god-list" id="godList"></div>
   <div class="god-tools">
-    <button class="god-btn primary" id="godAiBtn" onclick="godAskAI()" type="button">✨ 旁白</button>
-    <button class="god-btn ghost" onclick="godNext()" type="button">🔄 换一帧</button>
+    <button class="god-btn primary" id="godAiBtn" onclick="godAskAI()" type="button"><svg class="ico" style="width:15px;height:15px;"><use href="#i-sparkle"/></svg>旁白</button>
+    <button class="god-btn ghost" onclick="godNext()" type="button"><svg class="ico" style="width:15px;height:15px;"><use href="#i-refresh"/></svg>换一帧</button>
   </div>
   <div class="god-note">他们是活的：这里发生的关系波折与共同事件会写进「他们的世界」，朋友圈与对话都接得住；即时镜头细节仅供观看。AI 旁白每次会调用一次 AI 生成剧情（与你自己的 API Key 计费）。</div>
 </div>
