@@ -7155,6 +7155,8 @@ function buildSystem(){
   if(memBlocks) sys += '\n\n' + memBlocks;
   const roleProto = buildRoleProtocol(); // 音色协议（强制回复以【角色名】开头，音色切换用）+ 表情包协议
   if(roleProto) sys += '\n\n' + roleProto;
+  const relRules = ocRelRulesText(); // 关系现状使用规则（可自定义；数据本身在发送时注入末尾 user 消息，见 ocWorldCtx/buildLiveContext）
+  if(relRules) sys += '\n\n' + relRules;
   // 粤语文字输出开关：开启后自动注入"用粤语回复"指令（练粤语用），配合语音粤语 language_boost=Chinese,Yue 成完整粤语对话
   try{
     const _ps = (pomoData && pomoData.settings) ? pomoData.settings : {};
@@ -8675,6 +8677,13 @@ function pcResetIdentity(){
   const h = document.getElementById('promptCenterHint');
   if(h) h.textContent = '已恢复默认关系身份，点「保存修改」生效。';
 }
+function pcResetRelRules(){
+  const ta = document.getElementById('pcRelRules');
+  if(!ta) return;
+  ta.value = DEFAULT_OC_REL_RULES_TPL;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认关系现状规则，点「保存修改」生效。';
+}
 function pcResetVoiceProto(){
   const ta = document.getElementById('pcVoiceProto');
   if(!ta) return;
@@ -8750,7 +8759,12 @@ function renderPromptCenter(){
     + '<p class="prompt-desc">角色是谁、你们的关系基调，直接改；会以 &lt;身份&gt; 常驻块发送。</p>'
     + '<textarea id="pcMemIdentity" class="prompt-body" rows="10">'+escHtml(identity)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetIdentity()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">3</span><span>音色协议 &lt;音色协议&gt;</span></div>'
+  const relRules = (cfg.relRulesTpl !== undefined) ? String(cfg.relRulesTpl).trim() : DEFAULT_OC_REL_RULES_TPL; // 清空并保存 = 不发送此块（textarea 留空）
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">3</span><span>关系现状规则 &lt;关系现状规则&gt;</span></div>'
+    + '<p class="prompt-desc">角色世界的<关系现状>数据（关系状态+今日共同事件，发送时自动生成）怎么用：完全代入角色本人、自然相处不念稿。清空保存即不发送此块。</p>'
+    + '<textarea id="pcRelRules" class="prompt-body" rows="8">'+escHtml(relRules)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetRelRules()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">4</span><span>音色协议 &lt;音色协议&gt;</span></div>'
     + '<p class="prompt-desc">角色切换规则，独立于表情包协议；{{ROLE_A}} / {{ROLE_B}} 在发送时替换成你填的角色名。</p>'
     + '<div class="prompt-actions" style="margin-bottom:8px;">'
     + '<label><input type="checkbox" id="pcVoiceOn"'+(vv.on !== false ? ' checked' : '')+'> 启用</label>'
@@ -8759,11 +8773,11 @@ function renderPromptCenter(){
     + '</div>'
     + '<textarea id="pcVoiceProto" class="prompt-body" rows="8">'+escHtml(voiceProto)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetVoiceProto()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">4</span><span>表情包协议 &lt;表情包协议&gt;</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">5</span><span>表情包协议 &lt;表情包协议&gt;</span></div>'
     + '<p class="prompt-desc">表情包使用规则，独立于音色协议；{{STICKER_TAGS}} 在发送时替换成当前可用标签（含自定义）。</p>'
     + '<textarea id="pcStickerProto" class="prompt-body" rows="6">'+escHtml(stickerProto)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetStickerProto()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">5</span><span>粤语文字模式</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">6</span><span>粤语文字模式</span></div>'
     + '<p class="prompt-desc">开启后追加下面的 &lt;粤语模式&gt; 块，让助理用简单粤语回复。</p>'
     + '<div class="prompt-actions" style="margin-bottom:8px;"><label><input type="checkbox" id="pcYueText"'+(yueOn ? ' checked' : '')+'> 开启（与助理设置/番茄钟设置联动）</label></div>'
     + '<pre class="prompt-pre">'+escHtml(yueText)+'</pre></div>');
@@ -8773,23 +8787,23 @@ function renderPromptCenter(){
   let godUserTpl = (cfg.godUserTpl && cfg.godUserTpl.trim()) ? cfg.godUserTpl.trim() : DEFAULT_GOD_USER_TPL;
   const names = ocRoleNames();
   godUserTpl = godUserTpl.replace(/\{\{ROLE_A\}\}/g, names[0]).replace(/\{\{ROLE_B\}\}/g, names[1]);
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">6</span><span>上帝视角 · AI旁白系统提示词</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">7</span><span>上帝视角 · AI旁白系统提示词</span></div>'
     + '<p class="prompt-desc">定义AI如何生成角色生活切片。{{ROLE_A}}/{{ROLE_B}}会自动替换为实际角色名。</p>'
     + '<textarea id="pcGodSysTpl" class="prompt-body" rows="6">'+escHtml(godSysTpl)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetGodSysTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">7</span><span>上帝视角 · AI旁白用户指令</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">8</span><span>上帝视角 · AI旁白用户指令</span></div>'
     + '<p class="prompt-desc">控制输出格式和要求，JSON结构必须严格匹配。</p>'
     + '<textarea id="pcGodUserTpl" class="prompt-body" rows="10">'+escHtml(godUserTpl)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetGodUserTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
   
   // 新增：陪伴规则提示词
   const companionRules = (cfg.companionRules && cfg.companionRules.trim()) ? cfg.companionRules.trim() : DEFAULT_COMPANION_RULES;
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">8</span><span>陪伴模式 · 实时陪伴规则</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">9</span><span>陪伴模式 · 实时陪伴规则</span></div>'
     + '<p class="prompt-desc">专注模式下AI的行为准则，控制开口频率、语气和互动方式。</p>'
     + '<textarea id="pcCompanionRules" class="prompt-body" rows="8">'+escHtml(companionRules)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetCompanionRules()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
   
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">9</span><span>实时上下文（发送时自动生成）</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">10</span><span>实时上下文（发送时自动生成）</span></div>'
     + '<p class="prompt-desc">插在最新一条用户消息的开头，每轮实时刷新，这里只列出占位符；天数/轮数可在这里一并修改。</p>'
     + '<div class="prompt-actions" style="margin-bottom:8px;">'
     + '<label>近 <input type="number" id="pcDaysTask" min="0" max="120" value="'+daysTask+'"> 日任务</label>'
@@ -8797,10 +8811,10 @@ function renderPromptCenter(){
     + '<label>近 <input type="number" id="pcRounds" min="0" max="40" value="'+rounds+'"> 轮对话</label>'
     + '</div>'
     + '<pre class="prompt-pre">'+escHtml(liveParts)+'</pre></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">10</span><span>对话历史</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">11</span><span>对话历史</span></div>'
     + '<p class="prompt-desc">发送时保留最近 '+rounds+' 轮往来消息（每轮含用户+助理一条）。</p>'
     + '<pre class="prompt-pre"><对话历史>\n{{最近 '+rounds+' 轮对话历史}}\n</对话历史></pre></div>');
-  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">11</span><span>用户最新指令</span></div>'
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">12</span><span>用户最新指令</span></div>'
     + '<p class="prompt-desc">最新这条用户消息会单独包起来，与上面的实时上下文区分。</p>'
     + '<pre class="prompt-pre"><用户当前指令>\n{{用户最新这句话}}\n</用户当前指令></pre></div>');
   wrap.innerHTML = sc.join('');
@@ -8828,6 +8842,8 @@ function savePromptCenter(){
   if(idEl) localStorage.setItem(MEM_IDENTITY_KEY, idEl.value.trim());
   if(vpEl) cfg.voiceProtoTpl = vpEl.value;
   if(spEl) cfg.stickerProtoTpl = spEl.value;
+  const relRulesEl = document.getElementById('pcRelRules');
+  if(relRulesEl) cfg.relRulesTpl = relRulesEl.value;
   
   // 保存新字段
   if(godSysEl) cfg.godSysTpl = godSysEl.value;
@@ -8871,7 +8887,7 @@ function savePromptCenter(){
   if(aiConv && aiConv.length && aiConv[0].role === 'system') aiConv[0].content = buildSystem();
   renderPromptCenter();
   const h = document.getElementById('promptCenterHint');
-  if(h) h.textContent = '已保存：系统提示词、关系身份、音色协议、表情包协议、角色名、粤语模式、上帝视角提示词、陪伴规则与发送范围都已更新。';
+  if(h) h.textContent = '已保存：系统提示词、关系身份、关系现状规则、音色协议、表情包协议、角色名、粤语模式、上帝视角提示词、陪伴规则与发送范围都已更新。';
   toast('提示词已保存');
 }
 function copyPromptCenter(){
@@ -13380,6 +13396,14 @@ function appendAiBubbleText(d, text, seed){
 }
 const DEFAULT_VOICE_PROTO_TPL = '<音色协议>\n你扮演「身份」区块里设定的角色。回复时第一行必须用【{{ROLE_A}}】或【{{ROLE_B}}】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时不预设固定轮换、不用机械交替，随机选一位开口即可，别让同一人连说太多轮（一般不超过两轮）。不要凭空设定哪个人在场或不在场：两人何时出现完全以对话里已经明确说过的内容为准，用户想找谁、有急事要把某个人喊回来，就直接让那个人接话；某人今天去了哪、办了什么事，只能转述对话里已经交代过的信息，不能自己编。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。\n</音色协议>';
 const DEFAULT_STICKER_PROTO_TPL = '<表情包协议>\n表情包：全看心情，绝大多数回复不带，不要为了展示或讨好硬加。气氛真到位时句末最多放一个，只输出半角方括号标签，如 [贴贴]、[累]、[晚安]，可选标签：{{STICKER_TAGS}}。不要解释这个标签，也不要换成图片链接或 Markdown 图片。\n</表情包协议>';
+const DEFAULT_OC_REL_RULES_TPL = '<关系现状规则>\n关系现状数据（每轮发送时自动生成，见消息里的<关系现状>）写的是你和另一个角色的关系状态、今天你们之间共同发生过的事——这是你们生活的背景事实，用来让对话氛围、语气、行为自然贴合当下关系，不是要念出来的脚本。\n- 完全代入：你同时扮演两个角色（回复按<音色协议>决定由谁开口）。开口后你就是那个人本人，用 ta 的语气、情绪、视角和用户相处，也以关系一方的身份自然地谈论、惦记、回应另一个角色；绝不跳出角色变成"助理/旁白/编剧"视角，不要说"作为角色""按设定来说"这类话。\n- 关系状态是你的情绪底色：热络就自然地亲近（惦记、分享、拌嘴），闹别扭就保持距离、话少一点，别硬演甜蜜，也别生硬提"我们现在的状态"。\n- 今日共同事件是你们真实发生过的事：可以自然提起、延续、回味，但只以<关系现状>与对话里明确交代过的事实为准，不编造对方的行程、去向、心情。\n- 用户问起你们俩的关系或对方在干嘛时，以开口角色的第一人称说心里话，不要像念报告一样转述。\n</关系现状规则>';
+function ocRelRulesText(){
+  const cfg = getAiCfg();
+  // 用户显式清空保存过（值存在但为空）→ 视为不想发送该块；从未设置过 → 用默认
+  if(cfg.relRulesTpl !== undefined && !String(cfg.relRulesTpl).trim()) return '';
+  const tpl = (cfg.relRulesTpl !== undefined && String(cfg.relRulesTpl).trim()) ? String(cfg.relRulesTpl).trim() : DEFAULT_OC_REL_RULES_TPL;
+  return tpl;
+}
 function buildVoiceProtocol(){
   if(!aiVoicesOn()) return '';
   const cfg = getAiCfg();
@@ -13751,7 +13775,7 @@ function ocWorldCtx(){
     const days = ocWorldDays(ocWorldGet());
     let s = '<关系现状>\n' + ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '') + '\n';
     if(days.length) s += '今天你们之间发生过：' + days.map(e=>'『'+e.t+'』').join('、') + '\n';
-    s += '【重要】这是两个情境角色（零落/沈容）的世界状态，仅供你了解他们的生活背景。你是用户的工作台助理，不是他们中的任何一个——不要模仿他们的行为、不要替他们做事、不要把他们的行程当成用户的任务。只有当用户明确问起"他们俩怎样""零落/沈容在干嘛"时才自然提及；其他时候保持沉默，不要主动提起、不要硬塞进无关话题、不要复读这段文字。但这不妨碍你在对话里以角色身份与用户正常相处：聊出值得记住的事后，按<角色生活留痕>的规则用 post_oc_dynamic 把那段生活记下来。\n</关系现状>';
+    s += '</关系现状>';
     return s;
   }catch(e){ return ''; }
 }
