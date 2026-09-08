@@ -1030,12 +1030,13 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-src{flex:0 0 auto;align-self:center;font-size:9px;font-weight:800;color:var(--green-dark);background:var(--green-soft);border:1px solid rgba(165,192,162,.5);
   border-radius:100px;padding:3px 9px;white-space:nowrap;margin-left:8px;}
 /* 镜头列表滚动区 */
-.god-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:14px 15px 8px;}
+.god-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;align-items:stretch;gap:12px;padding:14px 15px 28px;overscroll-behavior:contain;}
 .god-time{display:flex;align-items:center;gap:6px;align-self:center;font-size:10.5px;font-weight:800;color:var(--cool);letter-spacing:.4px;
   background:rgba(124,164,190,.10);border:1px solid rgba(124,164,190,.28);padding:6px 13px;border-radius:100px;margin-bottom:2px;}
-/* 镜头卡 */
+/* 镜头卡：去掉 overflow:hidden 让内心话不再被圆角裁掉末行；
+   border-radius 自带的圆角+内层 padding 已能保证不越界视觉 */
 .god-card{position:relative;background:linear-gradient(163deg,var(--gl-a),var(--gl-b));border:1px solid var(--gl-brd);border-radius:22px;padding:16px 16px 15px;
-  box-shadow:var(--shadow-sm),inset 0 1px 0 var(--gl-hi);overflow:hidden;animation:ocfItemIn .4s var(--ease) both;
+  box-shadow:var(--shadow-sm),inset 0 1px 0 var(--gl-hi);animation:ocfItemIn .4s var(--ease) both;
   backdrop-filter:blur(24px) saturate(175%);-webkit-backdrop-filter:blur(24px) saturate(175%);}
 .god-head{display:flex;align-items:center;gap:11px;}
 .god-avatar{width:40px;height:40px;border-radius:50%;color:#fff;flex:0 0 auto;
@@ -1048,11 +1049,13 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-who b{display:block;font-size:14.5px;font-weight:800;color:var(--ink);letter-spacing:.2px;}
 .god-who small{font-size:10px;color:var(--ink-faint);font-variant-numeric:tabular-nums;display:block;margin-top:1px;}
 .god-mood{font-size:10.5px;font-weight:800;color:var(--warm-deep);background:var(--warm-soft);border:1px solid rgba(224,170,112,.42);border-radius:100px;padding:3px 10px;flex:0 0 auto;}
-.god-state{margin-top:12px;padding:12px 14px;border-radius:16px;background:linear-gradient(150deg,rgba(255,255,255,.6),rgba(200,220,193,.16));
+.god-state{margin-top:12px;padding:13px 14px 12px;border-radius:16px;background:linear-gradient(150deg,rgba(255,255,255,.6),rgba(200,220,193,.16));
   border:1px solid rgba(165,192,162,.38);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.85);}
-.god-state .gs-main{font-size:14px;line-height:1.8;color:var(--ink);letter-spacing:.1px;font-weight:600;}
-.god-state .gs-inner{font-size:12.5px;color:var(--ink-soft);margin-top:9px;font-style:italic;line-height:1.75;border-top:1px dashed var(--line);padding-top:9px;}
+.god-state .gs-main{font-size:14px;line-height:1.75;color:var(--ink);letter-spacing:.1px;font-weight:600;}
+.god-state .gs-inner{font-size:12.5px;color:var(--ink-soft);margin-top:9px;font-style:italic;line-height:1.75;border-top:1px dashed var(--line);padding-top:9px;
+  /* 内心话可能长：防止最后一行被遮挡给点底线呼吸 */
+  padding-bottom:2px;margin-bottom:-2px;}
 /* 底部操作区：液态玻璃固定条 */
 .god-tools{display:flex;gap:12px;padding:11px 15px calc(12px + env(safe-area-inset-bottom));flex:0 0 auto;
   background:var(--gl-bar);border-top:1px solid var(--gl-top-brd);
