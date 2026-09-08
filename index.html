@@ -968,11 +968,14 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* 列表滚动区 */
 .ocf-list{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:13px;padding:16px 15px calc(22px + env(safe-area-inset-bottom));}
 @keyframes ocfItemIn{from{opacity:0;transform:translateY(10px) scale(.988);}to{opacity:1;transform:none;}}
-/* 动态卡片：半透玻璃 + 顶部高光；左缘角色色条 + 圆形头像（A 紫花 / B 绿叶 SVG，跨页面一致） */
+/* 动态卡片：半透玻璃 + 顶部高光；左缘角色色条 + 圆形头像（A 紫花 / B 绿叶 SVG，跨页面一致）
+   overflow:hidden 在 .ocf-item 上原本是给 ::before 贴边色条裁圆角用的；
+   长文案时无截断问题（gapBottom=15px 足够），但为与 .god-card 设计语言保持一致也去掉：
+   ::before 改为 top/bottom:22px，完全位于 20px 圆角之外的直边区，不再依赖 overflow:hidden 裁切。 */
 .ocf-item{position:relative;background:linear-gradient(163deg,var(--gl-a),var(--gl-b));border:1px solid var(--gl-brd);border-radius:20px;padding:15px 16px 14px;
-  box-shadow:var(--shadow-xs),inset 0 1px 0 var(--gl-hi);overflow:hidden;animation:ocfItemIn .38s var(--ease) both;
+  box-shadow:var(--shadow-xs),inset 0 1px 0 var(--gl-hi);animation:ocfItemIn .38s var(--ease) both;
   backdrop-filter:blur(24px) saturate(175%);-webkit-backdrop-filter:blur(24px) saturate(175%);}
-.ocf-item::before{content:"";position:absolute;left:0;top:16px;bottom:16px;width:3.5px;border-radius:0 4px 4px 0;background:linear-gradient(180deg,rgba(181,149,228,.9),rgba(134,103,202,.9));}
+.ocf-item::before{content:"";position:absolute;left:0;top:22px;bottom:22px;width:3.5px;border-radius:0 4px 4px 0;background:linear-gradient(180deg,rgba(181,149,228,.9),rgba(134,103,202,.9));}
 .ocf-item.b::before{background:linear-gradient(180deg,rgba(134,209,168,.9),rgba(80,168,116,.9));}
 .ocf-head{display:flex;align-items:center;gap:11px;}
 .ocf-avatar{width:38px;height:38px;border-radius:50%;color:#fff;flex:0 0 auto;
@@ -989,7 +992,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .ocf-tag.diary{color:var(--warm-deep);background:var(--warm-soft);border-color:rgba(224,170,112,.42);}
 .ocf-mood{font-size:10px;font-weight:700;color:var(--warm-deep);background:var(--warm-soft);border:1px solid rgba(224,170,112,.4);border-radius:100px;padding:3px 9px;}
 .ocf-body{display:flex;flex-direction:column;gap:10px;margin-top:11px;}
-.ocf-body p{font-size:14px;line-height:1.78;color:var(--ink);white-space:pre-wrap;word-break:break-word;margin:0;}
+.ocf-body p{font-size:14px;line-height:1.78;color:var(--ink);white-space:pre-wrap;word-break:break-word;margin:0;
+  /* 末行 2px 底线呼吸，与 .god-state .gs-inner 保持一致（防 line-height 边缘被边框"挤"） */
+  padding-bottom:2px;margin-bottom:-2px;}
 .ocf-img{max-width:132px;max-height:118px;border-radius:14px;border:1px solid var(--line);background:#fff;object-fit:contain;}
 /* 空态 / 加载：列表内垂直居中 */
 .ocf-loading,.ocf-empty{margin:auto;text-align:center;color:var(--ink-faint);font-size:12.5px;padding:36px 22px;display:flex;flex-direction:column;align-items:center;gap:7px;line-height:1.75;}
