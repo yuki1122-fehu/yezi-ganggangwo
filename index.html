@@ -9841,6 +9841,14 @@ function _memDateShift(iso, days){
   const d = _memDateOf(iso); d.setDate(d.getDate() + days);
   return d.getFullYear() + '-' + _memPad2(d.getMonth()+1) + '-' + _memPad2(d.getDate());
 }
+// 自然周锚点：返回 iso 所在周的周一（周一为一周之始，2026-09-08 定）
+function _memWeekStart(iso){
+  try{
+    const d = _memDateOf(iso);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // 周一=0
+    return d.getFullYear() + '-' + _memPad2(d.getMonth()+1) + '-' + _memPad2(d.getDate());
+  }catch(e){ return String(iso || ''); }
+}
 const MEM_DIARY_PROMPT = '你是「回忆日记」写手。把用户和角色在「{DATE}」的这些对话，写成一则「今日小记」：\n- 100~200 字，像朋友睡前回想今天：今天一起经历了什么、有什么情绪、细节或梗值得记住；禁止流水账罗列、禁止"她说/他说"式转述。\n- 只写有温度的内容；如果今天只是平淡日常，就写一句"今天平平淡淡的，没什么特别的"。\n- 同时判定有没有「值得终生记住的大事或新梗」（最多 2 条，宁缺毋滥，0 条完全正常）：里程碑、第一次、强烈情绪、专属梗。gems 也只准是【一个】完整事件或梗：event 必须能单独命名（如"金凤真假店风波"），summary 用一句话说清这一件事；普通办事、交通、半价优惠等日常行程不进 gems，除非有明显情绪转折。event 缺失则说明这条不够格，不要放进 gems。若有，给出 event 名 + 一句话 summary + keyword（<=3 个）。\n只输出 JSON：{"diary":"...","gems":[{"event":"...","summary":"...","keyword":[...]}]}（gems 可为空数组）。';
 const MEM_JOURNAL_MERGE_PROMPT = '你是回忆档案整理员。把下面 {N} 则「{TYPE}」压缩成 1 则「{OUT}」，像回顾这段时光的主线：\n- {LEN} 字以内；提炼这段时期一起经历了什么、情绪起伏、值得记住的梗/事；平淡的日子合并带过；禁止逐则复述、禁止"她说/他说"式转述。\n只输出 JSON：{"content":"..."}';
 // 分层维护入口：挂在打标/每次对话前，幂等（昨天已归档就跳过）
@@ -9866,16 +9874,41 @@ async function memJournalMaintain(cfg){
       const after = days.length ? days[days.length-1].end : '';
       await memJournalDay(cfg, after, yesterday);
     }
-    // L2 周记：最新周记之后攒满 7 篇日记 → 合并
+    // L2 周记：按自然周归档（周一~周日，2026-09-08 改，替代旧「攒满 7 篇日记」计数制）
+    // 某自然周已结束（周日 < 今天）、该周有日记、且尚未有覆盖该周的周记 → 合并该周全部日记为一条
     const lastWeekEnd = weeks.length ? weeks[weeks.length-1].end : '';
-    const afterWeek = js.filter(j=> j.type === 'day' && (!lastWeekEnd || j.start > lastWeekEnd))
-                        .sort((a,b)=>String(a.start).localeCompare(String(b.start)));
-    if(afterWeek.length >= 7) await memJournalMake(cfg, 'week', afterWeek.slice(0, 7));
-    // L3 月记：最新月记之后攒满 4 篇周记 → 合并
+    const byWeek = {};
+    for(const d of js.filter(j=> j.type === 'day' && (!lastWeekEnd || j.start > lastWeekEnd))){
+      const ws = _memWeekStart(d.start);
+      if(ws) (byWeek[ws] = byWeek[ws] || []).push(d);
+    }
+    for(const ws of Object.keys(byWeek).sort()){
+      const we = _memDateShift(ws, 6);
+      if(we >= today) continue; // 该自然周还没过完，不动
+      if(weeks.some(w=> _memWeekStart(w.start) === ws)) continue; // 幂等保护：该周已有周记
+      const grp = byWeek[ws].sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+      await memJournalMake(cfg, 'week', grp);
+      weeks.push({ type:'week', start: grp[0].start, end: grp[grp.length-1].end }); // 同轮内立即可见（供 L3 用）
+    }
+    weeks.sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+    // L3 月记：按自然月归档（2026-09-08 改，替代旧「攒满 4 篇周记」计数制）
+    // 某自然月已结束、该月有归属的周记（按周记起点所在月归属，跨月周整条归起点月）→ 合并为一条月记
     const lastMonthEnd = months.length ? months[months.length-1].end : '';
-    const afterMonth = js.filter(j=> j.type === 'week' && (!lastMonthEnd || j.start > lastMonthEnd))
-                         .sort((a,b)=>String(a.start).localeCompare(String(b.start)));
-    if(afterMonth.length >= 4) await memJournalMake(cfg, 'month', afterMonth.slice(0, 4));
+    const byMonth = {};
+    for(const w of weeks.filter(j=> (!lastMonthEnd || j.start > lastMonthEnd))){
+      const mk = String(w.start || '').slice(0, 7);
+      if(mk.length === 7) (byMonth[mk] = byMonth[mk] || []).push(w);
+    }
+    for(const mk of Object.keys(byMonth).sort()){
+      const np = mk.split('-');
+      const nextMonth = (np[1] === '12' ? (+np[0]+1) + '-01' : np[0] + '-' + _memPad2(+np[1]+1)) + '-01';
+      if(today < nextMonth) continue; // 该自然月还没过完
+      // 幂等保护：该月已有月记（覆盖起点月或终点月任一，防止旧月记 end 落在月中的历史数据造成重复）
+      if(months.some(m=> String(m.start || '').slice(0, 7) === mk || String(m.end || '').slice(0, 7) === mk)) continue;
+      const grp = byMonth[mk].sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+      await memJournalMake(cfg, 'month', grp);
+      months.push({ type:'month', start: grp[0].start, end: grp[grp.length-1].end });
+    }
   }catch(e){ console.warn('[mem] journal', e); }
 }
 async function memJournalDay(cfg, afterDate, endDate){
@@ -10820,7 +10853,7 @@ async function aiRun(){
   try{
     const memUserText = memLastUserText();
     if(memUserText) await memInjectMagnet(memUserText); // 磁铁召回注入：说到什么就召回什么（空块整块消失）
-    memJournalMaintain(cfg).catch(()=>{}); // 回忆分层维护：今天无日记则生成（幂等），后台跑不阻塞主对话；攒满 7 天/4 周自动合并周记/月记
+    memJournalMaintain(cfg).catch(()=>{}); // 回忆分层维护：今天无日记则生成（幂等），后台跑不阻塞主对话；自然周/自然月结束自动合并周记/月记
     await memJournalRefreshCtx().catch(()=>{}); // 刷新「近期回忆」注入块（仅 IndexedDB 读取，毫秒级，等待它保证本轮带上快照）
     let loop = 0;
     let stepEl = null;
