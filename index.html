@@ -337,6 +337,27 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .weather-svg{position:absolute;inset:0;z-index:1;pointer-events:none;border-radius:inherit;overflow:hidden;}
 .weather-svg svg{width:100%;height:100%;display:block;animation:wxSvgIn .6s ease;}
 @keyframes wxSvgIn{from{opacity:0;}to{opacity:1;}}
+/* ===== 天气动画预览面板（三连点天气卡唤出；真机只能看到当前天气，此面板用于逐个验收 8 种动画） ===== */
+.wxprev{
+  position:fixed;left:50%;bottom:calc(92px + env(safe-area-inset-bottom,0px));z-index:210;
+  display:none;flex-direction:column;gap:8px;padding:13px 14px;border-radius:var(--radius);
+  max-width:min(92vw,420px);transform:translate(-50%,14px);opacity:0;
+  background:var(--glass-strong);border:1px solid var(--glass-line);box-shadow:var(--shadow);
+  backdrop-filter:blur(var(--blur));-webkit-backdrop-filter:blur(var(--blur));
+  transition:opacity .22s var(--ease),transform .22s var(--ease);
+}
+.wxprev.show{display:flex;opacity:1;transform:translate(-50%,0);}
+.wxprev-hd{font-size:var(--fs-2);font-weight:800;color:var(--ink);}
+.wxprev-sub{font-size:var(--fs-1);color:var(--ink-soft);line-height:1.3;}
+.wxprev-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.wxprev-chip{
+  padding:6px 11px;border-radius:var(--radius-pill);font-family:var(--font);font-size:var(--fs-1);font-weight:700;
+  color:var(--ink-soft);background:rgba(255,255,255,.5);border:1px solid var(--glass-line);cursor:pointer;
+  box-shadow:var(--shadow-inset);
+  transition:transform .16s var(--ease),background .16s var(--ease),color .16s var(--ease);
+}
+.wxprev-chip.active{background:var(--green-soft);border-color:var(--green-mid);color:var(--green-dark);}
+.wxprev-chip:active{transform:scale(.94);}
 /* 文字浮在粒子之上：默认字体（华康康熙字典体宋体）+ 无阴影 */
 .weather-card .w-icon,.weather-card .w-temp,.weather-card .w-desc,.weather-card .w-meta{
   position:relative;z-index:3;
@@ -4309,11 +4330,15 @@ function toggleDistrictPanel(){
 /* =====================================================================
  * WeatherFX —— SVG 天气动画系统（纯 SVG + CSS keyframes）
  * ---------------------------------------------------------------------
- * 8 种天气模板，纯 CSS 动画驱动：
+ * 9 种模板，纯 CSS 动画驱动：
  *   - GPU 合成器加速，无 requestAnimationFrame 循环，后台标签页零耗电
  *   - viewBox="0 0 400 200" + preserveAspectRatio="xMidYMid slice"
- *     自动适配手机横条 / 桌面宽卡两种布局（超出裁切，不压扁）
- *   - prefers-reduced-motion 下由全局 CSS 暂停（见样式区 reduced-motion 段）
+ *
+ *   ⚠️ 构图约束（2026-09-10 headless 实测，改模板必须先读）：
+ *     手机 ≤480px：卡片 322 x 93.6（比例 3.44 横条）→ 可见 x 全宽 [0,400]、y 仅 [42,158]
+ *     桌面 >480px：卡片 130 x 228（比例 0.57 竖条）→ 可见 x 仅 [143,257]、y 全高
+ *     两布局交集 = 114 x 116 小块 ⇒ 主角元素一律锚在中心 (200,96) 附近；
+ *     弥散类元素（雨丝/雪片/光斑）铺满全场，保证任一种裁切都有内容。
  *
  * 公开 API（与旧 Canvas 版完全兼容）：
  *   WeatherFX.set(kind)        // 切换动画：sunny/cloudy/rain/heavy_rain/
@@ -4321,318 +4346,394 @@ function toggleDistrictPanel(){
  *   WeatherFX.set(card, kind) // 兼容旧「新签名」（SVG 版单容器，操作同一宿主）
  *   WeatherFX.init(card)      // 兼容旧调用，返回 WeatherFX 本身
  *   WeatherFX.stop()          // 无操作：CSS 动画随 visibility 自动暂停
+ *
+ * 预览模式：三连点天气卡唤出面板，可逐个查看 8 种动画（真机默认只能看到当前天气，
+ *          这个面板用于验收）。面板出现时锁定动画不被真实天气刷新覆盖；点「自动」退出。
  * ===================================================================== */
 (function(){
-  /* ---------- SVG 模板库（每种天气一个完整 <svg>，内嵌 <style>） ---------- */
+  /* ---------- SVG 模板库（viewBox 400x200 + slice；主角元素锚在中心 (200,96) 双布局可见区） ---------- */
   const SVG_TEMPLATES = {
-
-    /* 晴：暖色光晕脉冲 + 8 条旋转放射光线 + 6 颗浮动金色光斑 */
+    /* sunny */
     sunny: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<defs><radialGradient id="wxSunG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(255,243,200,.85)"/><stop offset="55%" stop-color="rgba(255,236,178,.38)"/><stop offset="100%" stop-color="rgba(255,236,178,0)"/></radialGradient></defs>
-<style>
-.wxA{transform-box:fill-box;transform-origin:center;animation:wxAura 4.8s ease-in-out infinite;}
-@keyframes wxAura{0%,100%{opacity:.5;transform:scale(.92);}50%{opacity:.85;transform:scale(1.06);}}
-.wxRays{transform-box:fill-box;transform-origin:center;animation:wxSpin 64s linear infinite;}
-@keyframes wxSpin{to{transform:rotate(360deg);}}
-.wxSpk{animation:wxSpark ease-in-out infinite;}
-@keyframes wxSpark{0%,100%{transform:translateY(0);opacity:.3;}50%{transform:translateY(-13px);opacity:.8;}}
-</style>
-<circle class="wxA" cx="314" cy="64" r="80" fill="url(#wxSunG)"/>
-<g class="wxRays" stroke="rgba(255,249,220,.55)" stroke-width="3" stroke-linecap="round" opacity=".75">
-<line x1="314" y1="34" x2="314" y2="22"/><line x1="314" y1="94" x2="314" y2="106"/>
-<line x1="284" y1="64" x2="272" y2="64"/><line x1="344" y1="64" x2="356" y2="64"/>
-<line x1="292.8" y1="42.8" x2="284.3" y2="34.3"/><line x1="343.7" y1="93.7" x2="335.2" y2="85.2"/>
-<line x1="292.8" y1="85.2" x2="284.3" y2="93.7"/><line x1="343.7" y1="34.3" x2="335.2" y2="42.8"/>
-</g>
-<g fill="rgba(255,233,150,.6)">
-<circle class="wxSpk" style="animation-duration:5.4s;animation-delay:-.6s" cx="52" cy="132" r="3"/>
-<circle class="wxSpk" style="animation-duration:6.8s;animation-delay:-2.4s" cx="108" cy="102" r="2.4"/>
-<circle class="wxSpk" style="animation-duration:4.9s;animation-delay:-1.3s" cx="168" cy="148" r="3.4"/>
-<circle class="wxSpk" style="animation-duration:7.3s;animation-delay:-4.1s" cx="214" cy="86" r="2.4"/>
-<circle class="wxSpk" style="animation-duration:5.8s;animation-delay:-3.2s" cx="258" cy="126" r="2.8"/>
-<circle class="wxSpk" style="animation-duration:6.2s;animation-delay:-5s" cx="92" cy="66" r="2.4"/>
-</g>
-</svg>`,
-
-    /* 多云：3 层视差云（远小慢淡 / 近大快实），贝塞尔式椭圆有机云形 */
+    <style>
+    .wxHalo{transform-box:fill-box;transform-origin:center;animation:wxAura 5.2s ease-in-out infinite;}
+    @keyframes wxAura{0%,100%{opacity:.42;transform:scale(.93);}50%{opacity:.8;transform:scale(1.07);}}
+    .wxRays{transform-box:fill-box;transform-origin:center;animation:wxSpin 76s linear infinite;}
+    @keyframes wxSpin{to{transform:rotate(360deg);}}
+    .wxRays2{transform-box:fill-box;transform-origin:center;animation:wxSpin2 120s linear infinite;}
+    @keyframes wxSpin2{to{transform:rotate(-360deg);}}
+    .wxSpk{animation:wxSpark ease-in-out infinite;}
+    @keyframes wxSpark{0%,100%{transform:translateY(0);opacity:.28;}50%{transform:translateY(-12px);opacity:.75;}}
+    </style>
+    <defs><radialGradient id="wxSunG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(255,246,214,.92)"/><stop offset="42%" stop-color="rgba(255,238,182,.5)"/><stop offset="100%" stop-color="rgba(255,234,170,0)"/></radialGradient></defs><circle class="wxHalo" cx="200" cy="88" r="104" fill="url(#wxSunG)"/><g class="wxRays" stroke="rgba(255,250,226,.62)" stroke-width="3" stroke-linecap="round" opacity=".8"><line transform="rotate(0 200 88)" x1="200" y1="40" x2="200" y2="24"/><line transform="rotate(45 200 88)" x1="200" y1="40" x2="200" y2="24"/><line transform="rotate(90 200 88)" x1="200" y1="40" x2="200" y2="24"/><line transform="rotate(135 200 88)" x1="200" y1="40" x2="200" y2="24"/><line transform="rotate(180 200 88)" x1="200" y1="40" x2="200" y2="24"/><line transform="rotate(225 200 88)" x1="200" y1="40" x2="200" y2="24"/><line transform="rotate(270 200 88)" x1="200" y1="40" x2="200" y2="24"/><line transform="rotate(315 200 88)" x1="200" y1="40" x2="200" y2="24"/></g><g class="wxRays2" stroke="rgba(255,252,236,.34)" stroke-width="2" stroke-linecap="round"><line transform="rotate(22 200 88)" x1="200" y1="46" x2="200" y2="30"/><line transform="rotate(67 200 88)" x1="200" y1="46" x2="200" y2="30"/><line transform="rotate(112 200 88)" x1="200" y1="46" x2="200" y2="30"/><line transform="rotate(157 200 88)" x1="200" y1="46" x2="200" y2="30"/><line transform="rotate(202 200 88)" x1="200" y1="46" x2="200" y2="30"/><line transform="rotate(247 200 88)" x1="200" y1="46" x2="200" y2="30"/><line transform="rotate(292 200 88)" x1="200" y1="46" x2="200" y2="30"/><line transform="rotate(337 200 88)" x1="200" y1="46" x2="200" y2="30"/></g><circle class="wxCore" cx="200" cy="88" r="30" fill="rgba(255,251,232,.5)"/><circle cx="200" cy="88" r="19" fill="rgba(255,247,214,.72)"/><ellipse cx="200" cy="152" rx="150" ry="20" fill="rgba(255,238,186,.22)"/><g fill="rgba(255,232,148,.62)">
+    <circle class="wxSpk" style="animation-duration:5.20s;animation-delay:-0.00s" cx="40" cy="58" r="1.8"/>
+    <circle class="wxSpk" style="animation-duration:6.00s;animation-delay:-0.60s" cx="76" cy="81" r="2.7"/>
+    <circle class="wxSpk" style="animation-duration:6.80s;animation-delay:-1.36s" cx="111" cy="104" r="3.6"/>
+    <circle class="wxSpk" style="animation-duration:7.60s;animation-delay:-2.28s" cx="147" cy="127" r="1.8"/>
+    <circle class="wxSpk" style="animation-duration:5.20s;animation-delay:-2.08s" cx="182" cy="62" r="2.7"/>
+    <circle class="wxSpk" style="animation-duration:6.00s;animation-delay:-3.00s" cx="218" cy="85" r="3.6"/>
+    <circle class="wxSpk" style="animation-duration:6.80s;animation-delay:-4.08s" cx="253" cy="108" r="1.8"/>
+    <circle class="wxSpk" style="animation-duration:7.60s;animation-delay:-5.32s" cx="289" cy="131" r="2.7"/>
+    <circle class="wxSpk" style="animation-duration:5.20s;animation-delay:-4.16s" cx="324" cy="66" r="3.6"/>
+    <circle class="wxSpk" style="animation-duration:6.00s;animation-delay:-5.40s" cx="360" cy="89" r="1.8"/>
+    </g>
+    </svg>`,
+    /* cloudy */
     cloudy: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<style>
-.wxDrift{animation:wxCld linear infinite;}
-@keyframes wxCld{from{transform:translateX(-300px);}to{transform:translateX(700px);}}
-</style>
-<g transform="translate(0,46) scale(.52)" opacity=".36">
-<g class="wxDrift" style="animation-duration:96s;animation-delay:-14s"><g fill="rgba(255,255,255,.9)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
-<g class="wxDrift" style="animation-duration:120s;animation-delay:-70s"><g transform="scale(.72)" fill="rgba(255,255,255,.85)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
-</g>
-<g transform="translate(0,84) scale(.78)" opacity=".52">
-<g class="wxDrift" style="animation-duration:60s;animation-delay:-26s"><g fill="rgba(255,255,255,.92)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
-<g class="wxDrift" style="animation-duration:74s;animation-delay:-55s"><g transform="scale(.8)" fill="rgba(255,255,255,.88)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
-</g>
-<g transform="translate(0,132) scale(1.08)" opacity=".62">
-<g class="wxDrift" style="animation-duration:38s;animation-delay:-9s"><g fill="rgba(255,255,255,.95)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
-<g class="wxDrift" style="animation-duration:46s;animation-delay:-31s"><g transform="scale(.85)" fill="rgba(255,255,255,.9)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
-</g>
-</svg>`,
-
-    /* 小雨：顶部云带 + 12 根倾斜雨丝 + 底部 3 个溅射涟漪 */
+    <style>
+    .wxDrift{animation:wxCld linear infinite;}
+    @keyframes wxCld{from{transform:translateX(-300px);}to{transform:translateX(700px);}}
+    </style>
+    <g transform="translate(0,62) scale(0.5)" opacity="0.34">
+    <g class="wxDrift" style="animation-duration:108s;animation-delay:-18s"><g transform="scale(1)" fill="rgba(255,255,255,.92)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDrift" style="animation-duration:132s;animation-delay:-84s"><g transform="scale(0.8)" fill="rgba(255,255,255,.92)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    </g><g transform="translate(0,88) scale(0.72)" opacity="0.46">
+    <g class="wxDrift" style="animation-duration:82s;animation-delay:-30s"><g transform="scale(1)" fill="rgba(255,255,255,.95)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDrift" style="animation-duration:100s;animation-delay:-70s"><g transform="scale(0.8)" fill="rgba(255,255,255,.95)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    </g><g transform="translate(0,116) scale(0.95)" opacity="0.58">
+    <g class="wxDrift" style="animation-duration:60s;animation-delay:-12s"><g transform="scale(1)" fill="rgba(255,255,255,.97)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDrift" style="animation-duration:72s;animation-delay:-48s"><g transform="scale(0.8)" fill="rgba(255,255,255,.97)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    </g><g transform="translate(0,142) scale(1.18)" opacity="0.68">
+    <g class="wxDrift" style="animation-duration:42s;animation-delay:-26s"><g transform="scale(1)" fill="rgba(255,255,255,1)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDrift" style="animation-duration:52s;animation-delay:-8s"><g transform="scale(0.8)" fill="rgba(255,255,255,1)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    </g><ellipse cx="200" cy="60" rx="170" ry="18" fill="rgba(255,255,255,.22)"/>
+    </svg>`,
+    /* rain */
     rain: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<style>
-.wxDrop{animation:wxFall linear infinite;}
-@keyframes wxFall{from{transform:translateY(-46px);}to{transform:translateY(246px);}}
-.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.7s ease-out infinite;}
-@keyframes wxRip{0%{transform:scale(.15);opacity:.6;}75%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}
-.wxBand{animation:wxBreath 8s ease-in-out infinite alternate;}
-@keyframes wxBreath{from{transform:translateX(-8px);}to{transform:translateX(8px);}}
-</style>
-<g class="wxBand">
-<g fill="rgba(255,255,255,.5)"><ellipse cx="60" cy="34" rx="52" ry="18"/><ellipse cx="150" cy="26" rx="60" ry="20"/><ellipse cx="250" cy="34" rx="66" ry="20"/><ellipse cx="340" cy="28" rx="56" ry="19"/></g>
-<g fill="rgba(74,96,118,.12)"><ellipse cx="105" cy="40" rx="70" ry="14"/><ellipse cx="290" cy="42" rx="80" ry="15"/></g>
-</g>
-<g stroke="rgba(108,138,178,.55)" stroke-width="1.8" stroke-linecap="round">
-<line class="wxDrop" style="animation-duration:.85s;animation-delay:-.05s" x1="22" y1="10" x2="16" y2="31"/>
-<line class="wxDrop" style="animation-duration:.95s;animation-delay:-.3s" x1="52" y1="22" x2="46" y2="43"/>
-<line class="wxDrop" style="animation-duration:.9s;animation-delay:-.55s" x1="84" y1="6" x2="78" y2="27"/>
-<line class="wxDrop" style="animation-duration:1s;animation-delay:-.8s" x1="118" y1="18" x2="112" y2="39"/>
-<line class="wxDrop" style="animation-duration:.88s;animation-delay:-.15s" x1="150" y1="26" x2="144" y2="47"/>
-<line class="wxDrop" style="animation-duration:.96s;animation-delay:-.4s" x1="178" y1="8" x2="172" y2="29"/>
-<line class="wxDrop" style="animation-duration:.92s;animation-delay:-.65s" x1="210" y1="20" x2="204" y2="41"/>
-<line class="wxDrop" style="animation-duration:1.02s;animation-delay:-.9s" x1="242" y1="12" x2="236" y2="33"/>
-<line class="wxDrop" style="animation-duration:.86s;animation-delay:-.25s" x1="272" y1="24" x2="266" y2="45"/>
-<line class="wxDrop" style="animation-duration:.94s;animation-delay:-.5s" x1="304" y1="6" x2="298" y2="27"/>
-<line class="wxDrop" style="animation-duration:.98s;animation-delay:-.75s" x1="336" y1="16" x2="330" y2="37"/>
-<line class="wxDrop" style="animation-duration:.9s;animation-delay:-.1s" x1="368" y1="28" x2="362" y2="49"/>
-</g>
-<g fill="none" stroke="rgba(108,138,178,.5)" stroke-width="1.4">
-<ellipse class="wxSplash" style="animation-delay:0s" cx="80" cy="150" rx="16" ry="4"/>
-<ellipse class="wxSplash" style="animation-delay:-.6s" cx="190" cy="156" rx="14" ry="3.5"/>
-<ellipse class="wxSplash" style="animation-delay:-1.1s" cx="300" cy="148" rx="17" ry="4.2"/>
-</g>
-</svg>`,
-
-    /* 大雨：更厚双层云 + 18 根更陡更快的雨丝 + 5 个溅射 + 2 道宽水波纹 */
+    <style>
+    .wxDrop{animation:wxFall linear infinite;}
+    @keyframes wxFall{from{transform:translateY(-52px);}to{transform:translateY(252px);}}.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.4s ease-out infinite;}
+    @keyframes wxRip{0%{transform:scale(.15);opacity:.55;}72%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}.wxBand1{animation:wxBreath1 5.4s ease-in-out infinite alternate;}
+    @keyframes wxBreath1{from{transform:translateX(-12px);}to{transform:translateX(12px);}}.wxBand2{animation:wxBreath2 7.8s ease-in-out infinite alternate;}
+    @keyframes wxBreath2{from{transform:translateX(14px);}to{transform:translateX(-14px);}}.wxDriftR{animation:wxCldR linear infinite;}
+    @keyframes wxCldR{from{transform:translateX(700px);}to{transform:translateX(-300px);}}
+    </style>
+    <defs><linearGradient id="wxSky_rain" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(72,94,118,.20)"/><stop offset="58%" stop-color="rgba(72,94,118,0.08)"/><stop offset="100%" stop-color="rgba(72,94,118,0)"/></linearGradient></defs>
+    <rect class="wxBand1" x="-30" y="16" width="460" height="98" fill="url(#wxSky_rain)"/>
+    <g class="wxDriftR" style="animation-duration:96s;animation-delay:-58s"><g transform="translate(0,66) scale(1.15)" fill="rgba(104,128,156,.92)" opacity="0.26"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:78s;animation-delay:-6s"><g transform="translate(0,70) scale(1.4)" fill="rgba(104,128,156,.92)" opacity="0.3"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:88s;animation-delay:-14s"><g transform="translate(0,52) scale(0.95)" fill="rgba(255,255,255,.96)" opacity="0.46"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:68s;animation-delay:-40s"><g transform="translate(0,62) scale(1.2)" fill="rgba(255,255,255,.96)" opacity="0.56"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:108s;animation-delay:-74s"><g transform="translate(0,46) scale(0.85)" fill="rgba(255,255,255,.96)" opacity="0.4"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:58s;animation-delay:-22s"><g transform="translate(0,66) scale(1.3)" fill="rgba(255,255,255,.96)" opacity="0.5"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g><g stroke="rgba(126,154,192,.34)" stroke-width="1.3" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.85s;animation-delay:-0.00s" x1="8" y1="6" x2="2" y2="28"/>
+    <line class="wxDrop" style="animation-duration:0.89s;animation-delay:-0.06s" x1="37" y1="13" x2="31" y2="35"/>
+    <line class="wxDrop" style="animation-duration:0.93s;animation-delay:-0.13s" x1="65" y1="20" x2="59" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.97s;animation-delay:-0.21s" x1="94" y1="8" x2="88" y2="30"/>
+    <line class="wxDrop" style="animation-duration:1.01s;animation-delay:-0.29s" x1="122" y1="15" x2="116" y2="37"/>
+    <line class="wxDrop" style="animation-duration:0.85s;animation-delay:-0.30s" x1="151" y1="22" x2="145" y2="44"/>
+    <line class="wxDrop" style="animation-duration:0.89s;animation-delay:-0.38s" x1="180" y1="10" x2="174" y2="32"/>
+    <line class="wxDrop" style="animation-duration:0.93s;animation-delay:-0.47s" x1="208" y1="17" x2="202" y2="39"/>
+    <line class="wxDrop" style="animation-duration:0.97s;animation-delay:-0.55s" x1="237" y1="24" x2="231" y2="46"/>
+    <line class="wxDrop" style="animation-duration:1.01s;animation-delay:-0.65s" x1="265" y1="12" x2="259" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.85s;animation-delay:-0.61s" x1="294" y1="19" x2="288" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.89s;animation-delay:-0.70s" x1="323" y1="7" x2="317" y2="29"/>
+    <line class="wxDrop" style="animation-duration:0.93s;animation-delay:-0.80s" x1="351" y1="14" x2="345" y2="36"/>
+    <line class="wxDrop" style="animation-duration:0.97s;animation-delay:-0.90s" x1="380" y1="21" x2="374" y2="43"/>
+    </g><g stroke="rgba(100,132,175,.5)" stroke-width="1.9" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.72s;animation-delay:-0.00s" x1="20" y1="8" x2="11" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.75s;animation-delay:-0.06s" x1="53" y1="15" x2="44" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.78s;animation-delay:-0.13s" x1="87" y1="22" x2="78" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.82s;animation-delay:-0.20s" x1="120" y1="10" x2="111" y2="36"/>
+    <line class="wxDrop" style="animation-duration:0.85s;animation-delay:-0.28s" x1="153" y1="17" x2="144" y2="43"/>
+    <line class="wxDrop" style="animation-duration:0.72s;animation-delay:-0.30s" x1="186" y1="24" x2="178" y2="50"/>
+    <line class="wxDrop" style="animation-duration:0.75s;animation-delay:-0.38s" x1="220" y1="12" x2="211" y2="38"/>
+    <line class="wxDrop" style="animation-duration:0.78s;animation-delay:-0.46s" x1="253" y1="19" x2="244" y2="45"/>
+    <line class="wxDrop" style="animation-duration:0.82s;animation-delay:-0.54s" x1="286" y1="26" x2="277" y2="52"/>
+    <line class="wxDrop" style="animation-duration:0.85s;animation-delay:-0.64s" x1="320" y1="14" x2="311" y2="40"/>
+    <line class="wxDrop" style="animation-duration:0.72s;animation-delay:-0.60s" x1="353" y1="21" x2="344" y2="47"/>
+    <line class="wxDrop" style="animation-duration:0.75s;animation-delay:-0.69s" x1="386" y1="9" x2="377" y2="35"/>
+    </g><g stroke="rgba(78,112,158,.6)" stroke-width="2.5" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.58s;animation-delay:-0.00s" x1="30" y1="10" x2="17" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.60s;animation-delay:-0.08s" x1="80" y1="17" x2="67" y2="49"/>
+    <line class="wxDrop" style="animation-duration:0.63s;animation-delay:-0.16s" x1="130" y1="24" x2="117" y2="56"/>
+    <line class="wxDrop" style="animation-duration:0.65s;animation-delay:-0.24s" x1="180" y1="12" x2="167" y2="44"/>
+    <line class="wxDrop" style="animation-duration:0.68s;animation-delay:-0.34s" x1="230" y1="19" x2="217" y2="51"/>
+    <line class="wxDrop" style="animation-duration:0.58s;animation-delay:-0.36s" x1="280" y1="26" x2="267" y2="58"/>
+    <line class="wxDrop" style="animation-duration:0.60s;animation-delay:-0.45s" x1="330" y1="14" x2="317" y2="46"/>
+    <line class="wxDrop" style="animation-duration:0.63s;animation-delay:-0.55s" x1="380" y1="21" x2="367" y2="53"/>
+    </g><g fill="none" stroke="rgba(108,138,178,.5)" stroke-width="1.4">
+    <ellipse class="wxSplash" style="animation-delay:-0.00s" cx="40" cy="150" rx="12" ry="3.1"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.57s" cx="200" cy="154" rx="15" ry="3.9"/>
+    <ellipse class="wxSplash" style="animation-delay:-1.13s" cx="360" cy="150" rx="18" ry="4.7"/>
+    </g>
+    </svg>`,
+    /* heavy_rain */
     heavy_rain: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<style>
-.wxDrop{animation:wxFall linear infinite;}
-@keyframes wxFall{from{transform:translateY(-46px);}to{transform:translateY(246px);}}
-.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.3s ease-out infinite;}
-@keyframes wxRip{0%{transform:scale(.15);opacity:.6;}75%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}
-.wxBand1{animation:wxBreath1 6s ease-in-out infinite alternate;}
-@keyframes wxBreath1{from{transform:translateX(-10px);}to{transform:translateX(10px);}}
-.wxBand2{animation:wxBreath2 8.5s ease-in-out infinite alternate;}
-@keyframes wxBreath2{from{transform:translateX(12px);}to{transform:translateX(-12px);}}
-</style>
-<g class="wxBand1">
-<g fill="rgba(255,255,255,.46)"><ellipse cx="50" cy="30" rx="56" ry="20"/><ellipse cx="146" cy="22" rx="64" ry="22"/><ellipse cx="248" cy="30" rx="70" ry="21"/><ellipse cx="346" cy="24" rx="58" ry="20"/></g>
-</g>
-<g class="wxBand2">
-<g fill="rgba(80,102,124,.16)"><ellipse cx="100" cy="40" rx="76" ry="15"/><ellipse cx="290" cy="42" rx="86" ry="16"/><ellipse cx="196" cy="36" rx="60" ry="13"/></g>
-</g>
-<g stroke="rgba(88,118,158,.62)" stroke-width="2.1" stroke-linecap="round">
-<line class="wxDrop" style="animation-duration:.6s;animation-delay:-.03s" x1="16" y1="8" x2="4" y2="33"/>
-<line class="wxDrop" style="animation-duration:.68s;animation-delay:-.21s" x1="36" y1="20" x2="24" y2="45"/>
-<line class="wxDrop" style="animation-duration:.62s;animation-delay:-.4s" x1="58" y1="6" x2="46" y2="31"/>
-<line class="wxDrop" style="animation-duration:.7s;animation-delay:-.55s" x1="80" y1="16" x2="68" y2="41"/>
-<line class="wxDrop" style="animation-duration:.64s;animation-delay:-.12s" x1="102" y1="24" x2="90" y2="49"/>
-<line class="wxDrop" style="animation-duration:.66s;animation-delay:-.33s" x1="124" y1="10" x2="112" y2="35"/>
-<line class="wxDrop" style="animation-duration:.6s;animation-delay:-.5s" x1="146" y1="18" x2="134" y2="43"/>
-<line class="wxDrop" style="animation-duration:.72s;animation-delay:-.07s" x1="168" y1="26" x2="156" y2="51"/>
-<line class="wxDrop" style="animation-duration:.62s;animation-delay:-.26s" x1="190" y1="8" x2="178" y2="33"/>
-<line class="wxDrop" style="animation-duration:.68s;animation-delay:-.45s" x1="212" y1="20" x2="200" y2="45"/>
-<line class="wxDrop" style="animation-duration:.64s;animation-delay:-.16s" x1="236" y1="12" x2="224" y2="37"/>
-<line class="wxDrop" style="animation-duration:.6s;animation-delay:-.35s" x1="258" y1="22" x2="246" y2="47"/>
-<line class="wxDrop" style="animation-duration:.7s;animation-delay:-.52s" x1="280" y1="6" x2="268" y2="31"/>
-<line class="wxDrop" style="animation-duration:.66s;animation-delay:-.1s" x1="302" y1="16" x2="290" y2="41"/>
-<line class="wxDrop" style="animation-duration:.62s;animation-delay:-.3s" x1="324" y1="26" x2="312" y2="51"/>
-<line class="wxDrop" style="animation-duration:.68s;animation-delay:-.48s" x1="346" y1="10" x2="334" y2="35"/>
-<line class="wxDrop" style="animation-duration:.6s;animation-delay:-.18s" x1="368" y1="20" x2="356" y2="45"/>
-<line class="wxDrop" style="animation-duration:.64s;animation-delay:-.42s" x1="386" y1="12" x2="374" y2="37"/>
-</g>
-<g fill="none" stroke="rgba(88,118,158,.5)" stroke-width="1.5">
-<ellipse class="wxSplash" style="animation-delay:0s" cx="60" cy="152" rx="16" ry="4"/>
-<ellipse class="wxSplash" style="animation-delay:-.3s" cx="128" cy="146" rx="14" ry="3.5"/>
-<ellipse class="wxSplash" style="animation-delay:-.6s" cx="196" cy="154" rx="17" ry="4.2"/>
-<ellipse class="wxSplash" style="animation-delay:-.9s" cx="264" cy="148" rx="14" ry="3.5"/>
-<ellipse class="wxSplash" style="animation-delay:-1.15s" cx="332" cy="152" rx="16" ry="4"/>
-</g>
-</svg>`,
-
-    /* 暴雨：翻涌双层乌云（反向对漂）+ 24 根高速大风角度雨丝 + 风条纹 + 水面涟漪 */
+    <style>
+    .wxDrop{animation:wxFall linear infinite;}
+    @keyframes wxFall{from{transform:translateY(-52px);}to{transform:translateY(252px);}}.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.4s ease-out infinite;}
+    @keyframes wxRip{0%{transform:scale(.15);opacity:.55;}72%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}.wxBand1{animation:wxBreath1 5.4s ease-in-out infinite alternate;}
+    @keyframes wxBreath1{from{transform:translateX(-12px);}to{transform:translateX(12px);}}.wxBand2{animation:wxBreath2 7.8s ease-in-out infinite alternate;}
+    @keyframes wxBreath2{from{transform:translateX(14px);}to{transform:translateX(-14px);}}.wxDriftR{animation:wxCldR linear infinite;}
+    @keyframes wxCldR{from{transform:translateX(700px);}to{transform:translateX(-300px);}}
+    </style>
+    <defs><linearGradient id="wxSky_heavy_rain" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(72,94,118,.26)"/><stop offset="58%" stop-color="rgba(72,94,118,0.11)"/><stop offset="100%" stop-color="rgba(72,94,118,0)"/></linearGradient></defs>
+    <rect class="wxBand1" x="-30" y="16" width="460" height="98" fill="url(#wxSky_heavy_rain)"/>
+    <g class="wxDriftR" style="animation-duration:92s;animation-delay:-54s"><g transform="translate(0,66) scale(1.15)" fill="rgba(104,128,156,.92)" opacity="0.28"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:74s;animation-delay:-8s"><g transform="translate(0,70) scale(1.42)" fill="rgba(104,128,156,.92)" opacity="0.32"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:86s;animation-delay:-34s"><g transform="translate(0,62) scale(1.25)" fill="rgba(104,128,156,.92)" opacity="0.26"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:84s;animation-delay:-16s"><g transform="translate(0,50) scale(0.95)" fill="rgba(255,255,255,.96)" opacity="0.44"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:66s;animation-delay:-44s"><g transform="translate(0,60) scale(1.15)" fill="rgba(255,255,255,.96)" opacity="0.54"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:100s;animation-delay:-78s"><g transform="translate(0,44) scale(0.85)" fill="rgba(255,255,255,.96)" opacity="0.38"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:56s;animation-delay:-26s"><g transform="translate(0,64) scale(1.3)" fill="rgba(255,255,255,.96)" opacity="0.5"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:74s;animation-delay:-60s"><g transform="translate(0,56) scale(1.05)" fill="rgba(255,255,255,.96)" opacity="0.46"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g><g stroke="rgba(116,146,186,.34)" stroke-width="1.4" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.66s;animation-delay:-0.00s" x1="6" y1="4" x2="-4" y2="28"/>
+    <line class="wxDrop" style="animation-duration:0.69s;animation-delay:-0.04s" x1="28" y1="11" x2="18" y2="35"/>
+    <line class="wxDrop" style="animation-duration:0.72s;animation-delay:-0.08s" x1="51" y1="18" x2="41" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.76s;animation-delay:-0.13s" x1="73" y1="4" x2="63" y2="28"/>
+    <line class="wxDrop" style="animation-duration:0.79s;animation-delay:-0.18s" x1="96" y1="11" x2="86" y2="35"/>
+    <line class="wxDrop" style="animation-duration:0.66s;animation-delay:-0.18s" x1="118" y1="18" x2="108" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.69s;animation-delay:-0.23s" x1="140" y1="4" x2="130" y2="28"/>
+    <line class="wxDrop" style="animation-duration:0.72s;animation-delay:-0.28s" x1="163" y1="11" x2="153" y2="35"/>
+    <line class="wxDrop" style="animation-duration:0.76s;animation-delay:-0.34s" x1="185" y1="18" x2="175" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.79s;animation-delay:-0.39s" x1="208" y1="4" x2="198" y2="28"/>
+    <line class="wxDrop" style="animation-duration:0.66s;animation-delay:-0.37s" x1="230" y1="11" x2="220" y2="35"/>
+    <line class="wxDrop" style="animation-duration:0.69s;animation-delay:-0.42s" x1="252" y1="18" x2="242" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.72s;animation-delay:-0.48s" x1="275" y1="4" x2="265" y2="28"/>
+    <line class="wxDrop" style="animation-duration:0.76s;animation-delay:-0.55s" x1="297" y1="11" x2="287" y2="35"/>
+    <line class="wxDrop" style="animation-duration:0.79s;animation-delay:-0.61s" x1="320" y1="18" x2="310" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.66s;animation-delay:-0.55s" x1="342" y1="4" x2="332" y2="28"/>
+    <line class="wxDrop" style="animation-duration:0.69s;animation-delay:-0.62s" x1="364" y1="11" x2="354" y2="35"/>
+    <line class="wxDrop" style="animation-duration:0.72s;animation-delay:-0.68s" x1="387" y1="18" x2="377" y2="42"/>
+    </g><g stroke="rgba(92,124,168,.5)" stroke-width="2.0" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.56s;animation-delay:-0.00s" x1="14" y1="6" x2="1" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.58s;animation-delay:-0.04s" x1="38" y1="13" x2="26" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.61s;animation-delay:-0.08s" x1="63" y1="20" x2="50" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.63s;animation-delay:-0.12s" x1="88" y1="6" x2="74" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.66s;animation-delay:-0.16s" x1="112" y1="13" x2="99" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.56s;animation-delay:-0.18s" x1="136" y1="20" x2="124" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.58s;animation-delay:-0.22s" x1="161" y1="6" x2="148" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.61s;animation-delay:-0.27s" x1="186" y1="13" x2="172" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.63s;animation-delay:-0.32s" x1="210" y1="20" x2="197" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.66s;animation-delay:-0.37s" x1="234" y1="6" x2="222" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.56s;animation-delay:-0.35s" x1="259" y1="13" x2="246" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.58s;animation-delay:-0.40s" x1="284" y1="20" x2="270" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.61s;animation-delay:-0.46s" x1="308" y1="6" x2="295" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.63s;animation-delay:-0.51s" x1="332" y1="13" x2="320" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.66s;animation-delay:-0.57s" x1="357" y1="20" x2="344" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.56s;animation-delay:-0.53s" x1="382" y1="6" x2="368" y2="34"/>
+    </g><g stroke="rgba(70,104,150,.6)" stroke-width="2.7" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.00s" x1="22" y1="8" x2="5" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.04s" x1="54" y1="15" x2="37" y2="49"/>
+    <line class="wxDrop" style="animation-duration:0.50s;animation-delay:-0.08s" x1="86" y1="22" x2="69" y2="56"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.13s" x1="118" y1="8" x2="101" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.54s;animation-delay:-0.18s" x1="150" y1="15" x2="133" y2="49"/>
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.19s" x1="182" y1="22" x2="165" y2="56"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.24s" x1="214" y1="8" x2="197" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.50s;animation-delay:-0.29s" x1="246" y1="15" x2="229" y2="49"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.35s" x1="278" y1="22" x2="261" y2="56"/>
+    <line class="wxDrop" style="animation-duration:0.54s;animation-delay:-0.41s" x1="310" y1="8" x2="293" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.38s" x1="342" y1="15" x2="325" y2="49"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.44s" x1="374" y1="22" x2="357" y2="56"/>
+    </g><g fill="none" stroke="rgba(92,124,168,.52)" stroke-width="1.5">
+    <ellipse class="wxSplash" style="animation-delay:-0.00s" cx="40" cy="148" rx="12" ry="3.1"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.26s" cx="120" cy="152" rx="16" ry="4.0"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.52s" cx="200" cy="156" rx="19" ry="4.9"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.78s" cx="280" cy="148" rx="12" ry="3.1"/>
+    <ellipse class="wxSplash" style="animation-delay:-1.04s" cx="360" cy="152" rx="16" ry="4.0"/>
+    </g><ellipse cx="200" cy="156" rx="120" ry="7" fill="none" stroke="rgba(92,124,168,.3)" stroke-width="1.2"/>
+    </svg>`,
+    /* rainstorm */
     rainstorm: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<style>
-.wxDrop{animation:wxFall linear infinite;}
-@keyframes wxFall{from{transform:translateY(-50px);}to{transform:translateY(250px);}}
-.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.1s ease-out infinite;}
-@keyframes wxRip{0%{transform:scale(.15);opacity:.55;}75%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}
-.wxBand1{animation:wxBreath1 4.6s ease-in-out infinite alternate;}
-@keyframes wxBreath1{from{transform:translateX(-14px);}to{transform:translateX(14px);}}
-.wxBand2{animation:wxBreath2 6.4s ease-in-out infinite alternate;}
-@keyframes wxBreath2{from{transform:translateX(16px);}to{transform:translateX(-16px);}}
-.wxWind{animation:wxGust linear infinite;}
-@keyframes wxGust{from{transform:translateX(720px);}to{transform:translateX(-360px);}}
-</style>
-<g class="wxBand1">
-<g fill="rgba(255,255,255,.4)"><ellipse cx="46" cy="28" rx="60" ry="22"/><ellipse cx="150" cy="20" rx="68" ry="24"/><ellipse cx="256" cy="28" rx="72" ry="22"/><ellipse cx="352" cy="22" rx="60" ry="21"/></g>
-</g>
-<g class="wxBand2">
-<g fill="rgba(56,76,98,.2)"><ellipse cx="98" cy="38" rx="80" ry="16"/><ellipse cx="292" cy="40" rx="90" ry="17"/><ellipse cx="196" cy="34" rx="64" ry="14"/></g>
-</g>
-<g stroke="rgba(255,255,255,.28)" stroke-width="1.6" stroke-linecap="round">
-<line class="wxWind" style="animation-duration:1.4s;animation-delay:-.2s" x1="0" y1="64" x2="72" y2="57"/>
-<line class="wxWind" style="animation-duration:1.2s;animation-delay:-.7s" x1="0" y1="96" x2="86" y2="88"/>
-<line class="wxWind" style="animation-duration:1.5s;animation-delay:-1.1s" x1="0" y1="126" x2="64" y2="119"/>
-<line class="wxWind" style="animation-duration:1.3s;animation-delay:-.45s" x1="0" y1="144" x2="76" y2="137"/>
-</g>
-<g stroke="rgba(70,100,142,.66)" stroke-width="2.3" stroke-linecap="round">
-<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.02s" x1="12" y1="8" x2="-6" y2="38"/>
-<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.16s" x1="28" y1="20" x2="10" y2="50"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.3s" x1="46" y1="6" x2="28" y2="36"/>
-<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.44s" x1="64" y1="16" x2="46" y2="46"/>
-<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.58s" x1="82" y1="24" x2="64" y2="54"/>
-<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.08s" x1="100" y1="10" x2="82" y2="40"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.22s" x1="118" y1="22" x2="100" y2="52"/>
-<line class="wxDrop" style="animation-duration:.46s;animation-delay:-.36s" x1="136" y1="8" x2="118" y2="38"/>
-<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.5s" x1="154" y1="18" x2="136" y2="48"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.64s" x1="172" y1="26" x2="154" y2="56"/>
-<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.12s" x1="190" y1="6" x2="172" y2="36"/>
-<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.26s" x1="208" y1="20" x2="190" y2="50"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.4s" x1="226" y1="12" x2="208" y2="42"/>
-<line class="wxDrop" style="animation-duration:.46s;animation-delay:-.54s" x1="244" y1="24" x2="226" y2="54"/>
-<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.68s" x1="262" y1="8" x2="244" y2="38"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.14s" x1="280" y1="18" x2="262" y2="48"/>
-<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.28s" x1="298" y1="26" x2="280" y2="56"/>
-<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.42s" x1="316" y1="10" x2="298" y2="40"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.56s" x1="334" y1="20" x2="316" y2="50"/>
-<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.7s" x1="352" y1="12" x2="334" y2="42"/>
-<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.18s" x1="370" y1="22" x2="352" y2="52"/>
-<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.32s" x1="388" y1="14" x2="370" y2="44"/>
-</g>
-<g fill="none" stroke="rgba(206,224,240,.55)" stroke-width="1.6">
-<ellipse class="wxSplash" style="animation-delay:0s" cx="52" cy="154" rx="20" ry="4.6"/>
-<ellipse class="wxSplash" style="animation-delay:-.25s" cx="124" cy="150" rx="17" ry="4"/>
-<ellipse class="wxSplash" style="animation-delay:-.5s" cx="198" cy="156" rx="21" ry="4.8"/>
-<ellipse class="wxSplash" style="animation-delay:-.75s" cx="272" cy="150" rx="17" ry="4"/>
-<ellipse class="wxSplash" style="animation-delay:-.95s" cx="344" cy="154" rx="20" ry="4.6"/>
-</g>
-</svg>`,
-
-    /* 雷雨：暴雨基底 + 分叉闪电（阶梯闪烁 + glow）+ 全卡白闪 */
+    <style>
+    .wxDrop{animation:wxFall linear infinite;}
+    @keyframes wxFall{from{transform:translateY(-52px);}to{transform:translateY(252px);}}.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.4s ease-out infinite;}
+    @keyframes wxRip{0%{transform:scale(.15);opacity:.55;}72%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}.wxBand1{animation:wxBreath1 5.4s ease-in-out infinite alternate;}
+    @keyframes wxBreath1{from{transform:translateX(-12px);}to{transform:translateX(12px);}}.wxBand2{animation:wxBreath2 7.8s ease-in-out infinite alternate;}
+    @keyframes wxBreath2{from{transform:translateX(14px);}to{transform:translateX(-14px);}}.wxWind{animation:wxGust linear infinite;}
+    @keyframes wxGust{from{transform:translateX(740px);}to{transform:translateX(-380px);}}.wxDriftR{animation:wxCldR linear infinite;}
+    @keyframes wxCldR{from{transform:translateX(700px);}to{transform:translateX(-300px);}}
+    </style>
+    <defs><linearGradient id="wxSky_rainstorm" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(72,94,118,.32)"/><stop offset="58%" stop-color="rgba(72,94,118,0.13)"/><stop offset="100%" stop-color="rgba(72,94,118,0)"/></linearGradient></defs>
+    <rect class="wxBand1" x="-30" y="16" width="460" height="98" fill="url(#wxSky_rainstorm)"/>
+    <g class="wxDriftR" style="animation-duration:88s;animation-delay:-52s"><g transform="translate(0,66) scale(1.18)" fill="rgba(104,128,156,.92)" opacity="0.32"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:70s;animation-delay:-10s"><g transform="translate(0,70) scale(1.45)" fill="rgba(104,128,156,.92)" opacity="0.36"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:82s;animation-delay:-36s"><g transform="translate(0,62) scale(1.28)" fill="rgba(104,128,156,.92)" opacity="0.3"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:64s;animation-delay:-24s"><g transform="translate(0,72) scale(1.5)" fill="rgba(104,128,156,.92)" opacity="0.28"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:80s;animation-delay:-18s"><g transform="translate(0,48) scale(0.95)" fill="rgba(255,255,255,.96)" opacity="0.4"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:62s;animation-delay:-46s"><g transform="translate(0,60) scale(1.18)" fill="rgba(255,255,255,.96)" opacity="0.5"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:96s;animation-delay:-80s"><g transform="translate(0,44) scale(0.86)" fill="rgba(255,255,255,.96)" opacity="0.36"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:52s;animation-delay:-28s"><g transform="translate(0,64) scale(1.32)" fill="rgba(255,255,255,.96)" opacity="0.46"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:70s;animation-delay:-62s"><g transform="translate(0,56) scale(1.08)" fill="rgba(255,255,255,.96)" opacity="0.42"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g><g stroke="rgba(255,255,255,.3)" stroke-width="1.6" stroke-linecap="round"><line class="wxWind" style="animation-duration:1.5s;animation-delay:-.2s" x1="0" y1="76" x2="74" y2="69"/><line class="wxWind" style="animation-duration:1.25s;animation-delay:-.72s" x1="0" y1="102" x2="88" y2="94"/><line class="wxWind" style="animation-duration:1.6s;animation-delay:-1.1s" x1="0" y1="128" x2="66" y2="121"/><line class="wxWind" style="animation-duration:1.35s;animation-delay:-.45s" x1="0" y1="146" x2="78" y2="139"/></g><g stroke="rgba(112,142,184,.34)" stroke-width="1.5" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.00s" x1="4" y1="2" x2="-10" y2="28"/>
+    <line class="wxDrop" style="animation-duration:0.55s;animation-delay:-0.03s" x1="24" y1="9" x2="10" y2="35"/>
+    <line class="wxDrop" style="animation-duration:0.58s;animation-delay:-0.06s" x1="44" y1="16" x2="30" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.60s;animation-delay:-0.09s" x1="64" y1="23" x2="50" y2="49"/>
+    <line class="wxDrop" style="animation-duration:0.63s;animation-delay:-0.13s" x1="84" y1="5" x2="70" y2="31"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.13s" x1="104" y1="12" x2="90" y2="38"/>
+    <line class="wxDrop" style="animation-duration:0.55s;animation-delay:-0.16s" x1="124" y1="19" x2="110" y2="45"/>
+    <line class="wxDrop" style="animation-duration:0.58s;animation-delay:-0.20s" x1="144" y1="26" x2="130" y2="52"/>
+    <line class="wxDrop" style="animation-duration:0.60s;animation-delay:-0.24s" x1="164" y1="8" x2="150" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.63s;animation-delay:-0.28s" x1="184" y1="15" x2="170" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.26s" x1="204" y1="22" x2="190" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.55s;animation-delay:-0.30s" x1="224" y1="4" x2="210" y2="30"/>
+    <line class="wxDrop" style="animation-duration:0.58s;animation-delay:-0.35s" x1="244" y1="11" x2="230" y2="37"/>
+    <line class="wxDrop" style="animation-duration:0.60s;animation-delay:-0.39s" x1="264" y1="18" x2="250" y2="44"/>
+    <line class="wxDrop" style="animation-duration:0.63s;animation-delay:-0.44s" x1="284" y1="25" x2="270" y2="51"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.39s" x1="304" y1="7" x2="290" y2="33"/>
+    <line class="wxDrop" style="animation-duration:0.55s;animation-delay:-0.44s" x1="324" y1="14" x2="310" y2="40"/>
+    <line class="wxDrop" style="animation-duration:0.58s;animation-delay:-0.49s" x1="344" y1="21" x2="330" y2="47"/>
+    <line class="wxDrop" style="animation-duration:0.60s;animation-delay:-0.54s" x1="364" y1="3" x2="350" y2="29"/>
+    <line class="wxDrop" style="animation-duration:0.63s;animation-delay:-0.60s" x1="384" y1="10" x2="370" y2="36"/>
+    </g><g stroke="rgba(86,118,164,.5)" stroke-width="2.1" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.44s;animation-delay:-0.00s" x1="10" y1="4" x2="-8" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.03s" x1="32" y1="11" x2="14" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.05s" x1="53" y1="18" x2="35" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.50s;animation-delay:-0.08s" x1="74" y1="25" x2="56" y2="55"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.12s" x1="96" y1="7" x2="78" y2="37"/>
+    <line class="wxDrop" style="animation-duration:0.44s;animation-delay:-0.12s" x1="118" y1="14" x2="100" y2="44"/>
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.15s" x1="139" y1="21" x2="121" y2="51"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.19s" x1="160" y1="28" x2="142" y2="58"/>
+    <line class="wxDrop" style="animation-duration:0.50s;animation-delay:-0.22s" x1="182" y1="10" x2="164" y2="40"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.26s" x1="204" y1="17" x2="186" y2="47"/>
+    <line class="wxDrop" style="animation-duration:0.44s;animation-delay:-0.24s" x1="225" y1="24" x2="207" y2="54"/>
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.28s" x1="246" y1="6" x2="228" y2="36"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.32s" x1="268" y1="13" x2="250" y2="43"/>
+    <line class="wxDrop" style="animation-duration:0.50s;animation-delay:-0.36s" x1="290" y1="20" x2="272" y2="50"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.40s" x1="311" y1="27" x2="293" y2="57"/>
+    <line class="wxDrop" style="animation-duration:0.44s;animation-delay:-0.37s" x1="332" y1="9" x2="314" y2="39"/>
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.41s" x1="354" y1="16" x2="336" y2="46"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.45s" x1="376" y1="23" x2="358" y2="53"/>
+    </g><g stroke="rgba(62,96,144,.6)" stroke-width="2.8" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.36s;animation-delay:-0.00s" x1="16" y1="6" x2="-7" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.38s;animation-delay:-0.02s" x1="40" y1="13" x2="17" y2="49"/>
+    <line class="wxDrop" style="animation-duration:0.40s;animation-delay:-0.05s" x1="64" y1="20" x2="41" y2="56"/>
+    <line class="wxDrop" style="animation-duration:0.42s;animation-delay:-0.08s" x1="88" y1="27" x2="65" y2="63"/>
+    <line class="wxDrop" style="animation-duration:0.44s;animation-delay:-0.11s" x1="112" y1="9" x2="89" y2="45"/>
+    <line class="wxDrop" style="animation-duration:0.36s;animation-delay:-0.11s" x1="136" y1="16" x2="113" y2="52"/>
+    <line class="wxDrop" style="animation-duration:0.38s;animation-delay:-0.14s" x1="160" y1="23" x2="137" y2="59"/>
+    <line class="wxDrop" style="animation-duration:0.40s;animation-delay:-0.18s" x1="184" y1="30" x2="161" y2="66"/>
+    <line class="wxDrop" style="animation-duration:0.42s;animation-delay:-0.21s" x1="208" y1="12" x2="185" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.44s;animation-delay:-0.25s" x1="232" y1="19" x2="209" y2="55"/>
+    <line class="wxDrop" style="animation-duration:0.36s;animation-delay:-0.22s" x1="256" y1="26" x2="233" y2="62"/>
+    <line class="wxDrop" style="animation-duration:0.38s;animation-delay:-0.26s" x1="280" y1="8" x2="257" y2="44"/>
+    <line class="wxDrop" style="animation-duration:0.40s;animation-delay:-0.30s" x1="304" y1="15" x2="281" y2="51"/>
+    <line class="wxDrop" style="animation-duration:0.42s;animation-delay:-0.34s" x1="328" y1="22" x2="305" y2="58"/>
+    <line class="wxDrop" style="animation-duration:0.44s;animation-delay:-0.39s" x1="352" y1="29" x2="329" y2="65"/>
+    <line class="wxDrop" style="animation-duration:0.36s;animation-delay:-0.34s" x1="376" y1="11" x2="353" y2="47"/>
+    </g><g fill="none" stroke="rgba(206,224,240,.55)" stroke-width="1.6">
+    <ellipse class="wxSplash" style="animation-delay:-0.00s" cx="40" cy="148" rx="14" ry="3.6"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.23s" cx="120" cy="152" rx="18" ry="4.7"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.46s" cx="200" cy="156" rx="22" ry="5.7"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.69s" cx="280" cy="148" rx="14" ry="3.6"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.92s" cx="360" cy="152" rx="18" ry="4.7"/>
+    </g>
+    </svg>`,
+    /* thunderstorm */
     thunderstorm: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<style>
-.wxDrop{animation:wxFall linear infinite;}
-@keyframes wxFall{from{transform:translateY(-50px);}to{transform:translateY(250px);}}
-.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.1s ease-out infinite;}
-@keyframes wxRip{0%{transform:scale(.15);opacity:.55;}75%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}
-.wxBand1{animation:wxBreath1 4.6s ease-in-out infinite alternate;}
-@keyframes wxBreath1{from{transform:translateX(-14px);}to{transform:translateX(14px);}}
-.wxBand2{animation:wxBreath2 6.4s ease-in-out infinite alternate;}
-@keyframes wxBreath2{from{transform:translateX(16px);}to{transform:translateX(-16px);}}
-.wxWind{animation:wxGust linear infinite;}
-@keyframes wxGust{from{transform:translateX(720px);}to{transform:translateX(-360px);}}
-.wxBolt{animation:wxFlick 5.6s linear infinite;}
-@keyframes wxFlick{0%,58%{opacity:0;}59%{opacity:1;}60.5%{opacity:.15;}62%{opacity:.95;}65%{opacity:.35;}67.5%{opacity:.9;}71%{opacity:0;}100%{opacity:0;}}
-.wxFlash{animation:wxFlsh 5.6s linear infinite;}
-@keyframes wxFlsh{0%,58%{opacity:0;}59.5%{opacity:.22;}61%{opacity:.05;}62.5%{opacity:.17;}66%{opacity:.05;}68%{opacity:.1;}70%{opacity:0;}100%{opacity:0;}}
-</style>
-<g class="wxBand1">
-<g fill="rgba(255,255,255,.4)"><ellipse cx="46" cy="28" rx="60" ry="22"/><ellipse cx="150" cy="20" rx="68" ry="24"/><ellipse cx="256" cy="28" rx="72" ry="22"/><ellipse cx="352" cy="22" rx="60" ry="21"/></g>
-</g>
-<g class="wxBand2">
-<g fill="rgba(56,76,98,.22)"><ellipse cx="98" cy="38" rx="80" ry="16"/><ellipse cx="292" cy="40" rx="90" ry="17"/><ellipse cx="196" cy="34" rx="64" ry="14"/></g>
-</g>
-<g stroke="rgba(255,255,255,.26)" stroke-width="1.6" stroke-linecap="round">
-<line class="wxWind" style="animation-duration:1.5s;animation-delay:-.5s" x1="0" y1="70" x2="72" y2="63"/>
-<line class="wxWind" style="animation-duration:1.3s;animation-delay:-.95s" x1="0" y1="128" x2="66" y2="121"/>
-</g>
-<g stroke="rgba(70,100,142,.64)" stroke-width="2.2" stroke-linecap="round">
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.02s" x1="14" y1="8" x2="-4" y2="38"/>
-<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.19s" x1="34" y1="18" x2="16" y2="48"/>
-<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.36s" x1="54" y1="6" x2="36" y2="36"/>
-<line class="wxDrop" style="animation-duration:.58s;animation-delay:-.53s" x1="76" y1="22" x2="58" y2="52"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.7s" x1="98" y1="12" x2="80" y2="42"/>
-<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.1s" x1="120" y1="24" x2="102" y2="54"/>
-<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.27s" x1="142" y1="8" x2="124" y2="38"/>
-<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.44s" x1="164" y1="20" x2="146" y2="50"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.61s" x1="186" y1="10" x2="168" y2="40"/>
-<line class="wxDrop" style="animation-duration:.58s;animation-delay:-.78s" x1="210" y1="26" x2="192" y2="56"/>
-<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.15s" x1="234" y1="6" x2="216" y2="36"/>
-<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.32s" x1="256" y1="18" x2="238" y2="48"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.49s" x1="278" y1="22" x2="260" y2="52"/>
-<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.66s" x1="300" y1="8" x2="282" y2="38"/>
-<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.83s" x1="322" y1="20" x2="304" y2="50"/>
-<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.2s" x1="344" y1="12" x2="326" y2="42"/>
-<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.37s" x1="366" y1="24" x2="348" y2="54"/>
-<line class="wxDrop" style="animation-duration:.58s;animation-delay:-.54s" x1="388" y1="14" x2="370" y2="44"/>
-</g>
-<g fill="none" stroke="rgba(206,224,240,.5)" stroke-width="1.6">
-<ellipse class="wxSplash" style="animation-delay:-.2s" cx="90" cy="153" rx="19" ry="4.4"/>
-<ellipse class="wxSplash" style="animation-delay:-.65s" cx="220" cy="151" rx="17" ry="4"/>
-<ellipse class="wxSplash" style="animation-delay:-.9s" cx="318" cy="154" rx="20" ry="4.6"/>
-</g>
-<rect class="wxFlash" x="0" y="0" width="400" height="200" fill="rgba(240,244,255,.9)"/>
-<path class="wxBolt" style="filter:drop-shadow(0 0 5px rgba(255,240,170,.95))" fill="rgba(255,248,215,.95)" d="M288,38 L252,102 L272,102 L258,146 L292,88 L274,88 L292,50 Z"/>
-<path class="wxBolt" style="animation-delay:-2.9s;filter:drop-shadow(0 0 4px rgba(255,240,170,.85))" fill="rgba(255,248,215,.88)" transform="translate(96,14) scale(.52)" d="M288,38 L252,102 L272,102 L258,146 L292,88 L274,88 L292,50 Z"/>
-</svg>`,
-
-    /* 雾：4 层半透明雾带横向缓漂（不同速度 / 透明度 / 纵向位置） */
+    <style>
+    .wxDrop{animation:wxFall linear infinite;}
+    @keyframes wxFall{from{transform:translateY(-52px);}to{transform:translateY(252px);}}.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.4s ease-out infinite;}
+    @keyframes wxRip{0%{transform:scale(.15);opacity:.55;}72%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}.wxBand1{animation:wxBreath1 5.4s ease-in-out infinite alternate;}
+    @keyframes wxBreath1{from{transform:translateX(-12px);}to{transform:translateX(12px);}}.wxBand2{animation:wxBreath2 7.8s ease-in-out infinite alternate;}
+    @keyframes wxBreath2{from{transform:translateX(14px);}to{transform:translateX(-14px);}}.wxWind{animation:wxGust linear infinite;}
+    @keyframes wxGust{from{transform:translateX(740px);}to{transform:translateX(-380px);}}.wxBolt{animation:wxFlick 5.8s linear infinite;}
+    @keyframes wxFlick{0%,58%{opacity:0;}59%{opacity:1;}60.5%{opacity:.18;}62%{opacity:.95;}65%{opacity:.32;}67.5%{opacity:.9;}71%{opacity:0;}100%{opacity:0;}}
+    .wxFlash{animation:wxFlsh 5.8s linear infinite;}
+    @keyframes wxFlsh{0%,58%{opacity:0;}59.5%{opacity:.24;}61%{opacity:.05;}62.5%{opacity:.18;}66%{opacity:.05;}68%{opacity:.1;}70%{opacity:0;}100%{opacity:0;}}.wxDriftR{animation:wxCldR linear infinite;}
+    @keyframes wxCldR{from{transform:translateX(700px);}to{transform:translateX(-300px);}}
+    </style>
+    <defs><linearGradient id="wxSky_thunderstorm" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="rgba(72,94,118,.34)"/><stop offset="58%" stop-color="rgba(72,94,118,0.14)"/><stop offset="100%" stop-color="rgba(72,94,118,0)"/></linearGradient></defs>
+    <rect class="wxBand1" x="-30" y="16" width="460" height="98" fill="url(#wxSky_thunderstorm)"/>
+    <g class="wxDriftR" style="animation-duration:90s;animation-delay:-54s"><g transform="translate(0,66) scale(1.18)" fill="rgba(104,128,156,.92)" opacity="0.34"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:72s;animation-delay:-12s"><g transform="translate(0,70) scale(1.46)" fill="rgba(104,128,156,.92)" opacity="0.38"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:84s;animation-delay:-38s"><g transform="translate(0,62) scale(1.3)" fill="rgba(104,128,156,.92)" opacity="0.32"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDriftR" style="animation-duration:82s;animation-delay:-20s"><g transform="translate(0,48) scale(0.95)" fill="rgba(255,255,255,.96)" opacity="0.38"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:64s;animation-delay:-48s"><g transform="translate(0,60) scale(1.18)" fill="rgba(255,255,255,.96)" opacity="0.48"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:98s;animation-delay:-82s"><g transform="translate(0,44) scale(0.86)" fill="rgba(255,255,255,.96)" opacity="0.34"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDriftR" style="animation-duration:54s;animation-delay:-30s"><g transform="translate(0,64) scale(1.32)" fill="rgba(255,255,255,.96)" opacity="0.44"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g><g stroke="rgba(255,255,255,.26)" stroke-width="1.6" stroke-linecap="round"><line class="wxWind" style="animation-duration:1.6s;animation-delay:-.55s" x1="0" y1="92" x2="72" y2="85"/><line class="wxWind" style="animation-duration:1.4s;animation-delay:-1s" x1="0" y1="134" x2="66" y2="127"/></g><g stroke="rgba(112,142,184,.32)" stroke-width="1.5" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.56s;animation-delay:-0.00s" x1="5" y1="2" x2="-9" y2="28"/>
+    <line class="wxDrop" style="animation-duration:0.59s;animation-delay:-0.04s" x1="30" y1="9" x2="16" y2="35"/>
+    <line class="wxDrop" style="animation-duration:0.62s;animation-delay:-0.08s" x1="55" y1="16" x2="41" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.64s;animation-delay:-0.12s" x1="80" y1="23" x2="66" y2="49"/>
+    <line class="wxDrop" style="animation-duration:0.67s;animation-delay:-0.17s" x1="105" y1="5" x2="91" y2="31"/>
+    <line class="wxDrop" style="animation-duration:0.56s;animation-delay:-0.18s" x1="130" y1="12" x2="116" y2="38"/>
+    <line class="wxDrop" style="animation-duration:0.59s;animation-delay:-0.22s" x1="155" y1="19" x2="141" y2="45"/>
+    <line class="wxDrop" style="animation-duration:0.62s;animation-delay:-0.27s" x1="180" y1="26" x2="166" y2="52"/>
+    <line class="wxDrop" style="animation-duration:0.64s;animation-delay:-0.32s" x1="205" y1="8" x2="191" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.67s;animation-delay:-0.38s" x1="230" y1="15" x2="216" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.56s;animation-delay:-0.35s" x1="255" y1="22" x2="241" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.59s;animation-delay:-0.40s" x1="280" y1="4" x2="266" y2="30"/>
+    <line class="wxDrop" style="animation-duration:0.62s;animation-delay:-0.46s" x1="305" y1="11" x2="291" y2="37"/>
+    <line class="wxDrop" style="animation-duration:0.64s;animation-delay:-0.52s" x1="330" y1="18" x2="316" y2="44"/>
+    <line class="wxDrop" style="animation-duration:0.67s;animation-delay:-0.59s" x1="355" y1="25" x2="341" y2="51"/>
+    <line class="wxDrop" style="animation-duration:0.56s;animation-delay:-0.53s" x1="380" y1="7" x2="366" y2="33"/>
+    </g><g stroke="rgba(86,118,164,.48)" stroke-width="2.1" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.00s" x1="12" y1="4" x2="-6" y2="34"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.03s" x1="39" y1="11" x2="21" y2="41"/>
+    <line class="wxDrop" style="animation-duration:0.50s;animation-delay:-0.07s" x1="66" y1="18" x2="48" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.11s" x1="93" y1="25" x2="75" y2="55"/>
+    <line class="wxDrop" style="animation-duration:0.54s;animation-delay:-0.15s" x1="120" y1="7" x2="102" y2="37"/>
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.16s" x1="147" y1="14" x2="129" y2="44"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.21s" x1="174" y1="21" x2="156" y2="51"/>
+    <line class="wxDrop" style="animation-duration:0.50s;animation-delay:-0.25s" x1="201" y1="28" x2="183" y2="58"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.30s" x1="228" y1="10" x2="210" y2="40"/>
+    <line class="wxDrop" style="animation-duration:0.54s;animation-delay:-0.35s" x1="255" y1="17" x2="237" y2="47"/>
+    <line class="wxDrop" style="animation-duration:0.46s;animation-delay:-0.33s" x1="282" y1="24" x2="264" y2="54"/>
+    <line class="wxDrop" style="animation-duration:0.48s;animation-delay:-0.38s" x1="309" y1="6" x2="291" y2="36"/>
+    <line class="wxDrop" style="animation-duration:0.50s;animation-delay:-0.43s" x1="336" y1="13" x2="318" y2="43"/>
+    <line class="wxDrop" style="animation-duration:0.52s;animation-delay:-0.48s" x1="363" y1="20" x2="345" y2="50"/>
+    </g><g stroke="rgba(62,96,144,.58)" stroke-width="2.8" stroke-linecap="round">
+    <line class="wxDrop" style="animation-duration:0.38s;animation-delay:-0.00s" x1="20" y1="6" x2="-3" y2="42"/>
+    <line class="wxDrop" style="animation-duration:0.40s;animation-delay:-0.04s" x1="56" y1="13" x2="33" y2="49"/>
+    <line class="wxDrop" style="animation-duration:0.42s;animation-delay:-0.08s" x1="92" y1="20" x2="69" y2="56"/>
+    <line class="wxDrop" style="animation-duration:0.43s;animation-delay:-0.13s" x1="128" y1="27" x2="105" y2="63"/>
+    <line class="wxDrop" style="animation-duration:0.45s;animation-delay:-0.18s" x1="164" y1="9" x2="141" y2="45"/>
+    <line class="wxDrop" style="animation-duration:0.38s;animation-delay:-0.19s" x1="200" y1="16" x2="177" y2="52"/>
+    <line class="wxDrop" style="animation-duration:0.40s;animation-delay:-0.24s" x1="236" y1="23" x2="213" y2="59"/>
+    <line class="wxDrop" style="animation-duration:0.42s;animation-delay:-0.29s" x1="272" y1="30" x2="249" y2="66"/>
+    <line class="wxDrop" style="animation-duration:0.43s;animation-delay:-0.35s" x1="308" y1="12" x2="285" y2="48"/>
+    <line class="wxDrop" style="animation-duration:0.45s;animation-delay:-0.41s" x1="344" y1="19" x2="321" y2="55"/>
+    </g><g fill="none" stroke="rgba(206,224,240,.5)" stroke-width="1.6">
+    <ellipse class="wxSplash" style="animation-delay:-0.00s" cx="40" cy="150" rx="14" ry="3.6"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.38s" cx="200" cy="154" rx="17" ry="4.4"/>
+    <ellipse class="wxSplash" style="animation-delay:-0.77s" cx="360" cy="150" rx="20" ry="5.2"/>
+    </g><rect class="wxFlash" x="0" y="0" width="400" height="200" fill="rgba(240,244,255,.9)"/><g class="wxBolt" style="filter:drop-shadow(0 0 6px rgba(255,242,176,.95))"><path fill="rgba(255,250,222,.96)" d="M226,40 L184,100 L203,100 L190,152 L232,88 L209,88 Z"/></g><g class="wxBolt" style="animation-delay:-2.9s;filter:drop-shadow(0 0 4px rgba(255,242,176,.85))"><path fill="rgba(255,250,222,.9)" d="M196,92 L172,116 L184,116 L168,140 L194,112 L182,112 Z"/></g>
+    </svg>`,
+    /* fog */
     fog: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<defs><radialGradient id="wxFogG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(255,255,255,.5)"/><stop offset="100%" stop-color="rgba(255,255,255,0)"/></radialGradient></defs>
-<style>
-.wxFog{animation:wxFogD ease-in-out infinite alternate;}
-@keyframes wxFogD{from{transform:translateX(-44px);}to{transform:translateX(44px);}}
-</style>
-<ellipse class="wxFog" style="animation-duration:12s;animation-delay:-2.4s" cx="200" cy="52" rx="200" ry="20" fill="url(#wxFogG)" opacity=".6"/>
-<ellipse class="wxFog" style="animation-duration:17s;animation-delay:-8.1s" cx="200" cy="84" rx="225" ry="26" fill="url(#wxFogG)"/>
-<ellipse class="wxFog" style="animation-duration:22s;animation-delay:-13.5s" cx="200" cy="116" rx="215" ry="28" fill="url(#wxFogG)" opacity=".9"/>
-<ellipse class="wxFog" style="animation-duration:15s;animation-delay:-5.2s" cx="200" cy="148" rx="190" ry="22" fill="url(#wxFogG)" opacity=".72"/>
-</svg>`,
-
-    /* 雪：淡雾底 + 8 片六角小雪花晶体（旋转 + 摇摆下落）+ 4 片大雪花慢飘 */
+    <style>
+    .wxFog{animation:wxFogD ease-in-out infinite alternate;}
+    @keyframes wxFogD{from{transform:translateX(-40px);}to{transform:translateX(40px);}}
+    </style>
+    <defs><radialGradient id="wxFogG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(255,255,255,.58)"/><stop offset="72%" stop-color="rgba(255,255,255,.3)"/><stop offset="100%" stop-color="rgba(255,255,255,0)"/></radialGradient></defs><ellipse cx="200" cy="102" rx="200" ry="58" fill="url(#wxFogG)" opacity=".4"/><ellipse class="wxFog" style="animation-duration:11s;animation-delay:-2.2s" cx="86" cy="58" rx="128" ry="16" fill="url(#wxFogG)" opacity=".95"/><ellipse class="wxFog" style="animation-duration:17s;animation-delay:-8.4s" cx="306" cy="70" rx="138" ry="19" fill="url(#wxFogG)"/><ellipse class="wxFog" style="animation-duration:14s;animation-delay:-5.1s" cx="176" cy="92" rx="146" ry="21" fill="url(#wxFogG)" opacity=".9"/><ellipse class="wxFog" style="animation-duration:22s;animation-delay:-13.6s" cx="52" cy="114" rx="118" ry="16" fill="url(#wxFogG)" opacity=".85"/><ellipse class="wxFog" style="animation-duration:19s;animation-delay:-9.8s" cx="322" cy="124" rx="132" ry="18" fill="url(#wxFogG)" opacity=".92"/><ellipse class="wxFog" style="animation-duration:25s;animation-delay:-16.4s" cx="200" cy="146" rx="142" ry="16" fill="url(#wxFogG)" opacity=".88"/>
+    </svg>`,
+    /* snow */
     snow: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<defs><radialGradient id="wxSnG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(255,255,255,.32)"/><stop offset="100%" stop-color="rgba(255,255,255,0)"/></radialGradient></defs>
-<style>
-.wxFl{animation:wxSFall linear infinite;}
-@keyframes wxSFall{from{transform:translateY(-36px);}to{transform:translateY(236px);}}
-.wxSway{animation:wxSSway ease-in-out infinite alternate;}
-@keyframes wxSSway{from{transform:translateX(-7px);}to{transform:translateX(7px);}}
-.wxRot{transform-box:fill-box;transform-origin:center;animation:wxSSpin linear infinite;}
-@keyframes wxSSpin{to{transform:rotate(360deg);}}
-</style>
-<ellipse cx="200" cy="152" rx="195" ry="28" fill="url(#wxSnG)"/>
-<g stroke="rgba(255,255,255,.85)" stroke-width="1.5" stroke-linecap="round" fill="none">
-<g transform="translate(36,0)"><g class="wxFl" style="animation-duration:8.6s;animation-delay:-1.2s"><g class="wxSway" style="animation-duration:2.6s;animation-delay:-.4s"><g class="wxRot" style="animation-duration:7s" opacity=".7"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(78,0)"><g class="wxFl" style="animation-duration:10.4s;animation-delay:-4.6s"><g class="wxSway" style="animation-duration:3.1s;animation-delay:-1.2s"><g class="wxRot" style="animation-duration:9s" opacity=".62"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(122,0)"><g class="wxFl" style="animation-duration:9.2s;animation-delay:-2.8s"><g class="wxSway" style="animation-duration:2.8s;animation-delay:-2s"><g class="wxRot" style="animation-duration:8s" opacity=".74"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(166,0)"><g class="wxFl" style="animation-duration:11s;animation-delay:-7.4s"><g class="wxSway" style="animation-duration:3.4s;animation-delay:-.8s"><g class="wxRot" style="animation-duration:10s" opacity=".58"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(212,0)"><g class="wxFl" style="animation-duration:8.8s;animation-delay:-5.9s"><g class="wxSway" style="animation-duration:2.5s;animation-delay:-1.6s"><g class="wxRot" style="animation-duration:7.5s" opacity=".72"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(258,0)"><g class="wxFl" style="animation-duration:10s;animation-delay:-3.7s"><g class="wxSway" style="animation-duration:3s;animation-delay:-.2s"><g class="wxRot" style="animation-duration:8.6s" opacity=".66"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(304,0)"><g class="wxFl" style="animation-duration:9.6s;animation-delay:-6.8s"><g class="wxSway" style="animation-duration:2.7s;animation-delay:-1.4s"><g class="wxRot" style="animation-duration:9.4s" opacity=".6"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(366,0)"><g class="wxFl" style="animation-duration:8.4s;animation-delay:-.6s"><g class="wxSway" style="animation-duration:2.9s;animation-delay:-2.3s"><g class="wxRot" style="animation-duration:8.2s" opacity=".7"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-</g>
-<g stroke="rgba(255,255,255,.7)" stroke-width="1.7" stroke-linecap="round" fill="none">
-<g transform="translate(58,0)"><g class="wxFl" style="animation-duration:13.5s;animation-delay:-2.2s"><g class="wxSway" style="animation-duration:4.2s;animation-delay:-1.1s"><g class="wxRot" style="animation-duration:12s" opacity=".5" transform="scale(1.9)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(146,0)"><g class="wxFl" style="animation-duration:15.2s;animation-delay:-8.9s"><g class="wxSway" style="animation-duration:4.8s;animation-delay:-2.9s"><g class="wxRot" style="animation-duration:14s" opacity=".44" transform="scale(2.2)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(242,0)"><g class="wxFl" style="animation-duration:14.4s;animation-delay:-5.5s"><g class="wxSway" style="animation-duration:4.5s;animation-delay:-.7s"><g class="wxRot" style="animation-duration:13s" opacity=".52" transform="scale(2)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-<g transform="translate(330,0)"><g class="wxFl" style="animation-duration:16s;animation-delay:-11.3s"><g class="wxSway" style="animation-duration:5.1s;animation-delay:-3.6s"><g class="wxRot" style="animation-duration:15s" opacity=".46" transform="scale(2.4)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
-</g>
-</svg>`,
-
-    /* 加载中：中性白云缓漂（配 loading 绿色渐变底，不抢眼） */
+    <style>
+    .wxFl{animation:wxSFall linear infinite;}
+    @keyframes wxSFall{from{transform:translateY(-34px);}to{transform:translateY(234px);}}
+    .wxSway{animation:wxSSway ease-in-out infinite alternate;}
+    @keyframes wxSSway{from{transform:translateX(-7px);}to{transform:translateX(7px);}}
+    .wxRot{transform-box:fill-box;transform-origin:center;animation:wxSSpin linear infinite;}
+    @keyframes wxSSpin{to{transform:rotate(360deg);}}
+    </style>
+    <defs><radialGradient id="wxSnG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(255,255,255,.34)"/><stop offset="100%" stop-color="rgba(255,255,255,0)"/></radialGradient></defs><ellipse cx="200" cy="150" rx="200" ry="30" fill="url(#wxSnG)"/><ellipse cx="200" cy="66" rx="150" ry="18" fill="url(#wxSnG)" opacity=".7"/><g stroke="rgba(255,255,255,.86)" stroke-width="1.5" stroke-linecap="round" fill="none"><g transform="translate(30,0)"><g class="wxFl" style="animation-duration:12.5s;animation-delay:-2.2s"><g class="wxSway" style="animation-duration:3.2s;animation-delay:-0.6s"><g class="wxRot" style="animation-duration:9.0s" opacity="0.46" transform="scale(0.85)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(68,0)"><g class="wxFl" style="animation-duration:13.8s;animation-delay:-6.1s"><g class="wxSway" style="animation-duration:3.6s;animation-delay:-1.4s"><g class="wxRot" style="animation-duration:10.0s" opacity="0.5" transform="scale(0.95)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(104,0)"><g class="wxFl" style="animation-duration:11.6s;animation-delay:-4.3s"><g class="wxSway" style="animation-duration:2.9s;animation-delay:-2.1s"><g class="wxRot" style="animation-duration:8.5s" opacity="0.44" transform="scale(0.8)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(140,0)"><g class="wxFl" style="animation-duration:12.9s;animation-delay:-8.7s"><g class="wxSway" style="animation-duration:3.4s;animation-delay:-0.9s"><g class="wxRot" style="animation-duration:9.5s" opacity="0.54" transform="scale(1.0)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(176,0)"><g class="wxFl" style="animation-duration:14.2s;animation-delay:-3.4s"><g class="wxSway" style="animation-duration:3.1s;animation-delay:-2.6s"><g class="wxRot" style="animation-duration:10.5s" opacity="0.48" transform="scale(0.88)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(212,0)"><g class="wxFl" style="animation-duration:11.9s;animation-delay:-9.5s"><g class="wxSway" style="animation-duration:3.8s;animation-delay:-1.1s"><g class="wxRot" style="animation-duration:9.0s" opacity="0.52" transform="scale(0.92)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(248,0)"><g class="wxFl" style="animation-duration:13.4s;animation-delay:-5.2s"><g class="wxSway" style="animation-duration:2.8s;animation-delay:-2.9s"><g class="wxRot" style="animation-duration:8.0s" opacity="0.45" transform="scale(0.84)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(284,0)"><g class="wxFl" style="animation-duration:12.2s;animation-delay:-1.4s"><g class="wxSway" style="animation-duration:3.5s;animation-delay:-0.4s"><g class="wxRot" style="animation-duration:11.0s" opacity="0.52" transform="scale(0.98)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(320,0)"><g class="wxFl" style="animation-duration:14.6s;animation-delay:-7.8s"><g class="wxSway" style="animation-duration:3.3s;animation-delay:-1.8s"><g class="wxRot" style="animation-duration:9.5s" opacity="0.47" transform="scale(0.86)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(356,0)"><g class="wxFl" style="animation-duration:12.8s;animation-delay:-4.9s"><g class="wxSway" style="animation-duration:3.9s;animation-delay:-2.4s"><g class="wxRot" style="animation-duration:10.0s" opacity="0.5" transform="scale(0.9)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(100,0)"><g class="wxFl" style="animation-duration:15.4s;animation-delay:-11.2s"><g class="wxSway" style="animation-duration:4.1s;animation-delay:-3.1s"><g class="wxRot" style="animation-duration:12.0s" opacity="0.56" transform="scale(1.05)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(262,0)"><g class="wxFl" style="animation-duration:13.1s;animation-delay:-10.1s"><g class="wxSway" style="animation-duration:3.7s;animation-delay:-1.7s"><g class="wxRot" style="animation-duration:11.5s" opacity="0.55" transform="scale(1.02)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g></g><g stroke="rgba(255,255,255,.72)" stroke-width="1.7" stroke-linecap="round" fill="none"><g transform="translate(52,0)"><g class="wxFl" style="animation-duration:17.5s;animation-delay:-3.1s"><g class="wxSway" style="animation-duration:4.6s;animation-delay:-1.2s"><g class="wxRot" style="animation-duration:14.0s" opacity="0.5" transform="scale(1.9)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(144,0)"><g class="wxFl" style="animation-duration:19.8s;animation-delay:-11.4s"><g class="wxSway" style="animation-duration:5.2s;animation-delay:-3.4s"><g class="wxRot" style="animation-duration:16.0s" opacity="0.44" transform="scale(2.2)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(222,0)"><g class="wxFl" style="animation-duration:18.4s;animation-delay:-7.2s"><g class="wxSway" style="animation-duration:4.9s;animation-delay:-0.8s"><g class="wxRot" style="animation-duration:15.0s" opacity="0.52" transform="scale(2.0)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g><g transform="translate(308,0)"><g class="wxFl" style="animation-duration:21.2s;animation-delay:-15.3s"><g class="wxSway" style="animation-duration:5.6s;animation-delay:-4.1s"><g class="wxRot" style="animation-duration:17.0s" opacity="0.42" transform="scale(2.4)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g></g>
+    </svg>`,
+    /* loading */
     loading: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
-<style>
-.wxDriftL{animation:wxLd linear infinite;}
-@keyframes wxLd{from{transform:translateX(-300px);}to{transform:translateX(700px);}}
-</style>
-<g transform="translate(0,72) scale(.72)" opacity=".42">
-<g class="wxDriftL" style="animation-duration:52s;animation-delay:-12s"><g fill="rgba(255,255,255,.9)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
-</g>
-<g transform="translate(0,118) scale(.5)" opacity=".3">
-<g class="wxDriftL" style="animation-duration:70s;animation-delay:-42s"><g fill="rgba(255,255,255,.85)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
-</g>
-</svg>`
+    <style>
+    .wxDrift{animation:wxCld linear infinite;}
+    @keyframes wxCld{from{transform:translateX(-300px);}to{transform:translateX(700px);}}
+    </style>
+    <g transform="translate(0,74) scale(0.62)" opacity="0.36">
+    <g class="wxDrift" style="animation-duration:58s;animation-delay:-14s"><g transform="scale(1)" fill="rgba(255,255,255,.9)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDrift" style="animation-duration:76s;animation-delay:-46s"><g transform="scale(0.8)" fill="rgba(255,255,255,.9)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    </g><g transform="translate(0,112) scale(0.86)" opacity="0.46">
+    <g class="wxDrift" style="animation-duration:44s;animation-delay:-20s"><g transform="scale(1)" fill="rgba(255,255,255,.94)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    <g class="wxDrift" style="animation-duration:56s;animation-delay:-6s"><g transform="scale(0.8)" fill="rgba(255,255,255,.94)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/><ellipse cx="2" cy="11" rx="40" ry="7" fill="rgba(112,134,160,.16)"/></g></g>
+    </g><g transform="translate(0,146) scale(1.1)" opacity="0.5">
+    <g class="wxDrift" style="animation-duration:34s;animation-delay:-9s"><g transform="scale(1)" fill="rgba(255,255,255,.96)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    <g class="wxDrift" style="animation-duration:42s;animation-delay:-28s"><g transform="scale(0.8)" fill="rgba(255,255,255,.96)"><ellipse cx="-22" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+    </g>
+    </svg>`
   };
 
   const WeatherFX = {};
   let currentKind = '';
+  let previewKind = '';           // 非空 = 预览模式锁定该动画
+  let mo = null;
 
   /* 切换动画：兼容 set(kind) 与 set(card, kind) 两种旧签名 */
   WeatherFX.set = function(a, b){
@@ -4647,6 +4748,8 @@ function toggleDistrictPanel(){
       return a;
     }
     if(!host) return a;
+    // 预览锁定：忽略真实天气刷新带来的切换
+    if(previewKind && kind !== previewKind) return a;
     if(kind === currentKind && host.dataset.kind === kind) return a;
     currentKind = kind;
     host.dataset.kind = kind;
@@ -4658,11 +4761,102 @@ function toggleDistrictPanel(){
   /* 无操作：CSS 动画随页面 visibility 自动暂停，无需手动停 */
   WeatherFX.stop = function(){};
 
+  /* ---------- 预览面板：三连点天气卡唤出，逐个查看 8 种动画 ---------- */
+  const PREVIEW_KINDS = [
+    ['', '自动'], ['sunny', '晴'], ['cloudy', '多云'], ['rain', '雨'], ['heavy_rain', '大雨'],
+    ['rainstorm', '暴雨'], ['thunderstorm', '雷雨'], ['fog', '雾'], ['snow', '雪']
+  ];
+
+  function cardSkin(kind){
+    const card = document.getElementById('weatherCard');
+    if(card) card.setAttribute('data-weather', kind || 'loading');
+  }
+
+  function applyPreview(kind){
+    previewKind = kind || '';
+    if(kind){
+      cardSkin(kind);
+      // 锁住：真实天气刷新改了 data-weather 就改回来
+      const card = document.getElementById('weatherCard');
+      if(card && !mo && typeof MutationObserver !== 'undefined'){
+        mo = new MutationObserver(function(){
+          if(previewKind && card.getAttribute('data-weather') !== previewKind) cardSkin(previewKind);
+        });
+        mo.observe(card, { attributes: true, attributeFilter: ['data-weather'] });
+      }
+      WeatherFX.set(kind);
+    }else{
+      if(mo){ mo.disconnect(); mo = null; }
+      if(typeof window.renderWeather === 'function'){ try{ window.renderWeather(); }catch(e){} }
+    }
+    paintChips();
+  }
+
+  let panelEl = null, chipsEl = null;
+  function buildPanel(){
+    if(panelEl) return;
+    panelEl = document.createElement('div');
+    panelEl.className = 'wxprev';
+    panelEl.innerHTML = '<div class="wxprev-hd">天气动画预览</div>'
+      + '<div class="wxprev-sub">点一个看效果 · 不改天气数据 · 点「自动」退出</div>'
+      + '<div class="wxprev-chips"></div>';
+    document.body.appendChild(panelEl);
+    chipsEl = panelEl.querySelector('.wxprev-chips');
+    chipsEl.addEventListener('click', function(ev){
+      const b = ev.target.closest('[data-kind]');
+      if(!b) return;
+      applyPreview(b.getAttribute('data-kind'));
+    });
+    panelEl.addEventListener('click', function(ev){
+      if(ev.target === panelEl) closePanel();
+    });
+  }
+  function paintChips(){
+    if(!chipsEl) return;
+    const list = chipsEl.querySelectorAll('[data-kind]');
+    for(let i = 0; i < list.length; i++){
+      const k = list[i].getAttribute('data-kind');
+      list[i].className = 'wxprev-chip' + (k === previewKind ? ' active' : '');
+    }
+  }
+  function openPanel(){
+    buildPanel();
+    if(!chipsEl.querySelector('[data-kind]')){
+      chipsEl.innerHTML = PREVIEW_KINDS.map(function(p){
+        return '<button type="button" class="wxprev-chip" data-kind="' + p[0] + '">' + p[1] + '</button>';
+      }).join('');
+    }
+    paintChips();
+    panelEl.classList.add('show');
+  }
+  function closePanel(){
+    if(panelEl) panelEl.classList.remove('show');
+  }
+  WeatherFX.preview = function(kind){ applyPreview(kind); };
+  WeatherFX.openPreview = function(){ openPanel(); };
+
+  /* 三连点（700ms 内）天气卡唤出预览面板 */
+  (function bindTripleTap(){
+    function attach(){
+      const card = document.getElementById('weatherCard');
+      if(!card) return;
+      let taps = 0, timer = 0;
+      card.addEventListener('click', function(){
+        taps++;
+        clearTimeout(timer);
+        timer = setTimeout(function(){ taps = 0; }, 700);
+        if(taps >= 3){ taps = 0; clearTimeout(timer); openPanel(); }
+      });
+    }
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attach);
+    else attach();
+  })();
+
   window.WeatherFX = WeatherFX;
 
   /* 初始化（页面加载后）：读卡片 data-weather 决定初始效果 */
   function bootstrap(){
-    document.querySelectorAll('.weather-card').forEach(card=>{
+    document.querySelectorAll('.weather-card').forEach(function(card){
       const kind = card.getAttribute('data-weather') || 'loading';
       WeatherFX.set(card, kind);
     });
