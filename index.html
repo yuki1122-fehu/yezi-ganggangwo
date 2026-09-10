@@ -331,10 +331,12 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .weather-card .w-meta{font-size:var(--fs-1);color:rgba(255,255,255,.82);line-height:1.3;}
 .weather-card.offline{background:var(--glass-strong);border-color:var(--glass-line);color:var(--ink-soft);}
 .weather-card.offline .w-meta{color:var(--ink-soft);}
-/* ===== 天气卡 Canvas 粒子动画（替换原 CSS 装饰为 JS 驱动） ===== */
-/* 三层结构：.weather-bg（CSS 渐变，底层）/ .weather-canvas（JS 粒子，中层）/ .weather-anim（CSS 装饰兜底，顶层只是气泡） */
-.weather-bg,.weather-canvas{position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;}
-.weather-canvas{width:100%;height:100%;display:block;}
+/* ===== 天气卡 SVG 动画层（纯 SVG + CSS keyframes，GPU 加速，无 RAF 循环省电） ===== */
+/* 两层结构：.weather-bg（CSS 渐变，底层）/ .weather-svg（SVG 动画层，viewBox 400x200 + slice 裁切自适配） */
+.weather-bg{position:absolute;inset:0;z-index:0;pointer-events:none;border-radius:inherit;}
+.weather-svg{position:absolute;inset:0;z-index:1;pointer-events:none;border-radius:inherit;overflow:hidden;}
+.weather-svg svg{width:100%;height:100%;display:block;animation:wxSvgIn .6s ease;}
+@keyframes wxSvgIn{from{opacity:0;}to{opacity:1;}}
 /* 文字浮在粒子之上：默认字体（华康康熙字典体宋体）+ 无阴影 */
 .weather-card .w-icon,.weather-card .w-temp,.weather-card .w-desc,.weather-card .w-meta{
   position:relative;z-index:3;
@@ -376,37 +378,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .weather-card[data-weather="snow"]{
   background:linear-gradient(170deg,#eef3f8 0%,#c5d3e0 55%,#93a9bd 100%);
 }
-/* 渐变切换平滑过渡（仅在主题色部分；canvas 接管粒子） */
+/* 渐变切换平滑过渡（仅在主题色部分；SVG 层接管粒子） */
 .weather-card{transition:background-color .8s var(--ease);}
 
-/* 保留旧版装饰动画作为兜底（在 canvas 未渲染或未就绪时显示） */
-.weather-anim{position:absolute;inset:0;z-index:1;pointer-events:none;overflow:hidden;border-radius:inherit;opacity:.85;}
-.weather-anim i:nth-child(1){left:16%;animation-delay:0s;}
-.weather-anim i:nth-child(2){left:38%;animation-delay:.25s;}
-.weather-anim i:nth-child(3){left:60%;animation-delay:.5s;}
-.weather-anim i:nth-child(4){left:82%;animation-delay:.75s;}
-/* 兜底：CSS 版雨滴/雪（canvas 接管后此层 opacity 由 JS 控制） */
-.weather-card.w-rain .weather-anim i,.weather-card.w-storm .weather-anim i{
-  position:absolute;top:-10px;width:2px;height:9px;border-radius:2px;
-  background:linear-gradient(180deg,rgba(120,160,210,0),rgba(80,120,175,.85));
-  animation:wRain 1s linear infinite;}
-@keyframes wRain{to{transform:translateY(170px);}}
-.weather-card.w-sunny .weather-anim::before{content:"";position:absolute;inset:-25%;
-  background:radial-gradient(circle at 50% 24%, rgba(255,224,150,.5), transparent 62%);
-  animation:wSun 3.8s ease-in-out infinite;}
-@keyframes wSun{0%,100%{opacity:.4;transform:scale(.92);}50%{opacity:.85;transform:scale(1.06);}}
-.weather-card.w-cloudy .weather-anim::before,.weather-card.w-cloudy .weather-anim::after{
-  content:"";position:absolute;height:16px;border-radius:var(--radius-sm);background:rgba(255,255,255,.5);filter:blur(5px);
-  animation:wCloud 16s linear infinite;}
-.weather-card.w-cloudy .weather-anim::before{width:74px;top:16%;left:-90px;}
-.weather-card.w-cloudy .weather-anim::after{width:52px;top:46%;left:-70px;animation-duration:22s;animation-delay:-9s;}
-@keyframes wCloud{from{transform:translateX(0);}to{transform:translateX(240px);}}
-.weather-card.w-storm .weather-anim::before{content:"";position:absolute;inset:0;background:rgba(230,232,255,.9);opacity:0;
-  animation:wBolt 4.2s linear infinite;}
-@keyframes wBolt{0%,86%,93%,100%{opacity:0;}88%,90%{opacity:.5;}}
-.weather-card.w-snow .weather-anim i{position:absolute;top:-6px;width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.92);
-  animation:wSnow 3s linear infinite;}
-@keyframes wSnow{to{transform:translateY(170px);}}
+/* SVG 天气动画全部由各模板内嵌 <style> 提供 keyframes，此处无全局动画规则 */
 
 /* 暗色模式：每种天气重设颜色 + 白色文字保持可读 */
 
@@ -1458,10 +1433,12 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 /* ---------- 减少动效偏好 ---------- */
 @media (prefers-reduced-motion:reduce){
   /* 温和降级：停掉 ambient/无限循环/庆祝类动效（前庭刺激主因），保留短促的入场/退场/状态过渡（帮助理解状态变化） */
-  .pomo-aurora,.pomo-bokeh,body::after,.ambient,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-anim,.weather-anim *,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after,#ringFg,.pct b,.pomo-ring,.pomo-ring::before,.pomo-ring.running::after,.pomo-tip,.title-leaf{
+  .pomo-aurora,.pomo-bokeh,body::after,.ambient,.tuft,.sprout,.sleaf,.pg-butterfly,.wl,.wr,.pg-pollen,.pg-star,.pg-moon,.pg-dew,.pg-firefly,.pg-bird,.pg-bird svg,.pg-bird .wing-l,.pg-bird .wing-r,.pg-bird .wing-l2,.pg-bird .wing-r2,.pg-owl-wrap .owl-body,.pg-owl-wrap .owl-head,.pg-owl-wrap .owl-eye-g,.pg-bug,.pg-bug svg,.pg-cloud,.raindrop,.g-rain .sprout>svg,.pg-sun,.sync-dot.syncing,.pomo-ring.running .pomo-center,.pomo-egg-btn,.pomo-egg-btn.ready .egg-ico,.egg-loading .dot,.ai-msg.ai.typing .dot,.weather-card .w-icon,.pg-scene.merging .sprout:not(.sel),.firework,.firework-flash,.item.completing .check::before,.item.completing .check::after,#ringFg,.pct b,.pomo-ring,.pomo-ring::before,.pomo-ring.running::after,.pomo-tip,.title-leaf{
     animation:none !important;transition:none !important;
   }
   .mini-backup.needs{animation:none !important;}
+  /* SVG 天气动画暂停（保留静态画面，不整体清空） */
+  .weather-svg svg,.weather-svg svg *{animation-play-state:paused !important;}
   /* 番茄环 & 天气卡背景过渡降级为瞬时，避免逐秒 tick 的过渡卡顿 */
   .pomo-ring #pomoFg,.pomo-ring #pomoGlow{transition:none !important;}
   .weather-card{transition:none !important;}
@@ -2104,10 +2081,8 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
         <div class="weather-card" id="weatherCard" data-weather="loading" onclick="refreshWeatherUI(true)" title="点击刷新天气">
           <!-- 渐变背景层：CSS data-weather 切换 -->
           <div class="weather-bg" id="weatherBg"></div>
-          <!-- Canvas 粒子层：JS 驱动 6 种天气动画 -->
-          <canvas class="weather-canvas" id="weatherCanvas" aria-hidden="true"></canvas>
-          <!-- 旧版 CSS 装饰层（保留闪烁/光晕/闪电过渡，作为底层兜底） -->
-          <div class="weather-anim" id="weatherAnim"><i></i><i></i><i></i><i></i></div>
+          <!-- SVG 动画层：8 种天气 CSS keyframes，viewBox slice 自适配横条/方形布局 -->
+          <div class="weather-svg" id="weatherSvg" aria-hidden="true"></div>
           <div class="w-icon" id="weatherIcon">🌤</div>
           <div class="w-temp" id="weatherTemp">--°C</div>
           <div class="w-desc" id="weatherDesc">正在获取…</div>
@@ -4332,653 +4307,371 @@ function toggleDistrictPanel(){
 }
 
 /* =====================================================================
- * WeatherFX —— Canvas 天气粒子系统
+ * WeatherFX —— SVG 天气动画系统（纯 SVG + CSS keyframes）
  * ---------------------------------------------------------------------
- * 6 种天气 / 6 套独立粒子 / 统一接口 / 高性能
- *   - SunnyEffect        晴天：金色光点 + 太阳光晕
- *   - CloudyEffect       多云：3 层视差云朵（远/中/近）
- *   - RainEffect         小雨：60 根细密雨滴
- *   - HeavyRainEffect    大雨：150 根密集雨滴 + 拖影
- *   - RainstormEffect    暴雨：220 根高速雨滴 + 地面溅射
- *   - ThunderstormEffect 雷雨：暴雨 + 随机闪电
+ * 8 种天气模板，纯 CSS 动画驱动：
+ *   - GPU 合成器加速，无 requestAnimationFrame 循环，后台标签页零耗电
+ *   - viewBox="0 0 400 200" + preserveAspectRatio="xMidYMid slice"
+ *     自动适配手机横条 / 桌面宽卡两种布局（超出裁切，不压扁）
+ *   - prefers-reduced-motion 下由全局 CSS 暂停（见样式区 reduced-motion 段）
  *
- * 设计要点：
- *   1. requestAnimationFrame + deltaTime，时间步长驱动，保证帧率波动时流畅
- *   2. 粒子对象池（pool），避免 GC 抖动
- *   3. DPR 自适应 + ResizeObserver 监听卡片尺寸
- *   4. visibilitychange 暂停渲染，降低后台耗电
- *   5. 低性能设备（mobilePointer）自动降采样
- *   6. 拖影特效：不清屏，用半透明背景色覆盖（仅大雨/暴雨）
+ * 公开 API（与旧 Canvas 版完全兼容）：
+ *   WeatherFX.set(kind)        // 切换动画：sunny/cloudy/rain/heavy_rain/
+ *                             // rainstorm/thunderstorm/fog/snow/loading
+ *   WeatherFX.set(card, kind) // 兼容旧「新签名」（SVG 版单容器，操作同一宿主）
+ *   WeatherFX.init(card)      // 兼容旧调用，返回 WeatherFX 本身
+ *   WeatherFX.stop()          // 无操作：CSS 动画随 visibility 自动暂停
  * ===================================================================== */
 (function(){
-  /**
-   * WeatherFX —— Canvas 天气粒子系统（每张卡片独立实例）
-   *
-   * 公开 API：
-   *   WeatherFX.init(el)      // 初始化并返回该卡片专属实例
-   *   WeatherFX.set(kind)     // 快捷方式：操作当前默认卡片（向后兼容旧调用）
-   *
-   * 单卡片实例 API（init 返回值）：
-   *   instance.set(kind)      // 切换粒子效果
-   *   instance.stop()         // 暂停渲染
-   *   instance.start()        // 恢复渲染
-   *
-   * 设计要点：
-   *   1. requestAnimationFrame + deltaTime，时间步长驱动，保证帧率波动时流畅
-   *   2. 粒子对象池（pool），避免 GC 抖动
-   *   3. DPR 自适应 + ResizeObserver 监听卡片尺寸
-   *   4. visibilitychange 暂停渲染，降低后台耗电
-   *   5. 低性能设备（mobilePointer）自动降采样
-   *   6. 拖影特效：不清屏，用半透明背景色覆盖（仅大雨/暴雨）
-   */
-  const WeatherFX = {};
-  const instances = new WeakMap();   // 卡片元素 → 实例
-  let defaultInstance = null;         // 单卡片默认实例（兼容旧调用）
+  /* ---------- SVG 模板库（每种天气一个完整 <svg>，内嵌 <style>） ---------- */
+  const SVG_TEMPLATES = {
 
-  /* ---------- 性能检测 ---------- */
-  // 简易降采样：低配设备粒子数减半
-  const isLowPerf = (function(){
-    if (typeof navigator === 'undefined') return false;
-    const ua = navigator.userAgent || '';
-    const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(ua);
-    const lowMem = (navigator.deviceMemory && navigator.deviceMemory <= 2);
-    const lowCpu = (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 2);
-    return isMobile || lowMem || lowCpu;
-  })();
-  const reduceMQ = window.matchMedia('(prefers-reduced-motion: reduce)');
+    /* 晴：暖色光晕脉冲 + 8 条旋转放射光线 + 6 颗浮动金色光斑 */
+    sunny: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<defs><radialGradient id="wxSunG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(255,243,200,.85)"/><stop offset="55%" stop-color="rgba(255,236,178,.38)"/><stop offset="100%" stop-color="rgba(255,236,178,0)"/></radialGradient></defs>
+<style>
+.wxA{transform-box:fill-box;transform-origin:center;animation:wxAura 4.8s ease-in-out infinite;}
+@keyframes wxAura{0%,100%{opacity:.5;transform:scale(.92);}50%{opacity:.85;transform:scale(1.06);}}
+.wxRays{transform-box:fill-box;transform-origin:center;animation:wxSpin 64s linear infinite;}
+@keyframes wxSpin{to{transform:rotate(360deg);}}
+.wxSpk{animation:wxSpark ease-in-out infinite;}
+@keyframes wxSpark{0%,100%{transform:translateY(0);opacity:.3;}50%{transform:translateY(-13px);opacity:.8;}}
+</style>
+<circle class="wxA" cx="314" cy="64" r="80" fill="url(#wxSunG)"/>
+<g class="wxRays" stroke="rgba(255,249,220,.55)" stroke-width="3" stroke-linecap="round" opacity=".75">
+<line x1="314" y1="34" x2="314" y2="22"/><line x1="314" y1="94" x2="314" y2="106"/>
+<line x1="284" y1="64" x2="272" y2="64"/><line x1="344" y1="64" x2="356" y2="64"/>
+<line x1="292.8" y1="42.8" x2="284.3" y2="34.3"/><line x1="343.7" y1="93.7" x2="335.2" y2="85.2"/>
+<line x1="292.8" y1="85.2" x2="284.3" y2="93.7"/><line x1="343.7" y1="34.3" x2="335.2" y2="42.8"/>
+</g>
+<g fill="rgba(255,233,150,.6)">
+<circle class="wxSpk" style="animation-duration:5.4s;animation-delay:-.6s" cx="52" cy="132" r="3"/>
+<circle class="wxSpk" style="animation-duration:6.8s;animation-delay:-2.4s" cx="108" cy="102" r="2.4"/>
+<circle class="wxSpk" style="animation-duration:4.9s;animation-delay:-1.3s" cx="168" cy="148" r="3.4"/>
+<circle class="wxSpk" style="animation-duration:7.3s;animation-delay:-4.1s" cx="214" cy="86" r="2.4"/>
+<circle class="wxSpk" style="animation-duration:5.8s;animation-delay:-3.2s" cx="258" cy="126" r="2.8"/>
+<circle class="wxSpk" style="animation-duration:6.2s;animation-delay:-5s" cx="92" cy="66" r="2.4"/>
+</g>
+</svg>`,
 
-  /* ---------- 创建单个卡片实例 ---------- */
-  function createInstance(card){
-    const canvas = card.querySelector('canvas.weather-canvas');
-    if(!canvas) return null;
-    const ctx = canvas.getContext('2d');
-    const inst = {
-      card, canvas, ctx,
-      dpr: 1, width: 0, height: 0,
-      currentKind: 'loading', effect: null,
-      lastTime: 0, running: false, rafId: 0, reduceMotion: reduceMQ.matches,
-      resize(){
-        const rect = card.getBoundingClientRect();
-        this.width = Math.max(1, rect.width);
-        this.height = Math.max(1, rect.height);
-        this.dpr = Math.min(window.devicePixelRatio || 1, 2);
-        canvas.width = Math.floor(this.width * this.dpr);
-        canvas.height = Math.floor(this.height * this.dpr);
-        canvas.style.width = this.width + 'px';
-        canvas.style.height = this.height + 'px';
-        ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-        if(this.effect && this.effect.resize) this.effect.resize(this.width, this.height);
-      },
-      loop(now){
-        if(!this.running) return;
-        this.rafId = requestAnimationFrame((t)=>this.loop(t));
-        const dt = Math.min(0.05, (now - this.lastTime) / 1000);
-        this.lastTime = now;
-        if(this.effect && this.effect.tick){
-          this.effect.tick(dt, this.width, this.height, ctx);
-        }
-      },
-      start(){
-        if(this.running || this.reduceMotion) return;
-        this.running = true;
-        this.lastTime = performance.now();
-        this.rafId = requestAnimationFrame((t)=>this.loop(t));
-      },
-      stop(){
-        this.running = false;
-        if(this.rafId){ cancelAnimationFrame(this.rafId); this.rafId = 0; }
-      },
-      set(kind){
-        if(this.currentKind === kind && this.effect) return;
-        const Ctor = EFFECTS[kind] || EFFECTS.sunny;
-        this.effect = new Ctor();
-        this.currentKind = kind;
-        if(this.width > 0 && this.height > 0) this.effect.init(this.width, this.height);
-        if(!this.running && !this.reduceMotion) this.start();
-      }
-    };
-    inst.resize();
-    // 尺寸响应
-    if(typeof ResizeObserver !== 'undefined'){
-      const ro = new ResizeObserver(()=>inst.resize());
-      ro.observe(card);
-    } else {
-      window.addEventListener('resize', ()=>inst.resize());
-    }
-    // 页面可见性
-    document.addEventListener('visibilitychange', ()=>{
-      if(document.hidden) inst.stop();
-      else if(inst.effect && !inst.reduceMotion) inst.start();
-    });
-    // 系统减弱动效偏好变化
-    reduceMQ.addEventListener('change', (e)=>{
-      inst.reduceMotion = e.matches;
-      if(e.matches) inst.stop();
-      else if(inst.effect) inst.start();
-    });
-    return inst;
-  }
+    /* 多云：3 层视差云（远小慢淡 / 近大快实），贝塞尔式椭圆有机云形 */
+    cloudy: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<style>
+.wxDrift{animation:wxCld linear infinite;}
+@keyframes wxCld{from{transform:translateX(-300px);}to{transform:translateX(700px);}}
+</style>
+<g transform="translate(0,46) scale(.52)" opacity=".36">
+<g class="wxDrift" style="animation-duration:96s;animation-delay:-14s"><g fill="rgba(255,255,255,.9)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+<g class="wxDrift" style="animation-duration:120s;animation-delay:-70s"><g transform="scale(.72)" fill="rgba(255,255,255,.85)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+</g>
+<g transform="translate(0,84) scale(.78)" opacity=".52">
+<g class="wxDrift" style="animation-duration:60s;animation-delay:-26s"><g fill="rgba(255,255,255,.92)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+<g class="wxDrift" style="animation-duration:74s;animation-delay:-55s"><g transform="scale(.8)" fill="rgba(255,255,255,.88)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+</g>
+<g transform="translate(0,132) scale(1.08)" opacity=".62">
+<g class="wxDrift" style="animation-duration:38s;animation-delay:-9s"><g fill="rgba(255,255,255,.95)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+<g class="wxDrift" style="animation-duration:46s;animation-delay:-31s"><g transform="scale(.85)" fill="rgba(255,255,255,.9)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+</g>
+</svg>`,
 
-  /* ---------- 粒子基类 ---------- */
-  class Particle {
-    constructor(){ this.reset(); }
-    reset(){
-      this.x = 0; this.y = 0; this.vx = 0; this.vy = 0;
-      this.life = 0; this.maxLife = 1; this.size = 1;
-      this.alpha = 1; this.color = '#fff'; this.dead = true;
-    }
-    // 子类必须实现：update(dt) / draw(ctx)
-  }
+    /* 小雨：顶部云带 + 12 根倾斜雨丝 + 底部 3 个溅射涟漪 */
+    rain: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<style>
+.wxDrop{animation:wxFall linear infinite;}
+@keyframes wxFall{from{transform:translateY(-46px);}to{transform:translateY(246px);}}
+.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.7s ease-out infinite;}
+@keyframes wxRip{0%{transform:scale(.15);opacity:.6;}75%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}
+.wxBand{animation:wxBreath 8s ease-in-out infinite alternate;}
+@keyframes wxBreath{from{transform:translateX(-8px);}to{transform:translateX(8px);}}
+</style>
+<g class="wxBand">
+<g fill="rgba(255,255,255,.5)"><ellipse cx="60" cy="34" rx="52" ry="18"/><ellipse cx="150" cy="26" rx="60" ry="20"/><ellipse cx="250" cy="34" rx="66" ry="20"/><ellipse cx="340" cy="28" rx="56" ry="19"/></g>
+<g fill="rgba(74,96,118,.12)"><ellipse cx="105" cy="40" rx="70" ry="14"/><ellipse cx="290" cy="42" rx="80" ry="15"/></g>
+</g>
+<g stroke="rgba(108,138,178,.55)" stroke-width="1.8" stroke-linecap="round">
+<line class="wxDrop" style="animation-duration:.85s;animation-delay:-.05s" x1="22" y1="10" x2="16" y2="31"/>
+<line class="wxDrop" style="animation-duration:.95s;animation-delay:-.3s" x1="52" y1="22" x2="46" y2="43"/>
+<line class="wxDrop" style="animation-duration:.9s;animation-delay:-.55s" x1="84" y1="6" x2="78" y2="27"/>
+<line class="wxDrop" style="animation-duration:1s;animation-delay:-.8s" x1="118" y1="18" x2="112" y2="39"/>
+<line class="wxDrop" style="animation-duration:.88s;animation-delay:-.15s" x1="150" y1="26" x2="144" y2="47"/>
+<line class="wxDrop" style="animation-duration:.96s;animation-delay:-.4s" x1="178" y1="8" x2="172" y2="29"/>
+<line class="wxDrop" style="animation-duration:.92s;animation-delay:-.65s" x1="210" y1="20" x2="204" y2="41"/>
+<line class="wxDrop" style="animation-duration:1.02s;animation-delay:-.9s" x1="242" y1="12" x2="236" y2="33"/>
+<line class="wxDrop" style="animation-duration:.86s;animation-delay:-.25s" x1="272" y1="24" x2="266" y2="45"/>
+<line class="wxDrop" style="animation-duration:.94s;animation-delay:-.5s" x1="304" y1="6" x2="298" y2="27"/>
+<line class="wxDrop" style="animation-duration:.98s;animation-delay:-.75s" x1="336" y1="16" x2="330" y2="37"/>
+<line class="wxDrop" style="animation-duration:.9s;animation-delay:-.1s" x1="368" y1="28" x2="362" y2="49"/>
+</g>
+<g fill="none" stroke="rgba(108,138,178,.5)" stroke-width="1.4">
+<ellipse class="wxSplash" style="animation-delay:0s" cx="80" cy="150" rx="16" ry="4"/>
+<ellipse class="wxSplash" style="animation-delay:-.6s" cx="190" cy="156" rx="14" ry="3.5"/>
+<ellipse class="wxSplash" style="animation-delay:-1.1s" cx="300" cy="148" rx="17" ry="4.2"/>
+</g>
+</svg>`,
 
-  /* ---------- 公共工具 ---------- */
-  function rand(a, b){ return Math.random() * (b - a) + a; }
-  // 拖影覆盖：用当前背景主色 + 低 alpha 矩形代替 clearRect
-  function trailFill(ctx, w, h, baseRgb, alpha){
-    ctx.fillStyle = `rgba(${baseRgb}, ${alpha})`;
-    ctx.fillRect(0, 0, w, h);
-  }
+    /* 大雨：更厚双层云 + 18 根更陡更快的雨丝 + 5 个溅射 + 2 道宽水波纹 */
+    heavy_rain: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<style>
+.wxDrop{animation:wxFall linear infinite;}
+@keyframes wxFall{from{transform:translateY(-46px);}to{transform:translateY(246px);}}
+.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.3s ease-out infinite;}
+@keyframes wxRip{0%{transform:scale(.15);opacity:.6;}75%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}
+.wxBand1{animation:wxBreath1 6s ease-in-out infinite alternate;}
+@keyframes wxBreath1{from{transform:translateX(-10px);}to{transform:translateX(10px);}}
+.wxBand2{animation:wxBreath2 8.5s ease-in-out infinite alternate;}
+@keyframes wxBreath2{from{transform:translateX(12px);}to{transform:translateX(-12px);}}
+</style>
+<g class="wxBand1">
+<g fill="rgba(255,255,255,.46)"><ellipse cx="50" cy="30" rx="56" ry="20"/><ellipse cx="146" cy="22" rx="64" ry="22"/><ellipse cx="248" cy="30" rx="70" ry="21"/><ellipse cx="346" cy="24" rx="58" ry="20"/></g>
+</g>
+<g class="wxBand2">
+<g fill="rgba(80,102,124,.16)"><ellipse cx="100" cy="40" rx="76" ry="15"/><ellipse cx="290" cy="42" rx="86" ry="16"/><ellipse cx="196" cy="36" rx="60" ry="13"/></g>
+</g>
+<g stroke="rgba(88,118,158,.62)" stroke-width="2.1" stroke-linecap="round">
+<line class="wxDrop" style="animation-duration:.6s;animation-delay:-.03s" x1="16" y1="8" x2="4" y2="33"/>
+<line class="wxDrop" style="animation-duration:.68s;animation-delay:-.21s" x1="36" y1="20" x2="24" y2="45"/>
+<line class="wxDrop" style="animation-duration:.62s;animation-delay:-.4s" x1="58" y1="6" x2="46" y2="31"/>
+<line class="wxDrop" style="animation-duration:.7s;animation-delay:-.55s" x1="80" y1="16" x2="68" y2="41"/>
+<line class="wxDrop" style="animation-duration:.64s;animation-delay:-.12s" x1="102" y1="24" x2="90" y2="49"/>
+<line class="wxDrop" style="animation-duration:.66s;animation-delay:-.33s" x1="124" y1="10" x2="112" y2="35"/>
+<line class="wxDrop" style="animation-duration:.6s;animation-delay:-.5s" x1="146" y1="18" x2="134" y2="43"/>
+<line class="wxDrop" style="animation-duration:.72s;animation-delay:-.07s" x1="168" y1="26" x2="156" y2="51"/>
+<line class="wxDrop" style="animation-duration:.62s;animation-delay:-.26s" x1="190" y1="8" x2="178" y2="33"/>
+<line class="wxDrop" style="animation-duration:.68s;animation-delay:-.45s" x1="212" y1="20" x2="200" y2="45"/>
+<line class="wxDrop" style="animation-duration:.64s;animation-delay:-.16s" x1="236" y1="12" x2="224" y2="37"/>
+<line class="wxDrop" style="animation-duration:.6s;animation-delay:-.35s" x1="258" y1="22" x2="246" y2="47"/>
+<line class="wxDrop" style="animation-duration:.7s;animation-delay:-.52s" x1="280" y1="6" x2="268" y2="31"/>
+<line class="wxDrop" style="animation-duration:.66s;animation-delay:-.1s" x1="302" y1="16" x2="290" y2="41"/>
+<line class="wxDrop" style="animation-duration:.62s;animation-delay:-.3s" x1="324" y1="26" x2="312" y2="51"/>
+<line class="wxDrop" style="animation-duration:.68s;animation-delay:-.48s" x1="346" y1="10" x2="334" y2="35"/>
+<line class="wxDrop" style="animation-duration:.6s;animation-delay:-.18s" x1="368" y1="20" x2="356" y2="45"/>
+<line class="wxDrop" style="animation-duration:.64s;animation-delay:-.42s" x1="386" y1="12" x2="374" y2="37"/>
+</g>
+<g fill="none" stroke="rgba(88,118,158,.5)" stroke-width="1.5">
+<ellipse class="wxSplash" style="animation-delay:0s" cx="60" cy="152" rx="16" ry="4"/>
+<ellipse class="wxSplash" style="animation-delay:-.3s" cx="128" cy="146" rx="14" ry="3.5"/>
+<ellipse class="wxSplash" style="animation-delay:-.6s" cx="196" cy="154" rx="17" ry="4.2"/>
+<ellipse class="wxSplash" style="animation-delay:-.9s" cx="264" cy="148" rx="14" ry="3.5"/>
+<ellipse class="wxSplash" style="animation-delay:-1.15s" cx="332" cy="152" rx="16" ry="4"/>
+</g>
+</svg>`,
 
-  /* =====================================================================
-   * Effect 1 / 6 —— Sunny 晴天
-   *   - 太阳光晕：左上方大圆 + 径向渐变，缓慢呼吸缩放
-   *   - 8-12 颗金色光点粒子，缓慢上下飘动 + 透明度呼吸
-   * ===================================================================== */
-  class SunnyEffect {
-    constructor(){
-      this.dots = [];
-      this.t = 0;
-    }
-    init(w, h){
-      this.dots.length = 0;
-      const n = isLowPerf ? 6 : 10;
-      for(let i=0;i<n;i++){
-        const p = {};
-        p.x = rand(0, w);
-        p.y = rand(0, h);
-        p.size = rand(2, 4);
-        p.vy = rand(-8, -4);   // 缓慢上浮
-        p.phase = rand(0, Math.PI*2);
-        p.alpha = rand(0.4, 0.85);
-        this.dots.push(p);
-      }
-    }
-    resize(w, h){ this.init(w, h); }
-    tick(dt, w, h, ctx){
-      this.t += dt;
-      ctx.clearRect(0, 0, w, h);
-      // 太阳光晕：左上方
-      const cx = w*0.25, cy = h*0.28;
-      const baseR = Math.min(w, h) * 0.22;
-      const pulse = 1 + Math.sin(this.t * 1.4) * 0.08;
-      const grd = ctx.createRadialGradient(cx, cy, baseR*0.1, cx, cy, baseR*2.2 * pulse);
-      grd.addColorStop(0, 'rgba(255,225,150,0.55)');
-      grd.addColorStop(0.45, 'rgba(255,200,120,0.22)');
-      grd.addColorStop(1, 'rgba(255,200,100,0)');
-      ctx.fillStyle = grd;
-      ctx.fillRect(0, 0, w, h);
-      // 太阳核心
-      ctx.beginPath();
-      ctx.arc(cx, cy, baseR * 0.32 * pulse, 0, Math.PI*2);
-      ctx.fillStyle = 'rgba(255,250,200,0.95)';
-      ctx.fill();
-      // 光点
-      for(const p of this.dots){
-        p.y += p.vy * dt;
-        p.x += Math.sin(this.t*0.6 + p.phase) * dt * 4;
-        if(p.y < -10){ p.y = h + 10; p.x = rand(0, w); }
-        const a = p.alpha * (0.6 + 0.4 * Math.sin(this.t*1.5 + p.phase));
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
-        ctx.fillStyle = `rgba(255,255,220,${a})`;
-        ctx.fill();
-      }
-    }
-  }
+    /* 暴雨：翻涌双层乌云（反向对漂）+ 24 根高速大风角度雨丝 + 风条纹 + 水面涟漪 */
+    rainstorm: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<style>
+.wxDrop{animation:wxFall linear infinite;}
+@keyframes wxFall{from{transform:translateY(-50px);}to{transform:translateY(250px);}}
+.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.1s ease-out infinite;}
+@keyframes wxRip{0%{transform:scale(.15);opacity:.55;}75%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}
+.wxBand1{animation:wxBreath1 4.6s ease-in-out infinite alternate;}
+@keyframes wxBreath1{from{transform:translateX(-14px);}to{transform:translateX(14px);}}
+.wxBand2{animation:wxBreath2 6.4s ease-in-out infinite alternate;}
+@keyframes wxBreath2{from{transform:translateX(16px);}to{transform:translateX(-16px);}}
+.wxWind{animation:wxGust linear infinite;}
+@keyframes wxGust{from{transform:translateX(720px);}to{transform:translateX(-360px);}}
+</style>
+<g class="wxBand1">
+<g fill="rgba(255,255,255,.4)"><ellipse cx="46" cy="28" rx="60" ry="22"/><ellipse cx="150" cy="20" rx="68" ry="24"/><ellipse cx="256" cy="28" rx="72" ry="22"/><ellipse cx="352" cy="22" rx="60" ry="21"/></g>
+</g>
+<g class="wxBand2">
+<g fill="rgba(56,76,98,.2)"><ellipse cx="98" cy="38" rx="80" ry="16"/><ellipse cx="292" cy="40" rx="90" ry="17"/><ellipse cx="196" cy="34" rx="64" ry="14"/></g>
+</g>
+<g stroke="rgba(255,255,255,.28)" stroke-width="1.6" stroke-linecap="round">
+<line class="wxWind" style="animation-duration:1.4s;animation-delay:-.2s" x1="0" y1="64" x2="72" y2="57"/>
+<line class="wxWind" style="animation-duration:1.2s;animation-delay:-.7s" x1="0" y1="96" x2="86" y2="88"/>
+<line class="wxWind" style="animation-duration:1.5s;animation-delay:-1.1s" x1="0" y1="126" x2="64" y2="119"/>
+<line class="wxWind" style="animation-duration:1.3s;animation-delay:-.45s" x1="0" y1="144" x2="76" y2="137"/>
+</g>
+<g stroke="rgba(70,100,142,.66)" stroke-width="2.3" stroke-linecap="round">
+<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.02s" x1="12" y1="8" x2="-6" y2="38"/>
+<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.16s" x1="28" y1="20" x2="10" y2="50"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.3s" x1="46" y1="6" x2="28" y2="36"/>
+<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.44s" x1="64" y1="16" x2="46" y2="46"/>
+<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.58s" x1="82" y1="24" x2="64" y2="54"/>
+<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.08s" x1="100" y1="10" x2="82" y2="40"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.22s" x1="118" y1="22" x2="100" y2="52"/>
+<line class="wxDrop" style="animation-duration:.46s;animation-delay:-.36s" x1="136" y1="8" x2="118" y2="38"/>
+<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.5s" x1="154" y1="18" x2="136" y2="48"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.64s" x1="172" y1="26" x2="154" y2="56"/>
+<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.12s" x1="190" y1="6" x2="172" y2="36"/>
+<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.26s" x1="208" y1="20" x2="190" y2="50"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.4s" x1="226" y1="12" x2="208" y2="42"/>
+<line class="wxDrop" style="animation-duration:.46s;animation-delay:-.54s" x1="244" y1="24" x2="226" y2="54"/>
+<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.68s" x1="262" y1="8" x2="244" y2="38"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.14s" x1="280" y1="18" x2="262" y2="48"/>
+<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.28s" x1="298" y1="26" x2="280" y2="56"/>
+<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.42s" x1="316" y1="10" x2="298" y2="40"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.56s" x1="334" y1="20" x2="316" y2="50"/>
+<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.7s" x1="352" y1="12" x2="334" y2="42"/>
+<line class="wxDrop" style="animation-duration:.48s;animation-delay:-.18s" x1="370" y1="22" x2="352" y2="52"/>
+<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.32s" x1="388" y1="14" x2="370" y2="44"/>
+</g>
+<g fill="none" stroke="rgba(206,224,240,.55)" stroke-width="1.6">
+<ellipse class="wxSplash" style="animation-delay:0s" cx="52" cy="154" rx="20" ry="4.6"/>
+<ellipse class="wxSplash" style="animation-delay:-.25s" cx="124" cy="150" rx="17" ry="4"/>
+<ellipse class="wxSplash" style="animation-delay:-.5s" cx="198" cy="156" rx="21" ry="4.8"/>
+<ellipse class="wxSplash" style="animation-delay:-.75s" cx="272" cy="150" rx="17" ry="4"/>
+<ellipse class="wxSplash" style="animation-delay:-.95s" cx="344" cy="154" rx="20" ry="4.6"/>
+</g>
+</svg>`,
 
-  /* =====================================================================
-   * Effect 2 / 6 —— Cloudy 多云
-   *   - 3 层云（远/中/近），每层若干"软云"，由 5-7 个重叠圆构成
-   *   - 视差：远层 8 像素/秒，中层 16，近层 28
-   * ===================================================================== */
-  class CloudyEffect {
-    constructor(){ this.t = 0; }
-    init(w, h){
-      this.w = w; this.h = h;
-      this.layers = [];
-      // 远/中/近 三层
-      const configs = [
-        {n: isLowPerf ? 2 : 3, baseSize: 0.16, speed: 8,  alpha: 0.35, scale: 0.7},
-        {n: isLowPerf ? 2 : 3, baseSize: 0.22, speed: 16, alpha: 0.55, scale: 1.0},
-        {n: isLowPerf ? 1 : 2, baseSize: 0.28, speed: 28, alpha: 0.75, scale: 1.3}
-      ];
-      for(const cfg of configs){
-        const layer = {clouds: [], ...cfg};
-        for(let i=0;i<cfg.n;i++){
-          const cw = w * cfg.baseSize * (0.8 + Math.random()*0.6);
-          const ch = cw * 0.45;
-          const cloud = {
-            x: rand(-cw, w + cw),
-            y: rand(h*0.15, h*0.7),
-            w: cw,
-            h: ch,
-            puffs: [] // 每朵云由若干圆构造
-          };
-          // 5-7 个圆构造一朵云
-          const puffN = 5 + Math.floor(Math.random()*3);
-          for(let j=0;j<puffN;j++){
-            cloud.puffs.push({
-              ox: rand(-0.35, 0.35) * cw,
-              oy: rand(-0.25, 0.15) * ch,
-              r: rand(0.25, 0.45) * cw
-            });
-          }
-          layer.clouds.push(cloud);
-        }
-        this.layers.push(layer);
-      }
-    }
-    resize(w, h){ this.init(w, h); }
-    drawCloud(ctx, cloud, alpha){
-      ctx.beginPath();
-      // 用 PUFFS 列表构造：用 moveTo 起始，arc 添加每个圆
-      for(const puff of cloud.puffs){
-        ctx.moveTo(cloud.x + puff.ox + puff.r, cloud.y + puff.oy);
-        ctx.arc(cloud.x + puff.ox, cloud.y + puff.oy, puff.r, 0, Math.PI*2);
-      }
-      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-      ctx.fill();
-    }
-    tick(dt, w, h, ctx){
-      this.t += dt;
-      ctx.clearRect(0, 0, w, h);
-      for(const layer of this.layers){
-        for(const cloud of layer.clouds){
-          cloud.x += layer.speed * dt;
-          if(cloud.x > w + cloud.w){
-            cloud.x = -cloud.w;
-            cloud.y = rand(h*0.15, h*0.7);
-          }
-          this.drawCloud(ctx, cloud, layer.alpha);
-        }
-      }
-    }
-  }
+    /* 雷雨：暴雨基底 + 分叉闪电（阶梯闪烁 + glow）+ 全卡白闪 */
+    thunderstorm: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<style>
+.wxDrop{animation:wxFall linear infinite;}
+@keyframes wxFall{from{transform:translateY(-50px);}to{transform:translateY(250px);}}
+.wxSplash{transform-box:fill-box;transform-origin:center;animation:wxRip 1.1s ease-out infinite;}
+@keyframes wxRip{0%{transform:scale(.15);opacity:.55;}75%{transform:scale(1);opacity:0;}100%{transform:scale(1);opacity:0;}}
+.wxBand1{animation:wxBreath1 4.6s ease-in-out infinite alternate;}
+@keyframes wxBreath1{from{transform:translateX(-14px);}to{transform:translateX(14px);}}
+.wxBand2{animation:wxBreath2 6.4s ease-in-out infinite alternate;}
+@keyframes wxBreath2{from{transform:translateX(16px);}to{transform:translateX(-16px);}}
+.wxWind{animation:wxGust linear infinite;}
+@keyframes wxGust{from{transform:translateX(720px);}to{transform:translateX(-360px);}}
+.wxBolt{animation:wxFlick 5.6s linear infinite;}
+@keyframes wxFlick{0%,58%{opacity:0;}59%{opacity:1;}60.5%{opacity:.15;}62%{opacity:.95;}65%{opacity:.35;}67.5%{opacity:.9;}71%{opacity:0;}100%{opacity:0;}}
+.wxFlash{animation:wxFlsh 5.6s linear infinite;}
+@keyframes wxFlsh{0%,58%{opacity:0;}59.5%{opacity:.22;}61%{opacity:.05;}62.5%{opacity:.17;}66%{opacity:.05;}68%{opacity:.1;}70%{opacity:0;}100%{opacity:0;}}
+</style>
+<g class="wxBand1">
+<g fill="rgba(255,255,255,.4)"><ellipse cx="46" cy="28" rx="60" ry="22"/><ellipse cx="150" cy="20" rx="68" ry="24"/><ellipse cx="256" cy="28" rx="72" ry="22"/><ellipse cx="352" cy="22" rx="60" ry="21"/></g>
+</g>
+<g class="wxBand2">
+<g fill="rgba(56,76,98,.22)"><ellipse cx="98" cy="38" rx="80" ry="16"/><ellipse cx="292" cy="40" rx="90" ry="17"/><ellipse cx="196" cy="34" rx="64" ry="14"/></g>
+</g>
+<g stroke="rgba(255,255,255,.26)" stroke-width="1.6" stroke-linecap="round">
+<line class="wxWind" style="animation-duration:1.5s;animation-delay:-.5s" x1="0" y1="70" x2="72" y2="63"/>
+<line class="wxWind" style="animation-duration:1.3s;animation-delay:-.95s" x1="0" y1="128" x2="66" y2="121"/>
+</g>
+<g stroke="rgba(70,100,142,.64)" stroke-width="2.2" stroke-linecap="round">
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.02s" x1="14" y1="8" x2="-4" y2="38"/>
+<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.19s" x1="34" y1="18" x2="16" y2="48"/>
+<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.36s" x1="54" y1="6" x2="36" y2="36"/>
+<line class="wxDrop" style="animation-duration:.58s;animation-delay:-.53s" x1="76" y1="22" x2="58" y2="52"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.7s" x1="98" y1="12" x2="80" y2="42"/>
+<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.1s" x1="120" y1="24" x2="102" y2="54"/>
+<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.27s" x1="142" y1="8" x2="124" y2="38"/>
+<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.44s" x1="164" y1="20" x2="146" y2="50"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.61s" x1="186" y1="10" x2="168" y2="40"/>
+<line class="wxDrop" style="animation-duration:.58s;animation-delay:-.78s" x1="210" y1="26" x2="192" y2="56"/>
+<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.15s" x1="234" y1="6" x2="216" y2="36"/>
+<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.32s" x1="256" y1="18" x2="238" y2="48"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.49s" x1="278" y1="22" x2="260" y2="52"/>
+<line class="wxDrop" style="animation-duration:.56s;animation-delay:-.66s" x1="300" y1="8" x2="282" y2="38"/>
+<line class="wxDrop" style="animation-duration:.52s;animation-delay:-.83s" x1="322" y1="20" x2="304" y2="50"/>
+<line class="wxDrop" style="animation-duration:.5s;animation-delay:-.2s" x1="344" y1="12" x2="326" y2="42"/>
+<line class="wxDrop" style="animation-duration:.54s;animation-delay:-.37s" x1="366" y1="24" x2="348" y2="54"/>
+<line class="wxDrop" style="animation-duration:.58s;animation-delay:-.54s" x1="388" y1="14" x2="370" y2="44"/>
+</g>
+<g fill="none" stroke="rgba(206,224,240,.5)" stroke-width="1.6">
+<ellipse class="wxSplash" style="animation-delay:-.2s" cx="90" cy="153" rx="19" ry="4.4"/>
+<ellipse class="wxSplash" style="animation-delay:-.65s" cx="220" cy="151" rx="17" ry="4"/>
+<ellipse class="wxSplash" style="animation-delay:-.9s" cx="318" cy="154" rx="20" ry="4.6"/>
+</g>
+<rect class="wxFlash" x="0" y="0" width="400" height="200" fill="rgba(240,244,255,.9)"/>
+<path class="wxBolt" style="filter:drop-shadow(0 0 5px rgba(255,240,170,.95))" fill="rgba(255,248,215,.95)" d="M288,38 L252,102 L272,102 L258,146 L292,88 L274,88 L292,50 Z"/>
+<path class="wxBolt" style="animation-delay:-2.9s;filter:drop-shadow(0 0 4px rgba(255,240,170,.85))" fill="rgba(255,248,215,.88)" transform="translate(96,14) scale(.52)" d="M288,38 L252,102 L272,102 L258,146 L292,88 L274,88 L292,50 Z"/>
+</svg>`,
 
-  /* =====================================================================
-   * Effect 3 / 6 —— Rain 小雨
-   *   - 60-80 根细密雨滴，缓速下落，透明度分层
-   * ===================================================================== */
-  class RainEffect {
-    constructor(){ this.drops = []; }
-    init(w, h){
-      this.w = w; this.h = h;
-      this.drops.length = 0;
-      // 小雨：细短慢，无拖影 —— 极淡白雨丝（~5% 透明度）
-      const n = isLowPerf ? 35 : 50;
-      for(let i=0;i<n;i++){
-        const d = {
-          x: rand(-20, w+20),
-          y: rand(-h, h),
-          len: rand(6, 10),
-          speed: rand(100, 150),        // 像素/秒
-          alpha: rand(0.04, 0.07),      // 几乎透明
-          slope: rand(0.05, 0.1)        // 微弱倾斜
-        };
-        this.drops.push(d);
-      }
-    }
-    resize(w, h){ this.init(w, h); }
-    tick(dt, w, h, ctx){
-      ctx.clearRect(0, 0, w, h);
-      ctx.lineCap = 'round';
-      for(const d of this.drops){
-        d.y += d.speed * dt;
-        d.x += d.speed * d.slope * dt;
-        if(d.y > h){ d.y = -d.len; d.x = rand(-20, w+20); }
-        if(d.x > w + 20) d.x = -20;
-        ctx.strokeStyle = `rgba(255,255,255,${d.alpha})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(d.x, d.y);
-        ctx.lineTo(d.x - d.slope*d.len, d.y + d.len);
-        ctx.stroke();
-      }
-    }
-  }
+    /* 雾：4 层半透明雾带横向缓漂（不同速度 / 透明度 / 纵向位置） */
+    fog: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<defs><radialGradient id="wxFogG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(255,255,255,.5)"/><stop offset="100%" stop-color="rgba(255,255,255,0)"/></radialGradient></defs>
+<style>
+.wxFog{animation:wxFogD ease-in-out infinite alternate;}
+@keyframes wxFogD{from{transform:translateX(-44px);}to{transform:translateX(44px);}}
+</style>
+<ellipse class="wxFog" style="animation-duration:12s;animation-delay:-2.4s" cx="200" cy="52" rx="200" ry="20" fill="url(#wxFogG)" opacity=".6"/>
+<ellipse class="wxFog" style="animation-duration:17s;animation-delay:-8.1s" cx="200" cy="84" rx="225" ry="26" fill="url(#wxFogG)"/>
+<ellipse class="wxFog" style="animation-duration:22s;animation-delay:-13.5s" cx="200" cy="116" rx="215" ry="28" fill="url(#wxFogG)" opacity=".9"/>
+<ellipse class="wxFog" style="animation-duration:15s;animation-delay:-5.2s" cx="200" cy="148" rx="190" ry="22" fill="url(#wxFogG)" opacity=".72"/>
+</svg>`,
 
-  /* =====================================================================
-   * Effect 4 / 6 —— HeavyRain 大雨
-   *   - 与小雨（RainEffect）同一套雨丝参数，仅把雨丝改成白色
-   *   - 无拖影：保持和小雨完全一致的观感
-   * ===================================================================== */
-  class HeavyRainEffect extends RainEffect {
-    init(w, h){
-      this.w = w; this.h = h;
-      this.drops.length = 0;
-      // 大雨：比小雨更疏更缓（用户：大雨以上不要太密太快）
-      const n = isLowPerf ? 25 : 38;
-      for(let i=0;i<n;i++){
-        this.drops.push({
-          x: rand(-20, w+20),
-          y: rand(-h, h),
-          len: rand(6, 10),
-          speed: rand(90, 130),
-          alpha: rand(0.04, 0.07),      // 几乎透明
-          slope: rand(0.05, 0.1)
-        });
-      }
-    }
-    tick(dt, w, h, ctx){
-      // 与小雨一样 clearRect，无拖影
-      ctx.clearRect(0, 0, w, h);
-      ctx.lineCap = 'round';
-      // 白色极淡雨丝（~5%）
-      const baseColor = '255,255,255';
-      for(const d of this.drops){
-        d.y += d.speed * dt;
-        d.x += d.speed * d.slope * dt;
-        if(d.y > h){ d.y = -d.len; d.x = rand(-20, w+20); }
-        if(d.x > w + 20) d.x = -20;
-        ctx.strokeStyle = `rgba(${baseColor},${d.alpha})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(d.x, d.y);
-        ctx.lineTo(d.x - d.slope*d.len, d.y + d.len);
-        ctx.stroke();
-      }
-    }
-  }
+    /* 雪：淡雾底 + 8 片六角小雪花晶体（旋转 + 摇摆下落）+ 4 片大雪花慢飘 */
+    snow: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<defs><radialGradient id="wxSnG" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="rgba(255,255,255,.32)"/><stop offset="100%" stop-color="rgba(255,255,255,0)"/></radialGradient></defs>
+<style>
+.wxFl{animation:wxSFall linear infinite;}
+@keyframes wxSFall{from{transform:translateY(-36px);}to{transform:translateY(236px);}}
+.wxSway{animation:wxSSway ease-in-out infinite alternate;}
+@keyframes wxSSway{from{transform:translateX(-7px);}to{transform:translateX(7px);}}
+.wxRot{transform-box:fill-box;transform-origin:center;animation:wxSSpin linear infinite;}
+@keyframes wxSSpin{to{transform:rotate(360deg);}}
+</style>
+<ellipse cx="200" cy="152" rx="195" ry="28" fill="url(#wxSnG)"/>
+<g stroke="rgba(255,255,255,.85)" stroke-width="1.5" stroke-linecap="round" fill="none">
+<g transform="translate(36,0)"><g class="wxFl" style="animation-duration:8.6s;animation-delay:-1.2s"><g class="wxSway" style="animation-duration:2.6s;animation-delay:-.4s"><g class="wxRot" style="animation-duration:7s" opacity=".7"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(78,0)"><g class="wxFl" style="animation-duration:10.4s;animation-delay:-4.6s"><g class="wxSway" style="animation-duration:3.1s;animation-delay:-1.2s"><g class="wxRot" style="animation-duration:9s" opacity=".62"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(122,0)"><g class="wxFl" style="animation-duration:9.2s;animation-delay:-2.8s"><g class="wxSway" style="animation-duration:2.8s;animation-delay:-2s"><g class="wxRot" style="animation-duration:8s" opacity=".74"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(166,0)"><g class="wxFl" style="animation-duration:11s;animation-delay:-7.4s"><g class="wxSway" style="animation-duration:3.4s;animation-delay:-.8s"><g class="wxRot" style="animation-duration:10s" opacity=".58"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(212,0)"><g class="wxFl" style="animation-duration:8.8s;animation-delay:-5.9s"><g class="wxSway" style="animation-duration:2.5s;animation-delay:-1.6s"><g class="wxRot" style="animation-duration:7.5s" opacity=".72"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(258,0)"><g class="wxFl" style="animation-duration:10s;animation-delay:-3.7s"><g class="wxSway" style="animation-duration:3s;animation-delay:-.2s"><g class="wxRot" style="animation-duration:8.6s" opacity=".66"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(304,0)"><g class="wxFl" style="animation-duration:9.6s;animation-delay:-6.8s"><g class="wxSway" style="animation-duration:2.7s;animation-delay:-1.4s"><g class="wxRot" style="animation-duration:9.4s" opacity=".6"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(366,0)"><g class="wxFl" style="animation-duration:8.4s;animation-delay:-.6s"><g class="wxSway" style="animation-duration:2.9s;animation-delay:-2.3s"><g class="wxRot" style="animation-duration:8.2s" opacity=".7"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+</g>
+<g stroke="rgba(255,255,255,.7)" stroke-width="1.7" stroke-linecap="round" fill="none">
+<g transform="translate(58,0)"><g class="wxFl" style="animation-duration:13.5s;animation-delay:-2.2s"><g class="wxSway" style="animation-duration:4.2s;animation-delay:-1.1s"><g class="wxRot" style="animation-duration:12s" opacity=".5" transform="scale(1.9)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(146,0)"><g class="wxFl" style="animation-duration:15.2s;animation-delay:-8.9s"><g class="wxSway" style="animation-duration:4.8s;animation-delay:-2.9s"><g class="wxRot" style="animation-duration:14s" opacity=".44" transform="scale(2.2)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(242,0)"><g class="wxFl" style="animation-duration:14.4s;animation-delay:-5.5s"><g class="wxSway" style="animation-duration:4.5s;animation-delay:-.7s"><g class="wxRot" style="animation-duration:13s" opacity=".52" transform="scale(2)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+<g transform="translate(330,0)"><g class="wxFl" style="animation-duration:16s;animation-delay:-11.3s"><g class="wxSway" style="animation-duration:5.1s;animation-delay:-3.6s"><g class="wxRot" style="animation-duration:15s" opacity=".46" transform="scale(2.4)"><path d="M-6 0H6M-3 -5.2L3 5.2M-3 5.2L3 -5.2"/></g></g></g></g>
+</g>
+</svg>`,
 
-  /* =====================================================================
-   * Effect 5 / 6 —— Rainstorm 暴雨（高速 + 拖影 + 地面溅射）
-   *   - 220 根高速雨滴，更强拖影
-   *   - 当雨滴到底部时，触发 1 颗地面溅射粒子（向上飞溅 + 衰减）
-   * ===================================================================== */
-  class RainstormEffect extends HeavyRainEffect {
-    init(w, h){
-      this.w = w; this.h = h;
-      this.drops.length = 0;
-      // 暴雨/雷暴：比大雨更密更快，但保持疏缓（用户：不要过密过快）
-      const n = isLowPerf ? 30 : 42;
-      for(let i=0;i<n;i++){
-        this.drops.push({
-          x: rand(-30, w+30),
-          y: rand(-h, h),
-          len: rand(9, 16),
-          speed: rand(150, 210),
-          alpha: rand(0.05, 0.08),      // 几乎透明（暴雨略高一点点）
-          slope: rand(0.12, 0.22)
-        });
-      }
-    }
-    tick(dt, w, h, ctx){
-      // 拖影：极淡的浅灰蓝
-      const trailColor = '150,165,190';
-      trailFill(ctx, w, h, trailColor, 0.04);
-      ctx.lineCap = 'round';
-      // 白色极淡雨丝（~5%）
-      const baseColor = '255,255,255';
-      for(const d of this.drops){
-        d.y += d.speed * dt;
-        d.x += d.speed * d.slope * dt;
-        // 触底直接回卷（无溅起水花）
-        if(d.y > h - 2){
-          d.y = -d.len;
-          d.x = rand(-40, w+40);
-        }
-        if(d.x > w + 40) d.x = -40;
-        ctx.strokeStyle = `rgba(${baseColor},${d.alpha})`;
-        ctx.lineWidth = 1.3;
-        ctx.beginPath();
-        ctx.moveTo(d.x, d.y);
-        ctx.lineTo(d.x - d.slope*d.len*1.6, d.y + d.len*1.6);
-        ctx.stroke();
-      }
-    }
-  }
-
-  /* =====================================================================
-   * Effect 6 / 6 —— Thunderstorm 雷雨（暴雨 + 随机闪电）
-   *   - 继承 RainstormEffect 的所有粒子
-   *   - 闪电：随机间隔，0.1 秒全屏白闪 + 折线
-   * ===================================================================== */
-  class ThunderstormEffect extends RainstormEffect {
-    constructor(){ super(); this.flashAlpha = 0; this.flashNext = 2; this.lightning = null; }
-    init(w, h){
-      super.init(w, h);
-      this.flashAlpha = 0;
-      this.flashNext = rand(2, 4.5);
-    }
-    tick(dt, w, h, ctx){
-      // 1) 暴雨本体（含拖影 + 水花）
-      super.tick(dt, w, h, ctx);
-      // 2) 闪电计时
-      this.flashNext -= dt;
-      if(this.flashNext <= 0 && !this.lightning){
-        // 触发一次闪电
-        this.lightning = this.makeLightning(w, h);
-        this.flashAlpha = 0.85;
-      }
-      // 3) 全屏闪光衰减
-      if(this.flashAlpha > 0){
-        this.flashAlpha = Math.max(0, this.flashAlpha - dt * 5);
-        ctx.fillStyle = `rgba(235,240,255,${this.flashAlpha * 0.7})`;
-        ctx.fillRect(0, 0, w, h);
-      }
-      // 4) 绘制折线闪电
-      if(this.lightning){
-        ctx.strokeStyle = `rgba(255,255,255,${this.flashAlpha + 0.15})`;
-        ctx.lineWidth = 1.8;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        let x = this.lightning.startX, y = 0;
-        ctx.moveTo(x, y);
-        for(const seg of this.lightning.segs){
-          x += seg.dx; y += seg.dy;
-          ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-        // 闪电衰减到消失
-        this.lightning.life -= dt;
-        if(this.lightning.life <= 0){
-          this.lightning = null;
-          this.flashNext = rand(3, 7);
-        }
-      }
-    }
-    // 构造一条折线闪电：从顶部某点出发，向下锯齿延展
-    makeLightning(w, h){
-      const segs = [];
-      let dx = rand(-6, 6);
-      let dy = rand(8, 14);
-      let steps = Math.floor(h / 18) + 6;
-      for(let i=0;i<steps;i++){
-        segs.push({dx, dy});
-        // 每步微调
-        dx += rand(-12, 12);
-        dx = Math.max(-14, Math.min(14, dx));
-        dy = rand(8, 18);
-      }
-      return {
-        startX: rand(w*0.2, w*0.8),
-        segs,
-        life: rand(0.15, 0.35)
-      };
-    }
-  }
-
-  /* =====================================================================
-   * Effect 7 / 8 —— Fog 雾（有雾/薄雾/烟霞/雾凇）
-   *   - 3 层半透明白色雾带，缓慢横向漂移（视差）
-   *   - 每层雾带由 3-5 个扁平椭圆重叠而成，宽度超过卡片实现无缝循环
-   *   - 匹配 HKO 80/81/82（有雾/薄雾/烟霞）与 Open-Meteo 45/48
-   * ===================================================================== */
-  class FogEffect {
-    constructor(){ this.layers = []; this.t = 0; }
-    init(w, h){
-      this.w = w; this.h = h;
-      this.layers.length = 0;
-      // 三层雾带：速度 / 透明度 / 纵向位置比例
-      const configs = [
-        {spd: 6,  alpha: 0.10, y: 0.30, hScale: 0.14},
-        {spd: 12, alpha: 0.16, y: 0.55, hScale: 0.18},
-        {spd: 20, alpha: 0.24, y: 0.80, hScale: 0.22}
-      ];
-      for(const cfg of configs){
-        const bandH = h * cfg.hScale;
-        const puffN = 3 + Math.floor(Math.random()*3);
-        const puffs = [];
-        for(let i=0;i<puffN;i++){
-          puffs.push({
-            ox: rand(-w*0.5, w*0.5),
-            oy: rand(-bandH*0.5, bandH*0.5),
-            rx: rand(w*0.28, w*0.42),
-            ry: rand(bandH*0.5, bandH*0.75)
-          });
-        }
-        this.layers.push({
-          spd: cfg.spd,
-          alpha: cfg.alpha,
-          y: h * cfg.y,
-          bandH,
-          x: rand(-w*0.5, 0),
-          w,
-          puffs
-        });
-      }
-    }
-    resize(w, h){ this.init(w, h); }
-    tick(dt, w, h, ctx){
-      this.t += dt;
-      ctx.clearRect(0, 0, w, h);
-      for(const L of this.layers){
-        L.x += L.spd * dt;
-        // 整条雾带宽度 = 2*卡片宽（含两侧扩展），漂出后无缝回卷
-        const bandW = w * 2;
-        if(L.x > bandW) L.x = -bandW;
-        for(const p of L.puffs){
-          // 每个 puff 以带内位置绘制，产生水平移动
-          let px = p.ox + L.x;
-          // 画三份实现无缝循环（左/中/右）
-          for(const dx of [-bandW, 0, bandW]){
-            const cx = px + dx;
-            ctx.beginPath();
-            ctx.ellipse(cx, L.y + p.oy, p.rx, p.ry, 0, 0, Math.PI*2);
-            ctx.fillStyle = `rgba(255,255,255,${L.alpha})`;
-            ctx.fill();
-          }
-        }
-      }
-    }
-  }
-
-  /* =====================================================================
-   * Effect 8 / 8 —— Snow 雪（小雪/中雪/大雪/阵雪/雪粒）
-   *   - 白色雪粒圆点，缓慢下落 + 正弦左右飘摆
-   *   - 匹配 Open-Meteo 后备源 71-77 / 85-86（香港高海拔或冷锋可能触发）
-   * ===================================================================== */
-  class SnowEffect {
-    constructor(){ this.flakes = []; this.t = 0; }
-    init(w, h){
-      this.w = w; this.h = h;
-      this.flakes.length = 0;
-      const n = isLowPerf ? 35 : 55;
-      for(let i=0;i<n;i++){
-        this.flakes.push({
-          x: rand(0, w),
-          y: rand(-h, h),
-          size: rand(1.2, 2.8),
-          speed: rand(35, 80),          // 缓速下落
-          sway: rand(0.6, 1.6),          // 左右摆动幅度
-          phase: rand(0, Math.PI*2),     // 摆动相位
-          freq: rand(1.2, 2.2),          // 摆动频率
-          alpha: rand(0.5, 0.9)
-        });
-      }
-    }
-    resize(w, h){ this.init(w, h); }
-    tick(dt, w, h, ctx){
-      this.t += dt;
-      ctx.clearRect(0, 0, w, h);
-      for(const f of this.flakes){
-        f.y += f.speed * dt;
-        f.x += Math.sin(this.t * f.freq + f.phase) * f.sway * dt * 2;
-        if(f.y > h + 4){ f.y = -4; f.x = rand(0, w); }
-        if(f.x > w + 4) f.x = -4;
-        else if(f.x < -4) f.x = w + 4;
-        ctx.beginPath();
-        ctx.arc(f.x, f.y, f.size, 0, Math.PI*2);
-        ctx.fillStyle = `rgba(255,255,255,${f.alpha})`;
-        ctx.fill();
-      }
-    }
-  }
-
-  /* ---------- 对外 API ---------- */
-  // 初始化一张卡片，返回该卡专属实例
-  WeatherFX.init = function(card){
-    if(!card) return null;
-    if(instances.has(card)) return instances.get(card);
-    const inst = createInstance(card);
-    if(inst){ instances.set(card, inst); }
-    return inst;
+    /* 加载中：中性白云缓漂（配 loading 绿色渐变底，不抢眼） */
+    loading: `<svg viewBox="0 0 400 200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+<style>
+.wxDriftL{animation:wxLd linear infinite;}
+@keyframes wxLd{from{transform:translateX(-300px);}to{transform:translateX(700px);}}
+</style>
+<g transform="translate(0,72) scale(.72)" opacity=".42">
+<g class="wxDriftL" style="animation-duration:52s;animation-delay:-12s"><g fill="rgba(255,255,255,.9)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+</g>
+<g transform="translate(0,118) scale(.5)" opacity=".3">
+<g class="wxDriftL" style="animation-duration:70s;animation-delay:-42s"><g fill="rgba(255,255,255,.85)"><ellipse cx="-20" cy="6" rx="26" ry="12"/><ellipse cx="8" cy="-5" rx="30" ry="16"/><ellipse cx="34" cy="5" rx="24" ry="11"/><ellipse cx="4" cy="9" rx="42" ry="10"/></g></g>
+</g>
+</svg>`
   };
-  // 旧签名兼容：WeatherFX.set(kind)
-  //  - 不传 card：操作当前默认卡片
-  //  - 传 card + kind：操作指定卡片
+
+  const WeatherFX = {};
+  let currentKind = '';
+
+  /* 切换动画：兼容 set(kind) 与 set(card, kind) 两种旧签名 */
   WeatherFX.set = function(a, b){
+    let kind, host;
     if(typeof a === 'string'){
-      // 旧调用：WeatherFX.set('rainy')
-      if(!defaultInstance){
-        const card = document.getElementById('weatherCard');
-        if(card){ defaultInstance = WeatherFX.init(card); }
-      }
-      if(defaultInstance) defaultInstance.set(a);
-    } else if(a && typeof b === 'string'){
-      // 新签名：WeatherFX.set(cardElement, 'rain')
-      const inst = WeatherFX.init(a);
-      if(inst) inst.set(b);
+      kind = a;
+      host = document.getElementById('weatherSvg');
+    }else if(a && typeof b === 'string'){
+      kind = b;
+      host = a.querySelector('.weather-svg') || document.getElementById('weatherSvg');
+    }else{
+      return a;
     }
+    if(!host) return a;
+    if(kind === currentKind && host.dataset.kind === kind) return a;
+    currentKind = kind;
+    host.dataset.kind = kind;
+    host.innerHTML = SVG_TEMPLATES[kind] || SVG_TEMPLATES.sunny;
     return a;
   };
-  WeatherFX.stop = function(){
-    instances && document.querySelectorAll('.weather-card').forEach(c=>{
-      const ins = instances.get(c);
-      if(ins) ins.stop();
-    });
-  };
+  /* 兼容旧调用：SVG 版无实例概念，返回模块本身 */
+  WeatherFX.init = function(){ return WeatherFX; };
+  /* 无操作：CSS 动画随页面 visibility 自动暂停，无需手动停 */
+  WeatherFX.stop = function(){};
 
-  /* ---------- 工厂：8 种效果 ---------- */
-  const EFFECTS = {
-    sunny: SunnyEffect,
-    cloudy: CloudyEffect,
-    rain: RainEffect,
-    heavy_rain: HeavyRainEffect,
-    rainstorm: RainstormEffect,
-    thunderstorm: ThunderstormEffect,
-    fog: FogEffect,
-    snow: SnowEffect,
-    loading: SunnyEffect // 默认呈现太阳（与 sunny 同效果）
-  };
+  window.WeatherFX = WeatherFX;
 
-  /* ---------- 初始化（页面加载后） ---------- */
+  /* 初始化（页面加载后）：读卡片 data-weather 决定初始效果 */
   function bootstrap(){
-    // 为页面上所有 .weather-card 创建独立实例（首页通常只有一张）
     document.querySelectorAll('.weather-card').forEach(card=>{
-      const inst = WeatherFX.init(card);
-      // 读取卡片当前 data-weather 默认值，决定初始效果
-      if(inst){
-        const kind = card.getAttribute('data-weather') || 'loading';
-        inst.set(kind);
-      }
+      const kind = card.getAttribute('data-weather') || 'loading';
+      WeatherFX.set(card, kind);
     });
   }
   if(document.readyState === 'loading'){
     document.addEventListener('DOMContentLoaded', bootstrap);
-  } else {
+  }else{
     bootstrap();
   }
-  window.WeatherFX = WeatherFX;
 })();
 
 function getWeatherSummary(){
