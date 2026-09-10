@@ -552,21 +552,42 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   animation:fade .32s var(--ease);
 }
 #list{transition:opacity .16s var(--ease),transform .16s var(--ease);}
-.list-toolbar .search-wrap{position:relative;}
+/* 搜索框：液态玻璃胶囊。左内边距 40px 给放大镜、右内边距 42px 给清空按钮，
+   两者都压在 border-radius:999px 的圆弧之内（圆弧只占左右各 20px、图标居中在直边区），
+   不依赖 overflow:hidden 裁切。 */
+.list-toolbar .search-wrap{position:relative;display:flex;align-items:center;}
+.list-toolbar .search-ic{
+  position:absolute;left:16px;color:var(--ink-faint);pointer-events:none;
+  transition:color .22s var(--ease);
+}
+.list-toolbar .search-wrap:focus-within .search-ic{color:var(--green-deep);}
 .list-toolbar input[type="search"]{
-  border:1px solid var(--glass-line);background:var(--glass-strong);
-  font-size:var(--fs-3);color:var(--ink);outline:none;box-shadow:var(--shadow-inset);
-  transition:border-color .2s,box-shadow .2s,background .2s;transition-timing-function:var(--ease);
+  width:100%;min-width:0;
+  padding:10px 44px;line-height:1.4;
+  border:1px solid var(--glass-line);border-radius:var(--radius-pill);
+  background:var(--glass-strong);
+  font-family:var(--font);font-size:var(--fs-3);color:var(--ink);outline:none;
+  box-shadow:var(--shadow-inset),var(--shadow-xs);
+  transition:border-color .22s,box-shadow .28s,background .22s;transition-timing-function:var(--ease);
   -webkit-appearance:none;appearance:none;
 }
+.list-toolbar input[type="search"]::placeholder{color:var(--ink-faint);font-weight:600;}
+.list-toolbar input[type="search"]::-webkit-search-cancel-button,
+.list-toolbar input[type="search"]::-webkit-search-decoration{-webkit-appearance:none;appearance:none;display:none;}
 .list-toolbar input[type="search"]:focus{
   border-color:var(--green-deep);background:var(--glass-strong);
   box-shadow:0 0 0 4px var(--green-glow),var(--shadow-inset);
 }
-.list-toolbar .search-wrap::before{
-  content:"🔍";position:absolute;left:14px;top:50%;transform:translateY(-50%);
-  font-size:var(--fs-3);opacity:.55;pointer-events:none;
+.list-toolbar .search-clear{
+  position:absolute;right:11px;width:22px;height:22px;border-radius:var(--radius-pill);padding:0;
+  display:flex;align-items:center;justify-content:center;
+  border:none;background:rgba(60,70,60,.07);color:var(--ink-soft);cursor:pointer;
+  opacity:0;transform:scale(.7);pointer-events:none;
+  transition:opacity .2s var(--ease),transform .26s var(--ease),background .2s var(--ease);
 }
+/* 有内容才浮出：靠 placeholder 占位判定，纯 CSS，无需与 JS 状态同步 */
+.list-toolbar input[type="search"]:not(:placeholder-shown)~.search-clear{opacity:1;transform:none;pointer-events:auto;}
+.list-toolbar .search-clear:active{transform:scale(.86);background:rgba(60,70,60,.14);}
 .list-toolbar .filter-row{display:flex;gap:8px;align-items:center;justify-content:space-between;}
 .list-toolbar .filter-checks{display:flex;gap:6px;align-items:center;min-width:0;flex-wrap:wrap;}
 .list-toolbar .filter-checks .chip-toggle{padding:7px 11px;font-size:var(--fs-2);gap:5px;}
@@ -2025,6 +2046,7 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></symbol>
   <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.2-5.4-6.2-10.2a6.2 6.2 0 0 1 12.4 0C18.2 15.6 12 21 12 21z"/><circle cx="12" cy="10.6" r="2.4"/></symbol>
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.6 12S6.2 5.9 12 5.9 21.4 12 21.4 12 17.8 18.1 12 18.1 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="3.1"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.7" cy="10.7" r="6.3"/><path d="M15.4 15.4l5.1 5.1"/></symbol>
   <symbol id="i-book" viewBox="0 0 24 24"><path d="M5.5 4.2h11.8a2.2 2.2 0 0 1 2.2 2.2v13.2a2.2 2.2 0 0 1-2.2 2.2H5.5z"/><path d="M9.2 4.2v17.6"/><path d="M12.6 8.6h4.4M12.6 12.4h4.4"/></symbol>
   <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 15.2a2 2 0 0 1-2 2h-5.4l-3.6 2.8V17.2H6a2 2 0 0 1-2-2V7.6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z"/><circle class="if" cx="9" cy="11.4" r=".9"/><circle class="if" cx="12" cy="11.4" r=".9"/><circle class="if" cx="15" cy="11.4" r=".9"/></symbol>
   <symbol id="i-sprout" viewBox="0 0 24 24"><path d="M4.5 20.5h15"/><path d="M12 20.5v-8"/><path d="M12 15c0-2.8-2-5-4.8-5 0 2.8 2 5 4.8 5z"/><path d="M12 13c0-2.8 2-5 4.8-5 0 2.8-2 5-4.8 5z"/></symbol>
@@ -2190,7 +2212,11 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 
   <div class="list-toolbar" id="listToolbar">
     <div class="search-wrap">
+      <svg class="ico search-ic" style="width:17px;height:17px"><use href="#i-search"/></svg>
       <input type="search" id="listSearch" placeholder="搜索任务、备注、步骤…" oninput="setListSearch(this.value)">
+      <button type="button" class="search-clear" onclick="clearListSearch()" aria-label="清空搜索">
+        <svg class="ico" style="width:13px;height:13px"><use href="#i-close"/></svg>
+      </button>
     </div>
     <div class="filter-row">
       <div class="filter-checks" id="filterChecks">
@@ -5321,6 +5347,12 @@ function visibleTasks(){
 function setListSearch(v){
   listSearch = v;
   renderList();
+}
+function clearListSearch(){
+  const el = document.getElementById('listSearch');
+  if(el) el.value = '';
+  setListSearch('');
+  if(el) el.focus();
 }
 function toggleFilter(key){
   taskFilter[key] = !taskFilter[key];
