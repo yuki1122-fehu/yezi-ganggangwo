@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>港港窝 · 数据抢救台</title>
+<style>
+  :root{
+    --bg:#f6f4ee; --ink:#3a3f36; --ink-soft:#6d7368; --ink-faint:#a8ad9f;
+    --green:#7d9a7d; --green-dark:#5c7559; --green-soft:#e8efe6;
+    --card:rgba(255,255,255,.82); --line:rgba(125,154,125,.28);
+    --danger:#a32d2d; --warn:#c96a1f; --ok:#3f7a45;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{
+    margin:0;padding:18px 14px 60px;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    font-size:15px;line-height:1.65;
+  }
+  .wrap{max-width:760px;margin:0 auto;}
+  h1{font-size:20px;margin:0 0 4px;font-weight:700;color:var(--green-dark);}
+  .sub{font-size:12px;color:var(--ink-soft);margin:0 0 16px;}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:16px;
+    padding:14px 16px;margin-bottom:14px;backdrop-filter:blur(12px);
+    box-shadow:0 2px 10px rgba(90,110,88,.06);
+  }
+  .card h2{font-size:14px;margin:0 0 10px;color:var(--green-dark);font-weight:700;
+    display:flex;align-items:center;gap:6px;}
+  .card h2 .dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex:0 0 auto;}
+  .big{font-size:26px;font-weight:700;line-height:1.3;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  button{
+    font-family:inherit;font-size:14px;padding:10px 16px;border-radius:11px;
+    border:1px solid var(--line);background:#fff;color:var(--ink);
+    cursor:pointer;font-weight:600;
+  }
+  button:active{transform:scale(.97);}
+  button.primary{background:var(--green);border-color:var(--green);color:#fff;}
+  button.danger{background:#fff;border-color:rgba(163,45,45,.4);color:var(--danger);}
+  button.ghost{background:transparent;}
+  pre{
+    background:#fffdf8;border:1px dashed var(--line);border-radius:12px;
+    padding:12px;font-size:12px;line-height:1.6;white-space:pre-wrap;
+    word-break:break-all;margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    max-height:340px;overflow:auto;
+  }
+  .verdict{font-size:15px;font-weight:600;padding:12px 14px;border-radius:12px;margin-bottom:10px;}
+  .v-ok{background:#eaf5ea;color:var(--ok);border:1px solid #b9dcb9;}
+  .v-warn{background:#fdf3e7;color:var(--warn);border:1px solid #f0d3ac;}
+  .v-bad{background:#fbecec;color:var(--danger);border:1px solid #edc0c0;}
+  .v-idle{background:var(--green-soft);color:var(--green-dark);border:1px solid var(--line);}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px;}
+  .kv b{color:var(--ink-soft);font-weight:500;white-space:nowrap;}
+  .kv span{font-family:ui-monospace,Menlo,monospace;word-break:break-all;}
+  .hint{font-size:11.5px;color:var(--ink-soft);line-height:1.6;margin:8px 0 0;}
+  ol{padding-left:20px;margin:6px 0;}
+  ol li{margin-bottom:6px;font-size:13.5px;}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:6px;
+    background:var(--green-soft);color:var(--green-dark);margin-left:6px;vertical-align:1px;}
+  .found{background:#eaf5ea;border-radius:10px;padding:10px 12px;margin-top:8px;
+    border:1px solid #b9dcb9;font-size:13px;}
+  textarea{width:100%;min-height:90px;font-size:12px;font-family:ui-monospace,Menlo,monospace;
+    border:1px solid var(--line);border-radius:10px;padding:10px;background:#fffdf8;resize:vertical;}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);
+    border-top-color:var(--green);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>🩺 港港窝 · 数据抢救台</h1>
+  <p class="sub">这个页面只在本机读取你自己浏览器里的数据，不联网、不上传任何内容。看完后可以直接删掉书签。</p>
+
+  <div class="card" id="statusCard">
+    <h2><span class="dot"></span>第一步 · 自检</h2>
+    <div id="verdict" class="verdict v-idle">等待体检…</div>
+    <div class="row" style="margin-top:4px;">
+      <button class="primary" onclick="runScan()">开始体检</button>
+      <button class="ghost" onclick="copyReport()">复制完整报告</button>
+    </div>
+    <p class="hint">体检会检查：localStorage 键、IndexedDB 各表条数、以及「有没有可恢复的历史数据」。</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>数据现状</h2>
+    <div class="kv" id="kvBox"><b>状态</b><span>未体检</span></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>补救通道</h2>
+    <div id="rescueBox" class="hint">体检后这里会给出可执行的下一步。</div>
+    <div class="row" style="margin-top:10px;">
+      <button onclick="rescue1()">♻️ 把残留对话回灌进记忆库</button>
+      <button onclick="rescue2()">📦 导出当前全部数据</button>
+    </div>
+    <p class="hint">
+      第一个按钮＝官方「恢复对话记录」：如果聊天存档还在，能把最近 300 条对话回灌进记忆库重新打标。<br>
+      第二个按钮＝官方「导出数据」：把现在还活着的所有东西打包成一份 JSON 存下来，先保住能保的。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>完整报告（可复制）</h2>
+    <textarea id="report" placeholder="点上方「开始体检」后，报告会出现在这里。"></textarea>
+    <p class="hint">把这份报告发给助理，就能定位到底丢了什么、还能不能救。</p>
+  </div>
+
+  <div class="card" id="helpCard">
+    <h2><span class="dot"></span>为什么会丢 & 以后怎么防</h2>
+    <ol>
+      <li><b>本地存储只有一份，没有云同步。</b>任务 / 课表 / 记账 / AI 配置 / 对话记录都存在浏览器本地的 localStorage；日记和记忆存在 IndexedDB。<br>
+          <span style="color:var(--ink-soft);font-size:12.5px;">→ 清「Cookie 和网站数据」、清缓存、隐私模式、系统清理 App 都会把它们一起抹掉，且不可撤销。</span></li>
+      <li><b>已安装的 PWA 不会自动豁免。</b>清「缓存的图片和文件」通常只影响离线资源；但一旦勾了「Cookie 和网站数据」，桌面图标里的数据照样清空。</li>
+      <li><b>手机存储吃紧时，系统也会清理站点数据。</b>iOS 的 7 天未访问清理策略、安卓的省电/清理 App 都可能下手。</li>
+      <li><b>真正的护身符是定期导出。</b>设置里那句「建议每周导出一次」不是客套话——它就是唯一的保险。</li>
+    </ol>
+    <p class="hint">体检完我会给你一套「自动备份 + 一键恢复」的加固方案，把这个坑堵上。</p>
+  </div>
+
+</div>
+
+<script>
+/* ===================================================================
+   港港窝数据抢救台
+   仅本机读取，不发起任何网络请求。
+   =================================================================== */
+
+const APP_ORIGIN = 'https://yuki1122-fehu.github.io';
+const APP_PATH   = '/yezi-ganggangwo/';
+
+// 站点源码里定义的存储键（用于判定「原本该有、现在没了」）
+const LS_KEYS = [
+  ['mhm_cloud_v1',    '任务'],
+  ['mhm_courses_v1',  '课表'],
+  ['mhm_expense_v1',  '记账'],
+  ['mhm_ai_cfg',      'AI 配置（含 API Key / 提示词）'],
+  ['mhm_ai_conv',     '对话记录'],
+  ['mhm_ai_voices',   '角色音色'],
+  ['mhm_ai_stickers', '表情包'],
+  ['mhm_mem_identity','关系身份'],
+  ['mhm_mem_on',      '记忆开关'],
+  ['mhm_mem_rel',     '关系现状快照'],
+  ['mhm_app_title',   '工作台名称'],
+  ['mhm_pomodoro',    '番茄钟数据'],
+  ['mhm_ai_usage_log','用量日志'],
+  ['mhm_role_activity','角色动态'],
+  ['mhm_oc_world',    '角色世界'],
+  ['mhm_last_backup', '上次备份时间'],
+  ['mhm_last_doc_text','最近解析文档'],
+  ['mhm_ai_unread',   '未读红点'],
+  ['mhm_ai_proactive','主动消息记录'],
+  ['mhm_push_on',     '推送开关'],
+  ['mhm_cloud_ctx_ok','云端在岗时间'],
+  ['mhm_hk_weather',  '天气缓存（不重要）'],
+  ['mhm_hk_warning',  '警告缓存（不重要）']
+];
+
+// IndexedDB（日记、记忆库、角色朋友圈）
+const IDB_STORES = [
+  ['journal',   '日记 / 周记 / 月记'],
+  ['entries',   '记忆条目'],
+  ['tags',      '记忆标签'],
+  ['messages',  '打标原料对话'],
+  ['oc_posts',  '角色朋友圈'],
+  ['kv',        '记忆库内部水位']
+];
+
+let REPORT = [];
+function log(s){ REPORT.push(s); }
+
+function fmtBytes(n){
+  if(n == null) return '-';
+  if(n < 1024) return n + ' B';
+  if(n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+  return (n/1024/1024).toFixed(2) + ' MB';
+}
+
+/* ---------- 1. localStorage ---------- */
+function scanLocalStorage(){
+  const out = [];
+  let totalBytes = 0, totalCount = 0;
+  const present = [];
+  const missing = [];
+
+  for(const [k, label] of LS_KEYS){
+    let v = null;
+    try{ v = localStorage.getItem(k); }catch(e){}
+    if(v === null){ missing.push([k, label]); continue; }
+    const size = v.length + k.length;
+    totalBytes += size; totalCount++;
+    let extra = '';
+    // 解析一下关键项，判断是不是「空壳」
+    try{
+      if(k === 'mhm_cloud_v1' || k === 'mhm_courses_v1'){
+        const a = JSON.parse(v);
+        extra = Array.isArray(a) ? (a.length + ' 条') : '(非数组)';
+        if(Array.isArray(a) && a.length === 0) extra += ' ← 空壳！';
+      } else if(k === 'mhm_ai_conv'){
+        const a = JSON.parse(v);
+        extra = Array.isArray(a) ? (a.length + ' 条消息') : '(异常)';
+      } else if(k === 'mhm_expense_v1'){
+        const o = JSON.parse(v);
+        const n = (o && Array.isArray(o.items)) ? o.items.length : 0;
+        extra = n + ' 笔';
+      } else if(k === 'mhm_ai_cfg'){
+        const o = JSON.parse(v);
+        const hasKey = !!(o && o.apiKey);
+        extra = (hasKey ? '有 API Key' : '⚠️ 无 API Key')
+              + ' / 提示词 ' + ((o && o.systemTpl) ? (o.systemTpl.length + ' 字') : '缺失');
+      } else if(k === 'mhm_pomodoro'){
+        const o = JSON.parse(v);
+        extra = o ? '有数据' : '空';
+      }
+    }catch(e){ extra = '⚠️ 解析失败'; }
+    present.push({k, label, size, extra});
+  }
+
+  // 心情数据（mhm_mood_YYYY-MM-DD）
+  const moods = [];
+  try{
+    for(let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if(k && k.indexOf('mhm_mood_') === 0){
+        moods.push(k.replace('mhm_mood_', ''));
+        totalBytes += (k.length + 4); totalCount++;
+      }
+    }
+  }catch(e){}
+
+  // 其它 mhm_ 开头的键（可能是我没列全的）
+  const others = [];
+  try{
+    for(let i = 0; i < localStorage.length; i++){
+      const k = localStorage.key(i);
+      if(k && k.indexOf('mhm') === 0 && !LS_KEYS.some(p => p[0] === k) && k.indexOf('mhm_mood_') !== 0){
+        others.push(k);
+      }
+    }
+  }catch(e){}
+
+  return {present, missing, moods, others, totalBytes, totalCount};
+}
+
+/* ---------- 2. IndexedDB ---------- */
+function openIDB(name, ver){
+  return new Promise(resolve=>{
+    try{
+      const req = (ver != null) ? indexedDB.open(name, ver) : indexedDB.open(name);
+      req.onsuccess = ()=>resolve(req.result);
+      req.onerror = ()=>resolve(null);
+      req.onblocked = ()=>resolve(null);
+      setTimeout(()=>resolve(null), 4000); // 兜底：绝不卡死
+    }catch(e){ resolve(null); }
+  });
+}
+function idbCount(db, store){
+  return new Promise(resolve=>{
+    try{
+      if(!db.objectStoreNames.contains(store)){ resolve(-1); return; }
+      const tx = db.transaction(store, 'readonly');
+      const r = tx.objectStore(store).count();
+      r.onsuccess = ()=>resolve(r.result);
+      r.onerror = ()=>resolve(-2);
+    }catch(e){ resolve(-3); }
+  });
+}
+function idbAll(db, store){
+  return new Promise(resolve=>{
+    try{
+      if(!db.objectStoreNames.contains(store)){ resolve([]); return; }
+      const tx = db.transaction(store, 'readonly');
+      const r = tx.objectStore(store).getAll();
+      r.onsuccess = ()=>resolve(r.result || []);
+      r.onerror = ()=>resolve([]);
+    }catch(e){ resolve([]); }
+  });
+}
+function idbGet(db, store, key){
+  return new Promise(resolve=>{
+    try{
+      if(!db.objectStoreNames.contains(store)){ resolve(null); return; }
+      const tx = db.transaction(store, 'readonly');
+      const r = tx.objectStore(store).get(key);
+      r.onsuccess = ()=>resolve(r.result);
+      r.onerror = ()=>resolve(null);
+    }catch(e){ resolve(null); }
+  });
+}
+
+async function scanIDB(){
+  const result = { dbExists:false, dbName:'mhm_mem_db', stores:{}, rows:{}, note:'' };
+  const dbs = [];
+  try{
+    if(indexedDB.databases){
+      const list = await indexedDB.databases();
+      list.forEach(d => dbs.push(d.name + ' (v' + d.version + ')'));
+    } else {
+      dbs.push('（此浏览器不支持列举，仅探测 mhm_mem_db）');
+    }
+  }catch(e){ dbs.push('（列举失败：' + (e.message||e) + '）'); }
+  result.allDbs = dbs;
+
+  const db = await openIDB('mhm_mem_db', 3);
+  if(!db){ result.note = '打不开 mhm_mem_db（可能从未创建，或已被清空）'; return result; }
+  result.dbExists = true;
+  result.stores = Array.from(db.objectStoreNames);
+  for(const [name] of IDB_STORES){
+    const c = await idbCount(db, name);
+    result.stores2 = result.stores2 || {};
+    result.stores2[name] = c;
+  }
+  // 抓几条样本，判断是不是真数据
+  try{ result.rows.journal = (await idbAll(db, 'journal')).slice(-3); }catch(e){}
+  try{
+    const e = await idbAll(db, 'entries');
+    result.rows.entriesCount = e.length;
+    result.rows.entriesSample = e.slice(-2);
+  }catch(e){}
+  try{ result.rows.oc = (await idbAll(db, 'oc_posts')).slice(-2); }catch(e){}
+  try{ result.rows.msgsCount = (await idbAll(db, 'messages')).length; }catch(e){}
+  try{ result.rows.watermark = await idbGet(db, 'kv', 'tagger_watermark'); }catch(e){}
+  return result;
+}
+
+/* ---------- 3. 主流程 ---------- */
+let SCAN = null;
+
+async function runScan(){
+  READY = false;
+  REPORT = [];
+  const vd = document.getElementById('verdict');
+  const kvBox = document.getElementById('kvBox');
+  vd.className = 'verdict v-idle';
+  vd.innerHTML = '<span class="spin"></span>正在体检，请稍候…';
+  kvBox.innerHTML = '<b>状态</b><span>读取中…</span>';
+  document.getElementById('report').value = '';
+
+  const ls  = scanLocalStorage();
+  const idb = await scanIDB();
+
+  SCAN = {ls, idb, at: new Date().toISOString(), origin: location.origin, href: location.href, ua: navigator.userAgent};
+
+  /* --- 组织报告 --- */
+  log('===== 港港窝数据抢救 · 体检报告 =====');
+  log('体检时间：' + new Date().toLocaleString('zh-CN'));
+  log('当前页面：' + location.href);
+  log('站点来源：' + location.origin);
+  log('是否在应用内打开：' + (/yuki1122-fehu\.github\.io/.test(location.host) ? '是（推荐，数据读数准确）' : '否 ← 若上面来源不是 yuki1122-fehu.github.io，本次读数无效！'));
+  log('UA：' + navigator.userAgent);
+  log('');
+  log('---------- localStorage ----------');
+  log('键总数：' + ls.totalCount + '（其中心情记录 ' + ls.moods.length + ' 天）');
+  log('占用：' + fmtBytes(ls.totalBytes) + '（浏览器上限约 5 MB）');
+  log('');
+  log('【存在】');
+  if(!ls.present.length) log('  （无）');
+  ls.present.forEach(p => log('  ✅ ' + p.label + '  [' + p.k + ']  ' + fmtBytes(p.size) + '  ' + p.extra));
+  log('');
+  log('【原本应有、但现在不存在】');
+  if(!ls.missing.length) log('  （无，说明都还在）');
+  ls.missing.forEach(m => log('  ❌ ' + m[1] + '  [' + m[0] + ']'));
+  if(ls.others.length){
+    log('');
+    log('【其它 mhm 键】' + ls.others.join(', '));
+  }
+  log('');
+  log('---------- IndexedDB（日记 / 记忆库） ----------');
+  log('数据库列表：' + (idb.allDbs || []).join(' | '));
+  if(!idb.dbExists){
+    log('mhm_mem_db：❌ 不存在或打不开');
+    log('  ' + (idb.note || ''));
+  } else {
+    log('mhm_mem_db：✅ 存在');
+    log('  object stores：' + (idb.stores || []).join(', '));
+    log('');
+    for(const [name, label] of IDB_STORES){
+      const c = (idb.stores2 || {})[name];
+      const mark = (c > 0) ? '✅' : (c === 0 ? '⭕' : '❌');
+      log('  ' + mark + ' ' + label + ' [' + name + ']  ' + (c >= 0 ? (c + ' 条') : '读取失败'));
+    }
+    if(idb.rows.journal && idb.rows.journal.length){
+      log('');
+      log('  日记样例（最近 1 条）：');
+      const j = idb.rows.journal[idb.rows.journal.length-1];
+      log('    ' + (j.type||'?') + ' ' + (j.start||'') + ' ~ ' + (j.end||'') + '：' + String(j.content||'').slice(0,60) + '…');
+    }
+    if(idb.rows.entriesSample && idb.rows.entriesSample.length){
+      log('');
+      log('  记忆样例（最近 1 条）：' + String(idb.rows.entriesSample[idb.rows.entriesSample.length-1].summary||'').slice(0,60));
+    }
+    log('');
+    log('  打标水位 tagger_watermark = ' + (idb.rows.watermark == null ? '(空)' : idb.rows.watermark));
+    log('  打标原料 messages = ' + (idb.rows.msgsCount != null ? idb.rows.msgsCount + ' 条' : '读取失败'));
+  }
+
+  /* --- 判定 --- */
+  let cls, title, body;
+  const hasConv = ls.present.some(p => p.k === 'mhm_ai_conv');
+  const hasCfg  = ls.present.some(p => p.k === 'mhm_ai_cfg');
+  const hasTask = ls.present.some(p => p.k === 'mhm_cloud_v1');
+  const hasExp  = ls.present.some(p => p.k === 'mhm_expense_v1');
+  const journalCnt = idb.dbExists ? ((idb.stores2 || {}).journal || 0) : 0;
+  const entriesCnt = idb.dbExists ? ((idb.stores2 || {}).entries || 0) : 0;
+
+  if(!hasConv && !hasCfg && !hasTask && !hasExp && journalCnt > 0){
+    cls = 'v-bad';
+    title = '💔 确诊：localStorage 被清空，IndexedDB 幸存';
+    body = 'localStorage（任务/课表/记账/AI配置/对话/语音/表情包）已全部消失，而 IndexedDB（日记/记忆）完好。'
+         + '这是典型的「清除 Cookie 和网站数据」或系统清理站点数据的结果——两个存储的清除策略不同步。'
+         + '很遗憾，localStorage 一旦被清，本机就没有恢复入口了（见下方补救通道）。';
+  } else if(!hasConv && hasCfg && hasTask){
+    cls = 'v-warn';
+    title = '⚠️ 只有对话记录丢了';
+    body = '任务/课表/记账/配置都还在，只有 mhm_ai_conv 丢失。这种情况通常是：'
+         + '对话过长触发保存异常，或清空对话后 system 消息未重建。先点下方「导出当前全部数据」自保，再看补救通道。';
+  } else if(hasConv && journalCnt === 0 && entriesCnt === 0){
+    cls = 'v-warn';
+    title = '⚠️ 聊天存档在，但日记/记忆不见了';
+    body = 'localStorage 还在，但 IndexedDB 里的日记与记忆条数为 0。先点「把残留对话回灌进记忆库」，'
+         + '再把记录发我，我判断日记能不能从别处捞回来。';
+  } else if(hasConv && hasCfg && hasTask && hasExp){
+    cls = 'v-ok';
+    title = '✅ 好消息：数据都还在';
+    body = '关键数据全部健在。你看到「空白」可能是读到了另一个来源（浏览器里的版本 vs 桌面图标里的版本）、'
+         + '页面尚未加载完，或是缓存了旧版本。请立刻点「导出当前全部数据」做一次备份。';
+  } else {
+    cls = 'v-warn';
+    title = '🔍 部分数据缺失，需要人工判读';
+    body = '本机读到的现状已列在下方。请点「复制完整报告」把内容发给我，我逐项比对。';
+  }
+
+  vd.className = 'verdict ' + cls;
+  vd.innerHTML = '<div style="font-size:16px;margin-bottom:5px;">' + title + '</div>'
+               + '<div style="font-weight:400;font-size:13.5px;line-height:1.6;">' + body + '</div>';
+
+  /* --- 现状表 --- */
+  const kvs = [];
+  kvs.push(['站点', location.origin]);
+  kvs.push(['任务', hasTask ? '在' : '丢失']);
+  kvs.push(['课表', ls.present.some(p=>p.k==='mhm_courses_v1') ? '在' : '丢失']);
+  kvs.push(['记账', hasExp ? '在' : '丢失']);
+  kvs.push(['AI 配置', hasCfg ? '在' : '丢失']);
+  kvs.push(['对话记录', hasConv ? '在' : '丢失']);
+  kvs.push(['日记', idb.dbExists ? (journalCnt + ' 篇') : '数据库不存在']);
+  kvs.push(['记忆条目', idb.dbExists ? (entriesCnt + ' 条') : '数据库不存在']);
+  kvs.push(['心情', ls.moods.length + ' 天']);
+  kvs.push(['localStorage 占用', fmtBytes(ls.totalBytes)]);
+  kvBox.innerHTML = kvs.map(([k,v])=>'<b>'+k+'</b><span>'+v+'</span>').join('');
+
+  /* --- 补救通道 --- */
+  const rb = document.getElementById('rescueBox');
+  let rhtml = '';
+  if(hasConv){
+    rhtml += '<div class="found"><b>♻️ 可执行：残留对话还在（' 
+          + (function(){ try{ return JSON.parse(localStorage.getItem('mhm_ai_conv')).length; }catch(e){ return '?'; } })()
+          + ' 条）。</b><br>点上方第一个按钮，把它回灌进记忆库重新打标——不用重聊也能把这段对话的记忆救回来。</div>';
+  } else {
+    rhtml += '<div class="hint" style="margin:0;">⚠️ 聊天存档已不在本机，<b>「恢复对话记录」按钮没有原料可用</b>（它读的就是这个存档）。</div>';
+  }
+  if(entriesCnt > 0 || journalCnt > 0){
+    rhtml += '<div class="found" style="margin-top:8px;"><b>📦 日记与记忆还在。</b><br>它们存在 IndexedDB，可以单独导出保存，不会因为 localStorage 被清而丢。</div>';
+  }
+  rhtml += '<p class="hint">点「导出当前全部数据」会调用官方导出功能，把现在还活着的所有内容打包成 mhm-backup-日期.json。'
+        + '导出后请立刻发到微信文件传输助手 / 云盘，不要只留在手机里。若没弹出下载，内容会自动复制到剪贴板。</p>';
+
+  const ctr = document.createElement('div');
+  rb.innerHTML = rhtml;
+
+  document.getElementById('report').value = REPORT.join('\n');
+  READY = true;
+}
+
+/* ---------- 4. 动作 ---------- */
+let READY = false;
+
+function copyReport(){
+  const t = document.getElementById('report').value;
+  if(!t){ alert('先点「开始体检」'); return; }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(()=>alert('报告已复制，粘贴发给助理即可 ✓')).catch(()=>fallback(t));
+  } else fallback(t);
+}
+function fallback(t){
+  const ta = document.getElementById('report');
+  ta.focus(); ta.select();
+  try{ document.execCommand('copy'); alert('报告已复制 ✓'); }catch(e){ alert('复制失败，请长按文本框手动全选复制'); }
+}
+
+/* 跳到 App 并自动执行「恢复对话记录」 */
+function rescue1(){
+  if(!SCAN){ alert('先点「开始体检」'); return; }
+  const hasConv = SCAN.ls.present.some(p => p.k === 'mhm_ai_conv');
+  if(!hasConv){
+    alert('本机已经没有对话存档了，「恢复对话记录」没有原料可读。\n\n建议直接点「导出当前全部数据」，先保住日记和记忆。');
+    return;
+  }
+  if(!/yuki1122-fehu\.github\.io/.test(location.host)){
+    alert('请回到港港窝应用页面再执行这一步（当前不是同一站点，操作无效）。');
+    return;
+  }
+  const url = APP_PATH + '?rescuer=1';
+  location.href = url;
+}
+
+/* 跳到 App 并自动执行「导出数据」 */
+function rescue2(){
+  if(!/yuki1122-fehu\.github\.io/.test(location.host)){
+    alert('请回到港港窝应用页面再执行这一步（当前不是同一站点，操作无效）。');
+    return;
+  }
+  location.href = APP_PATH + '?backupnow=1';
+}
+
+/* ---------- 5. 自动开始 ---------- */
+window.addEventListener('load', ()=>{ setTimeout(runScan, 200); });
+
+/* 若带参跳回来，把结果播报给主应用（主应用监听同名事件即可，无副作用） */
+try{
+  const m = location.search.match(/[?&]rescued=(\w+)/);
+  if(m){
+    document.addEventListener('DOMContentLoaded', ()=>{
+      const vd = document.getElementById('verdict');
+      if(m[1] === 'conv'){ vd.className='verdict v-ok'; vd.textContent='已请求主应用执行「恢复对话记录」，请回聊天页看提示。'; }
+      else if(m[1] === 'backup'){ vd.className='verdict v-ok'; vd.textContent='已请求主应用执行「导出数据」，请到设置页查看结果。'; }
+    });
+  }
+}catch(e){}
+</script>
+</body>
+</html>
