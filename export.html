@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>港港窝 · 日记与记忆导出</title>
+<style>
+  :root{--bg:#f6f4ee;--ink:#3a3f36;--ink-soft:#6d7368;--green:#7d9a7d;--green-dark:#5c7559;
+    --green-soft:#e8efe6;--card:rgba(255,255,255,.85);--line:rgba(125,154,125,.28);--danger:#a32d2d;--ok:#3f7a45;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;padding:18px 14px 70px;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.65;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:760px;margin:0 auto;}
+  h1{font-size:20px;margin:0 0 4px;color:var(--green-dark);}
+  .sub{font-size:12px;color:var(--ink-soft);margin:0 0 16px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:14px;
+    box-shadow:0 2px 10px rgba(90,110,88,.06);}
+  .card h2{font-size:14px;margin:0 0 10px;color:var(--green-dark);display:flex;align-items:center;gap:6px;}
+  .card h2 .dot{width:7px;height:7px;border-radius:50%;background:var(--green);}
+  button{font-family:inherit;font-size:14px;padding:11px 16px;border-radius:11px;border:1px solid var(--line);
+    background:#fff;color:var(--ink);cursor:pointer;font-weight:600;}
+  button:active{transform:scale(.97);}
+  button.primary{background:var(--green);border-color:var(--green);color:#fff;}
+  button.ghost{background:transparent;}
+  button:disabled{opacity:.45;cursor:not-allowed;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;}
+  .stat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;}
+  .stat div{background:var(--green-soft);border-radius:12px;padding:10px;text-align:center;}
+  .stat b{display:block;font-size:22px;color:var(--green-dark);line-height:1.2;}
+  .stat span{font-size:11px;color:var(--ink-soft);}
+  pre{background:#fffdf8;border:1px dashed var(--line);border-radius:12px;padding:12px;font-size:11.5px;
+    white-space:pre-wrap;word-break:break-all;margin:0;font-family:ui-monospace,Menlo,monospace;
+    max-height:260px;overflow:auto;line-height:1.55;}
+  .hint{font-size:11.5px;color:var(--ink-soft);line-height:1.65;margin:8px 0 0;}
+  .ok{color:var(--ok);font-weight:600;}
+  .warn{background:#fdf3e7;border:1px solid #f0d3ac;color:#8a5b1e;border-radius:12px;padding:11px 13px;
+    font-size:12.5px;line-height:1.65;margin-bottom:12px;}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--green);
+    border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📦 日记与记忆 · 完整导出</h1>
+  <p class="sub">官方「导出数据」不包含 IndexedDB，这个页面专门补上日记 / 记忆 / 角色朋友圈。只读本机，不联网。</p>
+
+  <div class="card">
+    <h2><span class="dot"></span>本机现状</h2>
+    <div class="stat" id="statBox"><div><b>-</b><span>读取中</span></div></div>
+    <p class="hint" id="stHint">正在读取 IndexedDB…</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>导出</h2>
+    <div class="warn">
+      <b>拿到文件后立刻发到微信文件传输助手或云盘。</b>留在手机里不算备份——下次清理还会没。
+    </div>
+    <div class="row">
+      <button class="primary" id="btnJson" onclick="doExport()">导出完整备份（JSON）</button>
+      <button id="btnRead" onclick="doReadable()">导出日记可读版（TXT）</button>
+    </div>
+    <p class="hint">JSON 用于将来一键恢复；TXT 方便你直接看内容、发给我分析。</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>日记预览</h2>
+    <pre id="preview">—</pre>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>记忆预览</h2>
+    <pre id="memPreview">—</pre>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>恢复方法（先看）</h2>
+    <p class="hint" style="font-size:13px;line-height:1.75;">
+      <b>1. 日记和记忆不用恢复</b> —— 它们本来就没丢，好好待在 IndexedDB 里。<br>
+      <b>2. 你要恢复的是记忆库的"提炼结果"</b>：<br>
+      &nbsp;&nbsp;去 AI 设置里重新填 API Key → 保存 → 点记忆区的 <b>「⚡ 立即打标」</b>。<br>
+      &nbsp;&nbsp;它会拿 index 里 572 条原料对话重新跑一遍提炼，把记忆长回来。<br>
+      <b>3. 历史聊天界面</b>：那 300 条聊天存档确实没了，无法回到聊天框；<br>
+      &nbsp;&nbsp;但内容以 572 条原料的形式存在，打标后会被"磁铁"召回，等于内容没丢，只是换了存放形式。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>运行日志</h2>
+    <pre id="log">—</pre>
+  </div>
+</div>
+
+<script>
+const LOG = [];
+function log(s){ LOG.push(s); document.getElementById('log').textContent = LOG.join('\n'); }
+
+const IDB_STORES = [
+  ['journal',   '日记/周记/月记'],
+  ['entries',   '记忆条目'],
+  ['tags',      '记忆标签'],
+  ['messages',  '打标原料对话'],
+  ['oc_posts',  '角色朋友圈'],
+  ['kv',        '内部水位']
+];
+
+function openDB(){
+  return new Promise(res=>{
+    try{
+      const r = indexedDB.open('mhm_mem_db', 3);
+      r.onsuccess = ()=>res(r.result);
+      r.onerror = ()=>res(null);
+      setTimeout(()=>res(null), 5000);
+    }catch(e){ res(null); }
+  });
+}
+function getAll(db, store){
+  return new Promise(res=>{
+    try{
+      if(!db.objectStoreNames.contains(store)){ res([]); return; }
+      const tx = db.transaction(store,'readonly');
+      const q = tx.objectStore(store).getAll();
+      q.onsuccess = ()=>res(q.result||[]);
+      q.onerror = ()=>res([]);
+    }catch(e){ res([]); }
+  });
+}
+
+let DB = null, SNAP = {};
+
+async function load(){
+  DB = await openDB();
+  if(!DB){
+    document.getElementById('stHint').innerHTML = '<span style="color:#a32d2d">打不开 mhm_mem_db</span>';
+    return;
+  }
+  for(const [s] of IDB_STORES){
+    SNAP[s] = await getAll(DB, s);
+  }
+  const j = SNAP.journal.length, e = SNAP.entries.length, t = SNAP.tags.length,
+        m = SNAP.messages.length, o = SNAP.oc_posts.length;
+  document.getElementById('statBox').innerHTML =
+    '<div><b>'+j+'</b><span>日记</span></div>' +
+    '<div><b>'+e+'</b><span>记忆条目</span></div>' +
+    '<div><b>'+t+'</b><span>标签</span></div>' +
+    '<div><b>'+m+'</b><span>原料对话</span></div>' +
+    '<div><b>'+o+'</b><span>角色朋友圈</span></div>' +
+    '<div><b>'+(DB.version||'?')+'</b><span>DB 版本</span></div>';
+  document.getElementById('stHint').innerHTML =
+    '<span class="ok">✅ 全部读取成功</span> · object stores：' + Array.from(DB.objectStoreNames).join(', ');
+  log('✅ IndexedDB 读取完成');
+
+  // 日记预览
+  const js = SNAP.journal.slice().sort((a,b)=>String(b.start||'').localeCompare(String(a.start||''))).slice(0,6);
+  document.getElementById('preview').textContent = js.map(x=>
+    '【' + (x.type||'') + '】' + (x.start||'') + (x.end && x.end!==x.start ? ' ~ '+x.end : '') + '\n' +
+    String(x.content||'').slice(0,180) + (String(x.content||'').length>180?'…':'')
+  ).join('\n\n────────────────\n\n');
+
+  // 记忆预览
+  const es = SNAP.entries.slice(-8).reverse();
+  document.getElementById('memPreview').textContent = es.map((x,i)=>
+    (i+1) + '. ' + String(x.summary||x.text||JSON.stringify(x)).slice(0,150)
+  ).join('\n\n');
+}
+
+function dl(blob, name){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  log('📥 已触发下载：' + name);
+}
+
+const TS = new Date().toISOString().slice(0,10);
+
+function doExport(){
+  if(!DB){ alert('数据库未加载'); return; }
+  // 同时把 localStorage 一起打包，做成一个"总备份"
+  const ls = {};
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.indexOf('mhm') === 0) ls[k] = localStorage.getItem(k);
+    }
+  }catch(e){}
+  const out = {
+    _meta: {
+      source: 'yezi-ganggangwo',
+      exported_at: new Date().toISOString(),
+      from: location.href,
+      note: '含 localStorage(mhm_*) + IndexedDB(mhm_mem_db) 全量快照'
+    },
+    localStorage: ls,
+    indexeddb: SNAP
+  };
+  const text = JSON.stringify(out, null, 2);
+  dl(new Blob([text], {type:'application/json'}), 'yezi-full-backup-'+TS+'.json');
+  log('📦 备份大小：' + (text.length/1024).toFixed(1) + ' KB');
+  log('   含 localStorage 键：' + Object.keys(ls).length + ' 个');
+  log('   含 IndexedDB 记录：' +
+      Object.keys(SNAP).map(k=>k+'='+SNAP[k].length).join(', '));
+  log('✅ 完成。请立刻把这个文件发到微信文件传输助手。');
+  // 兜底：复制到剪贴板
+  if(text.length < 900000 && navigator.clipboard){
+    navigator.clipboard.writeText(text).then(()=>log('（备份内容也已复制到剪贴板）')).catch(()=>{});
+  }
+}
+
+function doReadable(){
+  if(!DB){ alert('数据库未加载'); return; }
+  let s = '港港窝 · 日记与记忆存档\n导出时间：' + new Date().toLocaleString('zh-CN') + '\n';
+  s += '='.repeat(46) + '\n\n';
+
+  s += '【第一篇 · 回忆日记】共 ' + SNAP.journal.length + ' 篇\n' + '-'.repeat(46) + '\n\n';
+  SNAP.journal.slice().sort((a,b)=>String(a.start||'').localeCompare(String(b.start||'')))
+    .forEach(x=>{
+      s += '▎' + (x.type||'') + ' · ' + (x.start||'') + (x.end && x.end!==x.start ? ' ~ '+x.end : '') + '\n';
+      s += String(x.content||'') + '\n';
+      if(Array.isArray(x.gems) && x.gems.length){
+        x.gems.forEach(g=>{ s += '  ✦ ' + (g.event||'') + '：' + (g.summary||'') + '\n'; });
+      }
+      s += '\n';
+    });
+
+  s += '\n\n【第二篇 · 记忆条目】共 ' + SNAP.entries.length + ' 条\n' + '-'.repeat(46) + '\n\n';
+  const tagMap = {};
+  SNAP.tags.forEach(t=>{
+    if(!t || !t.entry_id) return;
+    (tagMap[t.entry_id] = tagMap[t.entry_id] || []).push(t.tag);
+  });
+  SNAP.entries.forEach((x,i)=>{
+    s += (i+1) + '. ' + String(x.summary||x.text||'') + '\n';
+    const tg = tagMap[x.id];
+    if(tg && tg.length) s += '   标签：' + tg.join(' / ') + '\n';
+    s += '\n';
+  });
+
+  if(SNAP.oc_posts.length){
+    s += '\n\n【第三篇 · 角色朋友圈】共 ' + SNAP.oc_posts.length + ' 条\n' + '-'.repeat(46) + '\n\n';
+    SNAP.oc_posts.forEach(x=>{
+      s += '▎' + (x.date||x.ts||'') + ' ' + (x.who||'') + '\n';
+      s += String(x.text||x.content||'') + '\n\n';
+    });
+  }
+
+  dl(new Blob([s], {type:'text/plain;charset=utf-8'}), 'yezi-diary-memory-'+TS+'.txt');
+  log('📄 可读版大小：' + (s.length/1024).toFixed(1) + ' KB');
+  log('✅ 完成。这个 TXT 可以发给我做分析。');
+}
+
+window.addEventListener('load', ()=>setTimeout(load, 150));
+</script>
+</body>
+</html>
