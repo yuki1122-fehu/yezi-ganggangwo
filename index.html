@@ -7263,7 +7263,7 @@ function buildLiveContext(){
    固定生成「角色今日生活氛围」已移除：角色在哪、去了哪只能以对话里明确交代过的事实为准，
    用户约角色明天一起过生日、有急事把某人喊回来等安排不会被伪随机的生活痕迹顶掉。 */
 const AI_PROACTIVE_KEY = 'mhm_ai_proactive';
-const AI_PROACTIVE_MAX_PER_DAY = 1; // 每天最多自动开口几次（同一天重复打开页面也不会超过）
+const AI_PROACTIVE_MAX_PER_DAY = 3; // 每天最多自动开口几次（同一天重复打开页面也不会超过；2026-09-11 由 1 提到 3，配合后台按节奏推送，缓解「忍不住去看却没收到他先开口」）
 const AI_UNREAD_KEY = 'mhm_ai_unread';
 function aiUnreadRestore(){
   const dot = document.getElementById('aiFabDot');
