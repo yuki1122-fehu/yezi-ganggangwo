@@ -2407,6 +2407,21 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
         <p class="hint" id="bkStatus" style="font-size:11px;color:var(--ink-soft);margin:0;line-height:1.65;">本机快照：读取中…</p>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 0;line-height:1.65;">把全部数据（含日记/记忆/原料）自动存进另一个 IndexedDB：数据一变就存，并保证每 5 小时至少一份。只留最新 3 份，旧的自动顶掉。</p>
       </div>
+      <div style="margin-top:12px;padding-top:11px;border-top:1px dashed var(--glass-line);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;">
+          <div style="font-size:12.5px;font-weight:700;color:var(--green-dark);">☁️ 云端备份</div>
+          <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+            <input type="checkbox" id="bkCloudOn" onchange="bkCloudToggle(this)" style="opacity:0;width:0;height:0;position:absolute;">
+            <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+          </label>
+        </div>
+        <div class="row" style="margin:0 0 8px;gap:8px;">
+          <button class="btn ghost" type="button" onclick="bkCloudTick(true).then(r=>{ if(!r) toast('云端备份未开启'); else if(r.err) toast('⚠️ '+r.err); else toast('✅ 已上传云端（'+Math.round(r.size/1024)+' KB）'); })" style="flex:1;background:var(--glass-strong);">立即上传</button>
+          <button class="btn ghost" type="button" onclick="bkCloudRestoreOpen()" style="flex:1;background:var(--glass-strong);">从云端恢复</button>
+        </div>
+        <p class="hint" id="bkCloudStatus" style="font-size:11px;color:var(--ink-soft);margin:0;line-height:1.65;">云端备份：读取中…</p>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 0;line-height:1.65;">换手机 / 卸载重装 / 清空全部站点数据时靠这层。每次约 1MB，每天 2 次，保留最新 2 份；含 API Key，存在你自己的 Cloudflare KV 里（只有你的 Worker 密钥能读）。</p>
+      </div>
     </div>
 
     <p>配置你自己的 API（Key 只存本机，不经任何第三方）。</p>
@@ -8234,6 +8249,7 @@ function openAISettings(){
   document.getElementById('aiSetHint').textContent='';
   updateBackupUI();
   bkRenderStatus(); // 打开设置时刷新「自动本机快照」状态（含健康位）
+  bkSyncCloudSwitch(); bkRenderCloudStatus(); // 云端备份开关与状态
   openMask(document.getElementById('aiSetMask'));
 }
 /* ---- 视觉模型开关联动：关掉时配置区变灰禁用 ---- */
@@ -8333,6 +8349,15 @@ async function collectDiag(){
     }catch(e){}
   }catch(e){ L('对话存档', '读取异常: '+(e.message||e)); }
   L('记忆开关', memEnabled());
+  // 自动备份状态（2026-09-11 新增）
+  L('--- 自动备份 ---', '');
+  try{
+    const m = bkMeta();
+    L('本机快照', m.last ? (bkFmtTime(m.last)+' · '+(m.lastTrigger||'')+' · '+(m.lastCounts?bkSummary(m.lastCounts):'-')) : '(还没有)');
+    L('快照降级告警', m.lastDegraded ? '⚠️ 上次快照条目骤降（疑似数据被清）' : '正常');
+    L('云端备份', bkCloudOn() ? (m.cloudAt ? (bkFmtTime(m.cloudAt)+' · '+Math.round((m.cloudSize||0)/1024)+' KB') : '已开启但还没传过') : '未开启');
+    if(m.cloudErr) L('云端上次错误', m.cloudErr);
+  }catch(e){ L('自动备份', '读取异常: '+(e.message||e)); }
   L('最近AI错误', window.__lastAIError ? window.__lastAIError : '(无)');
   // 当前请求是否在飞（fetch 已开始但未返回）——这是判断「真·卡死」的关键，比 aiBusy 更准
   const st = window.__aiReqStart || 0, dn = window.__aiReqDone || 0;
@@ -9114,6 +9139,7 @@ async function bkTick(force){
     __bkInFlight = true;
     const r = await bkSaveNow(force ? 'manual' : (first ? 'open' : (changeOk ? 'change' : 'schedule')), { silent:!force });
     __bkInFlight = false;
+    if(r && r.rec) bkCloudTick().catch(()=>{});   // 本机存好后顺带看要不要上云（内部有 12h 节流，未开启则直接返回）
     return r;
   }catch(e){ __bkInFlight = false; return null; }
 }
@@ -9121,10 +9147,12 @@ function bkStartAuto(){
   try{
     if(__bkTimer) clearInterval(__bkTimer);
     __bkLastFp = bkFingerprint();
-    __bkTimer = setInterval(()=>{ bkTick(); }, 60*1000);                     // 每分钟体检一次节奏（内部有节流，不会频繁写）
+    __bkTimer = setInterval(()=>{ bkTick(); bkCloudTick().catch(()=>{}); }, 60*1000);  // 每分钟体检（内部各自节流，不会频繁写/传）
     setTimeout(()=>{ bkTick(); }, 20000);                                    // 打开 20 秒后先来一份（等数据都加载完）
-    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') setTimeout(()=>bkTick(), 4000); });
+    setTimeout(()=>{ bkCloudTick().catch(()=>{}); }, 45000);                 // 打开 45 秒后看云端该不该更新（距上次 ≥12h 才真传）
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') setTimeout(()=>{ bkTick(); bkCloudTick().catch(()=>{}); }, 4000); });
     bkRenderStatus();
+    bkRenderCloudStatus();
   }catch(e){}
 }
 
@@ -9176,10 +9204,17 @@ function bkOpenRestore(){
 async function bkRestore(slot, mode){
   const rec = await bkGetRec(slot);
   if(!rec || !rec.payload) return { err:'这份快照是空的' };
-  const p = rec.payload;
+  return bkApplyPayload(rec.payload, mode);
+}
+/* 把一份 payload 写回本机（本地槽位与「云端备份」共用这一套语义）。
+   规则：① 恢复前先给「现在的样子」存一份快照，恢复错了能退回来；
+        ② localStorage 默认只补缺失的键（overwrite=true 才整份覆盖）；
+        ③ IndexedDB 按内容指纹去重后只追加、绝不清空；kv 表只在本地缺该键时补。 */
+async function bkApplyPayload(p, mode){
+  if(!p || (!p.ls && !p.idb)) return { err:'这份备份是空的' };
   let lsN = 0, idbN = 0, err = '';
   try{
-    await bkSaveNow('pre-restore', { silent:true });   // 恢复前先留一份「现在的样子」，恢复错了还能退回来
+    await bkSaveNow('pre-restore', { silent:true });
     const overwrite = (mode === 'overwrite');
     for(const k of Object.keys(p.ls||{})){
       if(k === BK_STATE_KEY) continue;
@@ -9194,7 +9229,7 @@ async function bkRestore(slot, mode){
         if(!db.objectStoreNames.contains(s)) continue;
         const rows = p.idb[s] || [];
         if(!rows.length) continue;
-        // 去重键：有 mid 用 mid，有内容哈希用内容，其余用 JSON 摘要
+        // 去重键：有 mid 用 mid，其余用「角色+时间+内容摘要」拼指纹
         const sig = r => {
           if(!r || typeof r !== 'object') return String(r);
           if(r.mid) return 'mid:'+r.mid;
@@ -9222,6 +9257,119 @@ async function bkRestore(slot, mode){
     }
   }catch(e){ err = (e && e.message) || String(e); }
   return { lsN, idbN, err };
+}
+/* ═══════════════════════════════════════════════════════════════════════
+   ☁️ 云端备份（Worker KV）—— 第二层保险
+   分工：本机快照（上面那套）是主力，扛「清网站数据」这类事故（IndexedDB 常幸存）；
+        云端只负责「本机两层一起没」的极端情况：换手机 / 卸载重装 / 清全部站点数据。
+   频率：打开 App 时 + 数据变化后，统一按 12 小时节流 ⇒ 每天 2 次左右；Worker 侧保留最新 2 份。
+   注意：Service Worker 里拿不到 localStorage（规范限制），所以后台（App 关闭时）拍不出完整快照；
+        但 App 关闭期间本机也不会产生新数据，快照新鲜度没有损失 —— 这就是不做 SW 端快照的原因。
+   ═══════════════════════════════════════════════════════════════════════ */
+const BK_CLOUD_ON_KEY = 'mhm_bk_cloud_on';
+const BK_CLOUD_GAP_MS = 12*3600*1000;      // 两次云端上传最短间隔（每天约 2 次）
+const BK_CLOUD_MAX_CHARS = 8*1024*1024;    // 单次上传上限（Worker KV 单键上限 25MB，留足余量）
+let __bkCloudBusy = false;
+function bkCloudOn(){ try{ return localStorage.getItem(BK_CLOUD_ON_KEY) === '1'; }catch(e){ return false; } }
+function bkCloudToggle(el){
+  const on = !!(el && el.checked);
+  try{ localStorage.setItem(BK_CLOUD_ON_KEY, on ? '1' : '0'); }catch(e){}
+  bkSyncCloudSwitch();
+  bkRenderCloudStatus();
+  if(on) bkCloudTick(true).then(r=>{ if(r && r.err) toast('⚠️ 云端备份失败：'+r.err); else if(r && r.ok) toast('✅ 已上传云端备份（'+Math.round(r.size/1024)+' KB）'); });
+}
+/* 开关外观同步：这几个开关的轨道底色是内联样式（会压过 .switch input:checked 的 CSS），
+   所以选中态要在这里显式刷一次，否则看不出开没开。 */
+function bkSyncCloudSwitch(){
+  const el = document.getElementById('bkCloudOn');
+  if(!el) return;
+  el.checked = bkCloudOn();
+  const sl = el.parentNode ? el.parentNode.querySelector('.switch-slider') : null;
+  if(sl) sl.style.background = el.checked ? 'var(--green-deep)' : 'var(--ink-faint)';
+}
+function bkCloudApi(path, body){
+  return fetch(PUSH_WORKER + path, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(Object.assign({ secret:PUSH_SECRET }, body || {}))
+  }).then(r=>r.json().catch(()=>({}))).then(d=>d||{}).catch(e=>({ ok:false, err:(e && e.message) || String(e) }));
+}
+async function bkCloudUpload(){
+  const payload = await bkCollect();
+  const counts = bkCounts(payload);
+  const total = bkTotal(counts);
+  let raw = ''; try{ raw = JSON.stringify(payload); }catch(e){ raw = ''; }
+  if(!raw) return { err:'打包失败' };
+  if(raw.length > BK_CLOUD_MAX_CHARS) return { err:'数据 '+Math.round(raw.length/1024/1024*10)/10+'MB 超过 8MB 上限，本次未上传' };
+  const d = await bkCloudApi('/backup', { at:Date.now(), iso:payload.at, counts, total, size:raw.length, payload });
+  if(!d.ok){ bkSetMeta({ cloudErr: d.err || ('HTTP ' + (d.status||'?')) }); bkRenderCloudStatus(); return { err:bkMeta().cloudErr }; }
+  bkSetMeta({ cloudAt: Date.now(), cloudTotal: total, cloudSize: raw.length, cloudErr: '' });
+  bkRenderCloudStatus();
+  return { ok:true, total, size:raw.length };
+}
+async function bkCloudTick(force){
+  try{
+    if(!bkCloudOn()) return null;
+    if(!pushWorkerReady()){ bkSetMeta({ cloudErr:'推送中继未配置' }); bkRenderCloudStatus(); return null; }
+    const m = bkMeta(), now = Date.now();
+    if(!force && m.cloudAt && (now - Number(m.cloudAt)) < BK_CLOUD_GAP_MS) return null;
+    if(__bkCloudBusy) return null;
+    __bkCloudBusy = true;
+    try{ return await bkCloudUpload(); }
+    finally{ __bkCloudBusy = false; }
+  }catch(e){ return { err:(e && e.message) || String(e) }; }
+}
+async function bkCloudSlots(){
+  if(!pushWorkerReady()) return { err:'推送中继未配置' };
+  const d = await bkCloudApi('/backup', { meta:true });
+  if(!d.ok) return { err:(d.err || ('HTTP ' + (d.status||'?'))) };
+  return { latest:d.latest || null, prev:d.prev || null };
+}
+function bkRouterWord(t){ return t==='manual' ? '手动' : t==='change' ? '数据变化' : t==='open' ? '打开时' : t==='pre-restore' ? '恢复前保险' : '定时'; }
+function bkCloudStatusText(){
+  const m = bkMeta();
+  if(!bkCloudOn()) return '云端备份：未开启（开启后每天自动上传约 2 次）';
+  if(!pushWorkerReady()) return '云端备份：推送中继没配好，暂时用不了';
+  if(m.cloudErr) return '云端备份：⚠️ 上次失败（'+m.cloudErr+'）';
+  if(m.cloudAt) return '云端备份：'+bkFmtTime(m.cloudAt)+'（'+bkAgo(m.cloudAt)+'·'+Math.round((m.cloudSize||0)/1024)+' KB）';
+  return '云端备份：已开启，等下一次联网时上传';
+}
+function bkRenderCloudStatus(){
+  const el = document.getElementById('bkCloudStatus');
+  if(el) el.textContent = bkCloudStatusText();
+}
+async function bkCloudRestoreOpen(){
+  const hint = document.getElementById('bkCloudStatus');
+  if(hint) hint.textContent = '正在读取云端备份列表…';
+  const d = await bkCloudSlots();
+  if(d.err){ bkRenderCloudStatus(); showDialog('云端备份不可用', '拿不到云端备份列表：'+d.err+'。\n（若还没部署 Worker 的备份端点，请先部署；本机快照不受影响。）', [{label:'知道了', cls:'ghost'}]); return; }
+  const rows = [];
+  if(d.latest) rows.push({slot:'latest', r:d.latest, label:'云端 · 最新一份'});
+  if(d.prev) rows.push({slot:'prev', r:d.prev, label:'云端 · 上一份'});
+  if(!rows.length){ bkRenderCloudStatus(); showDialog('云端还没有备份', '开启云端备份后会自动上传；也可以点「立即上传」马上传一份。', [{label:'知道了', cls:'ghost'}]); return; }
+  const html = rows.map((x,i)=>{
+    const r = x.r || {};
+    return '<label style="display:block;padding:9px 11px;margin:0 0 8px;border:1px solid var(--glass-line);border-radius:12px;background:var(--glass-strong);">'
+      + '<input type="radio" name="bkCSlot" value="'+x.slot+'"'+(i===0?' checked':'')+' style="margin-right:8px;">'
+      + '<b>'+x.label+'</b><br><span style="font-size:11.5px;color:var(--ink-soft);line-height:1.7;">'
+      + bkFmtTime(r.at)+'（'+bkAgo(r.at)+'）· '+bkSummary(r.counts||{})+'<br>体积 '+Math.round((r.size||0)/1024)+' KB</span></label>';
+  }).join('')
+  + '<div style="margin-top:10px;padding:9px 11px;border-radius:12px;background:rgba(233,195,145,.16);border:1px solid var(--glass-line);">'
+  + '<label style="display:block;font-size:12px;margin-bottom:6px;"><input type="radio" name="bkCMode" value="merge" checked style="margin-right:8px;">只补缺失的（推荐）</label>'
+  + '<label style="display:block;font-size:12px;"><input type="radio" name="bkCMode" value="overwrite" style="margin-right:8px;">整份覆盖（含 API Key 与提示词）</label></div>'
+  + '<p style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">恢复前会先给本机现状存一份快照，可随时退回。</p>';
+  showDialog('从云端备份恢复', html, [
+    {label:'开始恢复', cls:'', fn: async ()=>{
+      const slot = (document.querySelector('input[name="bkCSlot"]:checked')||{}).value || 'latest';
+      const mode = (document.querySelector('input[name="bkCMode"]:checked')||{}).value || 'merge';
+      const g = await bkCloudApi('/backup', { get:slot });
+      if(!g.ok || !g.payload){ toast('⚠️ 取云端备份失败：'+((g && g.err) || '空内容')); return; }
+      const r = await bkApplyPayload(g.payload, mode);
+      if(!r || r.err){ toast('⚠️ 恢复失败：'+((r && r.err) || '未知错误')); return; }
+      toast('✅ 已从云端恢复：补回 '+r.lsN+' 个键 / 新增 '+r.idbN+' 条数据，2 秒后刷新');
+      setTimeout(()=>{ try{ location.reload(); }catch(e){} }, 2000);
+    }},
+    {label:'先算了', cls:'ghost'}
+  ], true);
 }
 async function testAIConn(){
   const cfg = {
