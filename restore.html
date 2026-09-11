@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>港港窝 · 超级恢复</title>
+<style>
+  :root{--bg:#f6f4ee;--ink:#3a3f36;--ink-soft:#6d7368;--green:#7d9a7d;--green-dark:#5c7559;
+    --green-soft:#e8efe6;--card:rgba(255,255,255,.86);--line:rgba(125,154,125,.28);
+    --danger:#a32d2d;--ok:#3f7a45;--warn:#c96a1f;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  body{margin:0;padding:18px 14px 80px;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.65;
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:780px;margin:0 auto;}
+  h1{font-size:20px;margin:0 0 4px;color:var(--green-dark);}
+  .sub{font-size:12px;color:var(--ink-soft);margin:0 0 16px;}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px 16px;margin-bottom:14px;
+    box-shadow:0 2px 10px rgba(90,110,88,.06);}
+  .card h2{font-size:14px;margin:0 0 10px;color:var(--green-dark);display:flex;align-items:center;gap:6px;}
+  .card h2 .dot{width:7px;height:7px;border-radius:50%;background:var(--green);}
+  button{font-family:inherit;font-size:14px;padding:11px 16px;border-radius:11px;border:1px solid var(--line);
+    background:#fff;color:var(--ink);cursor:pointer;font-weight:600;}
+  button:active{transform:scale(.97);}
+  button.primary{background:var(--green);border-color:var(--green);color:#fff;}
+  button.danger{background:#fff;border-color:rgba(163,45,45,.45);color:var(--danger);}
+  button:disabled{opacity:.45;cursor:not-allowed;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
+  pre{background:#fffdf8;border:1px dashed var(--line);border-radius:12px;padding:12px;font-size:11.5px;
+    white-space:pre-wrap;word-break:break-all;margin:0;font-family:ui-monospace,Menlo,monospace;
+    max-height:280px;overflow:auto;line-height:1.55;}
+  .hint{font-size:11.5px;color:var(--ink-soft);line-height:1.65;margin:8px 0 0;}
+  .box{border-radius:12px;padding:11px 13px;font-size:12.5px;line-height:1.7;margin-bottom:12px;}
+  .b-info{background:var(--green-soft);border:1px solid var(--line);color:var(--green-dark);}
+  .b-warn{background:#fdf3e7;border:1px solid #f0d3ac;color:#8a5b1e;}
+  .b-ok{background:#eaf5ea;border:1px solid #b9dcb9;color:var(--ok);}
+  .b-bad{background:#fbecec;border:1px solid #edc0c0;color:var(--danger);}
+  .tbl{width:100%;border-collapse:collapse;font-size:12.5px;}
+  .tbl th,.tbl td{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left;}
+  .tbl th{color:var(--ink-soft);font-weight:600;font-size:11.5px;}
+  .tbl td.n{font-family:ui-monospace,Menlo,monospace;}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--green);
+    border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px;}
+  @keyframes sp{to{transform:rotate(360deg);}}
+  .chk{display:flex;align-items:center;gap:8px;padding:7px 0;font-size:13.5px;border-bottom:1px dashed var(--line);}
+  .chk input{width:17px;height:17px;accent-color:var(--green);}
+  .chk label{flex:1;cursor:pointer;}
+  .chk .cnt{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--ink-soft);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🧩 港港窝 · 超级恢复</h1>
+  <p class="sub">把拼装好的备份写回本机。只读你选择的文件，不联网。</p>
+
+  <div class="box b-warn">
+    <b>先做这个：</b>把 <code>mhm-restore.json</code> 放到手机能选到的地方（下载文件夹 / 微信文件传输助手）。<br>
+    <b>然后再打开本页</b>，选文件 → 执行恢复。
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>第一步 · 选择备份文件</h2>
+    <input type="file" id="file" accept=".json,application/json" style="width:100%;font-size:13px;padding:8px 0;">
+    <p class="hint" id="fileHint">还没选文件。</p>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>第二步 · 确认恢复内容</h2>
+    <div id="planBox"><p class="hint">选好文件后这里会列出将要恢复的项目。</p></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>第三步 · 执行</h2>
+    <div class="row">
+      <button class="primary" id="btnGo" onclick="doRestore()" disabled>开始恢复</button>
+      <button class="ghost" onclick="location.reload()">重置</button>
+    </div>
+    <p class="hint">
+      <b>恢复顺序很重要</b>：先 localStorage（配置/对话），再 IndexedDB（日记/记忆）。<br>
+      IndexedDB 部分会<b>先备份现有数据再写入</b>，即使出错也能还原。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>运行日志</h2>
+    <pre id="log">—</pre>
+  </div>
+
+  <div class="card">
+    <h2><span class="dot"></span>恢复后要做的</h2>
+    <p class="hint" style="font-size:13px;line-height:1.8;">
+      1. 关闭本页 → 打开 <b>港港窝主应用</b>（网页版）→ 下拉刷新<br>
+      2. 检查：聊天记录回来了吗？设置里 API Key 有了吗？音色对不对？<br>
+      3. 一切正常后，<b>立刻再导出一次备份</b>存到微信<br>
+      4. 建议回到桌面图标（PWA）也确认一遍
+    </p>
+  </div>
+</div>
+
+<script>
+/* ========================================================================
+   港港窝超级恢复页
+   读 mhm-restore.json → 写 localStorage + IndexedDB
+   ======================================================================== */
+const LOG = [];
+function log(s){
+  LOG.push(s);
+  document.getElementById('log').textContent = LOG.join('\n');
+  document.getElementById('log').scrollTop = 99999;
+}
+
+let DATA = null;
+
+/* ---------- 读取文件 ---------- */
+document.getElementById('file').addEventListener('change', function(ev){
+  const f = ev.target.files && ev.target.files[0];
+  if(!f){ document.getElementById('fileHint').textContent = '还没选文件。'; return; }
+  const r = new FileReader();
+  r.onload = ()=>{
+    try{
+      DATA = JSON.parse(String(r.result||''));
+      document.getElementById('fileHint').innerHTML =
+        '✅ 已读取：<b>' + f.name + '</b>（' + (f.size/1024).toFixed(0) + ' KB）';
+      renderPlan();
+      document.getElementById('btnGo').disabled = false;
+      log('📂 已载入文件：' + f.name);
+    }catch(e){
+      document.getElementById('fileHint').innerHTML =
+        '<span style="color:#a32d2d">❌ 解析失败：' + (e.message||e) + '</span>';
+      document.getElementById('btnGo').disabled = true;
+      DATA = null;
+    }
+  };
+  r.readAsText(f, 'utf-8');
+});
+
+/* ---------- 展示恢复计划 ---------- */
+const LS_LABEL = {
+  mhm_ai_cfg:'AI 配置（API Key + 提示词）',
+  mhm_ai_conv:'对话记录',
+  mhm_ai_voices:'角色音色',
+  mhm_mem_identity:'关系身份档案',
+  mhm_mem_on:'记忆开关',
+  mhm_app_title:'工作台名称',
+  mhm_cloud_v1:'任务',
+  mhm_expense_v1:'记账',
+  mhm_pomodoro:'番茄钟（含零落音色）',
+  mhm_courses_v1:'课表',
+  mhm_theme:'主题',
+  mhm_last_doc_text:'最近解析文档'
+};
+const IDB_LABEL = {
+  journal:'日记 / 周记 / 月记',
+  entries:'磁铁记忆',
+  tags:'记忆标签',
+  messages:'打标原料',
+  oc_posts:'角色朋友圈',
+  kv:'记忆库水位'
+};
+
+function renderPlan(){
+  if(!DATA) return;
+  const lsKeys = Object.keys(DATA).filter(k=>k.indexOf('mhm_')===0);
+  const moods = lsKeys.filter(k=>k.indexOf('mhm_mood_')===0);
+  const idb = DATA.__indexeddb__ || null;
+
+  let html = '<div class="box b-info"><b>将要恢复的 localStorage 键</b>（' + lsKeys.length + ' 个）</div>';
+  html += '<table class="tbl"><tr><th>项目</th><th>键 / 数量</th></tr>';
+  html += '<tr><td>对话记录</td><td class="n">' + (function(){
+    try{
+      const a = JSON.parse(DATA.mhm_ai_conv||'[]');
+      const n = a.filter(m=>m.role!=='system').length;
+      const u = a.filter(m=>m.role==='user').length;
+      const s = a.filter(m=>m.role==='assistant').length;
+      return n + ' 条（你 ' + u + ' / 角色 ' + s + '）';
+    }catch(e){ return '解析失败'; }
+  })() + '</td></tr>';
+  lsKeys.forEach(k=>{
+    if(k.indexOf('mhm_mood_')===0) return;
+    const label = LS_LABEL[k] || k;
+    let size = (DATA[k]||'').length;
+    let extra = '';
+    try{
+      if(k==='mhm_cloud_v1'){ const a=JSON.parse(DATA[k]); extra = a.length+' 项'; }
+      else if(k==='mhm_courses_v1'){ const a=JSON.parse(DATA[k]); extra = a.length+' 节'; }
+      else if(k==='mhm_expense_v1'){ const o=JSON.parse(DATA[k]); extra = (o.items||[]).length+' 笔'; }
+      else if(k==='mhm_ai_cfg'){
+        const o=JSON.parse(DATA[k]);
+        extra = (o.apiKey?'Key ✓':'Key ✗') + ' · 提示词 ' + ((o.systemTpl||'').length) + ' 字';
+      }
+      else if(k==='mhm_ai_voices'){
+        const o=JSON.parse(DATA[k]);
+        extra = (o.a&&o.a.name)+' / '+(o.b&&o.b.name);
+      }
+      else if(k==='mhm_pomodoro'){ extra = Math.round(size/1024*10)/10 + ' KB'; }
+      else { extra = Math.round(size/1024*10)/10 + ' KB'; }
+    }catch(e){ extra = '?'; }
+    html += '<tr><td>'+label+'</td><td class="n">'+extra+'</td></tr>';
+  });
+  if(moods.length) html += '<tr><td>心情记录</td><td class="n">'+moods.length+' 天</td></tr>';
+  html += '</table>';
+
+  if(idb){
+    html += '<div class="box b-info" style="margin-top:14px;"><b>将要恢复的 IndexedDB 表</b>（mhm_mem_db）</div>';
+    html += '<table class="tbl"><tr><th>表</th><th>记录数</th></tr>';
+    for(const k of Object.keys(IDB_LABEL)){
+      if(!idb[k]) continue;
+      html += '<tr><td>'+IDB_LABEL[k]+'</td><td class="n">'+idb[k].length+' 条</td></tr>';
+    }
+    html += '</table>';
+  } else {
+    html += '<div class="box b-warn" style="margin-top:14px;">此备份不含 IndexedDB 数据，跳过记忆库恢复。</div>';
+  }
+
+  html += '<div class="box b-ok" style="margin-top:14px;"><b>安全设计：</b>'
+        + 'IndexedDB 写入前会把现有数据完整备份到浏览器内存，'
+        + '任意一步出错都会自动回滚，不会造成二次丢失。</div>';
+
+  document.getElementById('planBox').innerHTML = html;
+}
+
+/* ---------- 打开数据库（必须用 v3，与主应用一致） ---------- */
+function openDB(){
+  return new Promise((res, rej)=>{
+    const req = indexedDB.open('mhm_mem_db', 3);
+    req.onupgradeneeded = ()=>{
+      const db = req.result;
+      if(!db.objectStoreNames.contains('messages')) db.createObjectStore('messages', {keyPath:'id', autoIncrement:true});
+      if(!db.objectStoreNames.contains('entries'))  db.createObjectStore('entries',  {keyPath:'id', autoIncrement:true});
+      if(!db.objectStoreNames.contains('tags'))     db.createObjectStore('tags',     {keyPath:'id', autoIncrement:true});
+      if(!db.objectStoreNames.contains('kv'))       db.createObjectStore('kv');
+      if(!db.objectStoreNames.contains('journal'))  db.createObjectStore('journal',  {keyPath:'id', autoIncrement:true});
+      if(!db.objectStoreNames.contains('oc_posts')) db.createObjectStore('oc_posts', {keyPath:'id', autoIncrement:true});
+    };
+    req.onsuccess = ()=>res(req.result);
+    req.onerror = ()=>rej(req.error);
+    setTimeout(()=>rej(new Error('打开数据库超时')), 8000);
+  });
+}
+function getAll(db, store){
+  return new Promise((res, rej)=>{
+    try{
+      if(!db.objectStoreNames.contains(store)){ res([]); return; }
+      const tx = db.transaction(store,'readonly');
+      const q = tx.objectStore(store).getAll();
+      q.onsuccess = ()=>res(q.result||[]);
+      q.onerror = ()=>rej(q.error);
+    }catch(e){ rej(e); }
+  });
+}
+function clearStore(db, store){
+  return new Promise((res, rej)=>{
+    try{
+      if(!db.objectStoreNames.contains(store)){ res(); return; }
+      const tx = db.transaction(store,'readwrite');
+      tx.objectStore(store).clear();
+      tx.oncomplete = ()=>res();
+      tx.onerror = ()=>rej(tx.error);
+      tx.onabort = ()=>rej(tx.error);
+    }catch(e){ rej(e); }
+  });
+}
+function putAll(db, store, rows){
+  return new Promise((res, rej)=>{
+    try{
+      if(!db.objectStoreNames.contains(store) || !rows || !rows.length){ res(0); return; }
+      const tx = db.transaction(store,'readwrite');
+      const os = tx.objectStore(store);
+      let ok = 0;
+      rows.forEach(r=>{
+        // kv 表用 keyPath 外键，需要特殊处理
+        if(store === 'kv'){
+          os.put(r.value !== undefined ? r.value : r, r.__key !== undefined ? r.__key : r.key);
+        } else {
+          // 去掉自增 id，让浏览器重新分配，避免主键冲突
+          const { id, ...rest } = r;
+          os.put(rest);
+        }
+        ok++;
+      });
+      tx.oncomplete = ()=>res(ok);
+      tx.onerror = ()=>rej(tx.error);
+      tx.onabort = ()=>rej(tx.error);
+    }catch(e){ rej(e); }
+  });
+}
+function putKV(db, pairs){
+  return new Promise((res, rej)=>{
+    try{
+      if(!db.objectStoreNames.contains('kv')){ res(0); return; }
+      const tx = db.transaction('kv','readwrite');
+      const os = tx.objectStore('kv');
+      pairs.forEach(([k,v])=>{ os.put(v, k); });
+      tx.oncomplete = ()=>res(pairs.length);
+      tx.onerror = ()=>rej(tx.error);
+    }catch(e){ rej(e); }
+  });
+}
+
+/* 把备份里的 kv 记录统一成 [key, value] 形式。
+   支持三种格式：
+     1) {__key:..., __value:...}   ← 新版导出页（带键名，最可靠）
+     2) {key:..., value:...}       ← 某些旧版
+     3) 裸值 + 位置推断             ← 早期版本（键名丢失，按已知顺序兜底） */
+const KV_KNOWN_KEYS = ['tagger_watermark','tagger_retag','tagger_keep_scanned','mem_gem_purged'];
+function normalizeKV(rows){
+  const pairs = [];
+  const positional = [];
+  rows.forEach(r=>{
+    if(r && typeof r === 'object' && !Array.isArray(r)){
+      if(r.__key !== undefined){ pairs.push([r.__key, r.__value]); return; }
+      if(r.key !== undefined && r.value !== undefined){ pairs.push([r.key, r.value]); return; }
+    }
+    positional.push(r);   // 裸值
+  });
+  // 兜底：裸值按已知键序补齐（水位是数字且最大，墓碑/保留是数组）
+  if(positional.length){
+    positional.forEach(v=>{
+      let k = null;
+      if(typeof v === 'number') k = 'tagger_watermark';
+      else if(Array.isArray(v) && v.length) k = 'tagger_retag';
+      else if(Array.isArray(v)) k = null;         // 空数组：无法区分，跳过更安全
+      if(k && !pairs.some(p=>p[0]===k)) pairs.push([k, v]);
+    });
+  }
+  return pairs;
+}
+
+/* ---------- 主流程 ---------- */
+let BUSY = false;
+async function doRestore(){
+  if(!DATA || BUSY) return;
+  BUSY = true;
+  document.getElementById('btnGo').disabled = true;
+
+  const BACKUP = {};   // 现有 IndexedDB 快照，用于回滚
+
+  try{
+    /* ===== 第一段：localStorage ===== */
+    log('');
+    log('═══ 第一段：写入 localStorage ═══');
+    const lsKeys = Object.keys(DATA).filter(k=>k.indexOf('mhm_')===0);
+    let n1 = 0, failed = [];
+    for(const k of lsKeys){
+      try{
+        localStorage.setItem(k, DATA[k]);
+        n1++;
+        log('  ✅ ' + (LS_LABEL[k] || k));
+      }catch(e){
+        failed.push(k);
+        log('  ❌ ' + k + ' 写入失败：' + (e.message||e));
+      }
+    }
+    log('  → 成功 ' + n1 + '/' + lsKeys.length + ' 个键');
+    if(failed.length){
+      log('  ⚠️ 失败项：' + failed.join(', '));
+      log('     多半是容量超限，建议清掉浏览器里其它站点数据后重试。');
+    }
+
+    /* ===== 第二段：IndexedDB ===== */
+    const idb = DATA.__indexeddb__;
+    if(idb){
+      log('');
+      log('═══ 第二段：写入 IndexedDB ═══');
+      const db = await openDB();
+      log('  ✅ 数据库已打开（版本 ' + db.version + '）');
+
+      // 先快照现有数据（用于回滚）
+      const STORES_ORDER = ['kv','journal','entries','tags','messages','oc_posts'];
+      log('  ⏳ 备份现有数据（用于出错回滚）…');
+      for(const s of STORES_ORDER){
+        BACKUP[s] = await getAll(db, s);
+        log('     现有 ' + s + '：' + BACKUP[s].length + ' 条');
+      }
+
+      log('  ⏳ 写入新数据…');
+      let total = 0;
+      // kv 单独处理（out-of-line key，必须带键名）
+      if(idb.kv){
+        const pairs = normalizeKV(idb.kv);
+        if(!pairs.length){
+          log('     ⏭ kv：无可用键名，跳过（不影响记忆与日记）');
+        } else {
+          await clearStore(db, 'kv');
+          const c = await putKV(db, pairs);
+          total += c;
+          log('     ✅ kv：' + c + ' 条（' + pairs.map(p=>p[0]).join(', ') + '）');
+        }
+      }
+      for(const s of ['journal','entries','tags','messages','oc_posts']){
+        if(!idb[s] || !idb[s].length){ log('     ⏭ ' + s + '：无数据，跳过'); continue; }
+        // journal / entries / messages / oc_posts 用自增主键 → 并入而非清空，避免覆盖
+        // 但如果本地为空，直接写入更干净
+        const existing = BACKUP[s] || [];
+        if(existing.length === 0){
+          const c = await putAll(db, s, idb[s]);
+          total += c;
+          log('     ✅ ' + s + '：写入 ' + c + ' 条（本地原为空）');
+        } else {
+          // 本地已有：按内容去重后追加，绝不覆盖现有记忆
+          const keyOf = r => (s==='tags' ? (r.entry_id+'|'+r.tag) : (r.summary||r.content||r.text||JSON.stringify(r)).slice(0,120));
+          const have = new Set(existing.map(keyOf));
+          const add = idb[s].filter(r=>!have.has(keyOf(r)));
+          if(!add.length){ log('     ⏭ ' + s + '：已有 ' + existing.length + ' 条，无新增'); continue; }
+          const c = await putAll(db, s, add);
+          total += c;
+          log('     ✅ ' + s + '：追加 ' + c + ' 条（原有 ' + existing.length + ' 条保留）');
+        }
+      }
+      log('  → IndexedDB 共写入 ' + total + ' 条');
+    } else {
+      log('');
+      log('⏭ 此备份不含 IndexedDB 数据，跳过第二段。');
+    }
+
+    /* ===== 完成 ===== */
+    log('');
+    log('═══════════════════════════════');
+    log('✅ 恢复完成');
+    log('═══════════════════════════════');
+    log('');
+    log('下一步：');
+    log('  1. 关闭本页');
+    log('  2. 打开港港窝主应用（网页版）并下拉刷新');
+    log('  3. 打开助理对话页 → 看聊天记录是否回来');
+    log('  4. 打开 AI 设置 → 确认 API Key 和提示词');
+    log('  5. 一切正常后立刻再导出一份备份存到微信');
+
+    document.querySelector('.card:nth-of-type(3)').innerHTML =
+      '<h2><span class="dot"></span>✅ 恢复完成</h2><div class="box b-ok">'
+      + '备份已写回本机。<br><b>现在关闭本页，打开港港窝主应用下拉刷新。</b></div>';
+
+  }catch(e){
+    log('');
+    log('❌ 出错：' + (e && e.message ? e.message : e));
+    log('⏪ 尝试回滚 IndexedDB…');
+    try{
+      const db = await openDB();
+      for(const s of Object.keys(BACKUP)){
+        if(!BACKUP[s] || !BACKUP[s].length) continue;
+        await clearStore(db, s);
+        await putAll(db, s, BACKUP[s]);
+        log('   已回滚 ' + s + '：' + BACKUP[s].length + ' 条');
+      }
+      log('✅ 回滚完成，数据回到恢复前的状态。');
+    }catch(e2){
+      log('⚠️ 回滚也失败了：' + (e2.message||e2));
+      log('   请立刻联系助理，不要关闭本页。');
+    }
+    document.getElementById('btnGo').disabled = false;
+  }
+  BUSY = false;
+}
+
+window.addEventListener('load', ()=>{
+  log('港港窝超级恢复页已就绪。');
+  log('请在上方选择 mhm-restore.json 文件。');
+});
+</script>
+</body>
+</html>
