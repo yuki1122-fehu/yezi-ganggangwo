@@ -2397,7 +2397,16 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
         <button class="btn ghost" type="button" onclick="document.getElementById('dataFile').click()" style="flex:1;background:var(--glass-strong);display:flex;align-items:center;justify-content:center;gap:6px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-import"/></svg>导入数据</button>
         <input type="file" id="dataFile" accept=".json,application/json" hidden onchange="importData(event)">
       </div>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">上次备份：<span id="lastBackupTime">暂无</span>。数据只存本机浏览器，换设备或清缓存会丢失，建议每周导出一次。</p>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">上次导出：<span id="lastBackupTime">暂无</span>。导出文件请存云盘（换设备/清缓存时能救回来）。</p>
+      <div style="margin-top:12px;padding-top:11px;border-top:1px dashed var(--glass-line);">
+        <div style="font-size:12.5px;font-weight:700;color:var(--green-dark);margin-bottom:7px;">🛡 自动本机快照</div>
+        <div class="row" style="margin:0 0 8px;gap:8px;">
+          <button class="btn ghost" type="button" onclick="bkTick(true)" style="flex:1;background:var(--glass-strong);">立即存一份</button>
+          <button class="btn ghost" type="button" onclick="bkOpenRestore()" style="flex:1;background:var(--glass-strong);">从本机快照恢复</button>
+        </div>
+        <p class="hint" id="bkStatus" style="font-size:11px;color:var(--ink-soft);margin:0;line-height:1.65;">本机快照：读取中…</p>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 0;line-height:1.65;">把全部数据（含日记/记忆/原料）自动存进另一个 IndexedDB：数据一变就存，并保证每 5 小时至少一份。只留最新 3 份，旧的自动顶掉。</p>
+      </div>
     </div>
 
     <p>配置你自己的 API（Key 只存本机，不经任何第三方）。</p>
@@ -2657,6 +2666,7 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
           <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
           <button class="btn ghost" type="button" onclick="memTagNow()" style="flex:0 0 auto;">⚡ 立即打标</button>
           <button class="btn ghost" type="button" onclick="memRescueNow()" style="flex:0 0 auto;" title="把聊天界面最近 40 轮对话回灌进记忆库（清空记忆后的补丁：不重新聊天也能重新打标）">♻️ 恢复对话记录</button>
+          <button class="btn ghost" type="button" onclick="memRebuildConvNow()" style="flex:0 0 auto;" title="对话记录消失/被清空时的救火键：记忆库里有对话的全文镜像，用它把聊天记录整条重建回来（按消息 id 幂等合并，不会重复）">🧩 从记忆库重建对话</button>
           <button class="btn ghost" type="button" onclick="memViewJournal()" style="flex:0 0 auto;" title="日记→周记→月记的时间分层回忆档案">📓 日记档案</button>
           <button class="btn ghost" type="button" onclick="memClear()" style="flex:0 0 auto;color:#a32d2d;">🗑 清空记忆</button>
         </div>
@@ -3614,6 +3624,8 @@ function enterApp(){
   try{ initPomo(); }catch(e){ console.error(e); } // 番茄钟 · 港窝小园
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
+  try{ setTimeout(()=>{ convSelfHeal(); }, 1800); }catch(e){ console.error(e); } // 对话存档没读出来但记忆库有原文 → 主动问一句要不要重建（2026-09-11）
+  try{ bkStartAuto(); }catch(e){ console.error(e); } // 自动本机快照：数据变化即存 + 每 5 小时保底一份（2026-09-11 数据丢失事故后加固）
   // 2026-09-10：原 scheduleProactiveWake（每约 45 分钟静默「批量预写」主动消息）已随 <plans> 链路一并移除。
   // 主动消息现在只有云端唤醒时现场生成这一条路——预写必然与中间发生的事撞车。
   try{ setTimeout(()=>{ pushInit(); pushStartHeartbeat(); }, 800); }catch(e){ console.error(e); } // 后台消息推送：开启时订阅并上报（/sub）；心跳持续上报用户活跃时间
@@ -6997,17 +7009,49 @@ function aiReset(){ aiConv = [{role:'system', content: buildSystem()}]; }
 
 // ---- 对话持久化：刷新/重开不丢 ----
 const CONV_KEY = 'mhm_ai_conv';
+const CONV_BAK_KEY = 'mhm_ai_conv_bak';   // 滚动备份：上一次成功保存的存档（防「存档损坏/被清空」后彻底找不回）
+const CONV_BAD_KEY = 'mhm_ai_conv_bad';   // 读不出来的存档留一份「头部+长度」现场，供诊断用（不含全量正文，不占空间）
 const CONV_KEEP = 300; // 本地最多保留最近 300 条（不含 system）：历史翻得更远；首屏+分批渲染，不拖慢加载
-function saveConv(){
+const CONV_BAK_KEEP = 200;      // 备份只留最近 200 条：够救命，又不至于把 localStorage 挤到写不进去
+const CONV_BAK_MAX_CHARS = 700000; // 备份体积上限（约 700KB），超了就不备份——宁可没备份，不能把主存档挤爆
+/* ★ 2026-09-11 修「对话记录一下子消失」：
+   旧版 saveConv 有一行 `if(!aiConv || aiConv.length<=1){ localStorage.removeItem(CONV_KEY); return; }`
+   ——只要此刻内存里的会话是空的（读档失败、尚未初始化），任何一次保存都会把磁盘上的旧存档静默删掉。
+   一次读档异常 = 历史被永久抹掉。现在拆成两个语义：
+     · 普通保存：会话为空时「什么都不做」（绝不删档）；
+     · 用户明确点「清空对话」：传 {clear:true} 才真删（并连备份一起清，免得清空后被备份复活）。 */
+function saveConv(opts){
+  const explicitClear = !!(opts && opts.clear);
   try{
-    if(!aiConv || aiConv.length<=1){ localStorage.removeItem(CONV_KEY); return; }
+    if(!aiConv || aiConv.length<=1){
+      if(explicitClear){ try{ localStorage.removeItem(CONV_KEY); localStorage.removeItem(CONV_BAK_KEY); }catch(e2){} }
+      return;
+    }
     const sys = aiConv[0];
     const rest = aiConv.slice(1);
     const KEEP = Math.min(rest.length, CONV_KEEP); // 最多保留最近 300 条（不含 system），图片已占位化，localStorage 无压力
     const tail = rest.slice(rest.length - KEEP);
     const cleaned = tail.map(stripConvImages);
-    localStorage.setItem(CONV_KEY, JSON.stringify([sys, ...cleaned]));
-  }catch(e){ /* 容量满或隐私模式：忽略持久化 */ }
+    const payload = JSON.stringify([sys, ...cleaned]);
+    // ① 把「上一版存档」降级成滚动备份（只留最近 CONV_BAK_KEEP 条，体积可控；失败就撤掉备份键，别占地方）
+    try{
+      const prev = localStorage.getItem(CONV_KEY);
+      if(prev && prev.length > 60 && prev !== payload && prev.length <= CONV_BAK_MAX_CHARS){
+        let bakRaw = prev;
+        try{
+          const pa = JSON.parse(prev);
+          if(Array.isArray(pa) && pa.length > 1) bakRaw = JSON.stringify([pa[0], ...pa.slice(1).slice(-CONV_BAK_KEEP)]);
+        }catch(e2){ /* 旧存档本身就读不出来：原样留一份，至少还能肉眼救 */ }
+        localStorage.setItem(CONV_BAK_KEY, bakRaw);
+      }
+    }catch(e){ try{ localStorage.removeItem(CONV_BAK_KEY); }catch(e2){} }
+    // ② 写主存档；若容量满写不进去：先牺牲备份腾地方，再重试一次；仍失败就放弃本轮落盘（绝不动已有存档）
+    try{ localStorage.setItem(CONV_KEY, payload); }
+    catch(e1){
+      try{ localStorage.removeItem(CONV_BAK_KEY); }catch(e2){}
+      try{ localStorage.setItem(CONV_KEY, payload); }catch(e3){ window.__convSaveErr = String(e3 && e3.name || e3); }
+    }
+  }catch(e){ window.__convSaveErr = String(e && e.name || e); /* 容量满或隐私模式：忽略持久化 */ }
 }
 function stripConvImages(m){
   if(m && m.role==='user' && Array.isArray(m.content)){
@@ -7020,19 +7064,43 @@ function stripConvImages(m){
   }
   return m;
 }
+/* 读档：主存档 → 读不出来就退到滚动备份 → 都没有才算「没有历史」。
+   读不出来时留一份现场（长度+头部 200 字符）到 CONV_BAD_KEY，下次开诊断就能看见原因（别再靠猜）。 */
+function convParseArchived(raw){
+  if(!raw) return null;
+  const arr = JSON.parse(raw);
+  if(!Array.isArray(arr) || !arr.length || arr[0].role!=='system') return null;
+  return arr;
+}
 function loadConv(){
-  try{
-    const raw = localStorage.getItem(CONV_KEY);
-    if(!raw) return false;
-    const arr = JSON.parse(raw);
-    if(!Array.isArray(arr) || !arr.length || arr[0].role!=='system') return false;
-    aiConv = arr;
-    // 给旧存档里缺 id 的消息补上唯一 id（旧版对话也能逐条删除）
-    aiConv.forEach(m=>{ if(!m.id) m.id = 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7); });
-    aiConv[0] = {role:'system', content: buildSystem(), id: aiConv[0].id||('m'+Date.now()+'_sys')}; // 重建 system（动态时间/天气/日程改在发送时注入 user 消息，见 injectTimeAnchor）
-    renderConvFromState();
-    return true;
-  }catch(e){ return false; }
+  let arr = null, fromBak = false, mainRaw = null, mainErr = '';
+  try{ mainRaw = localStorage.getItem(CONV_KEY); }catch(e){ mainErr = '读取失败: '+(e && e.message || e); }
+  try{ arr = convParseArchived(mainRaw); }
+  catch(e){ mainErr = 'JSON 解析失败: '+(e && e.message || e); }
+  if(!arr && mainRaw && !mainErr) mainErr = '结构异常（首条不是 system 或不是数组）';
+  if(!arr){
+    // 主存档没了/坏了：留现场 + 退备份
+    try{
+      if(mainRaw) localStorage.setItem(CONV_BAD_KEY, JSON.stringify({at: new Date().toISOString(), len: mainRaw.length, err: mainErr, head: mainRaw.slice(0,200)}));
+    }catch(e){}
+    try{ arr = convParseArchived(localStorage.getItem(CONV_BAK_KEY)); if(arr) fromBak = true; }catch(e){ arr = null; }
+  }
+  if(!arr){
+    if(mainErr) window.__convLoadErr = mainErr;
+    window.__convLoadFailed = true;   // 标记「本次启动没读到存档」：给启动自愈判断用
+    return false;
+  }
+  window.__convLoadFailed = false;
+  aiConv = arr;
+  // 给旧存档里缺 id 的消息补上唯一 id（旧版对话也能逐条删除）
+  aiConv.forEach(m=>{ if(!m.id) m.id = 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7); });
+  // 重建 system（动态时间/天气/日程改在发送时注入 user 消息，见 injectTimeAnchor）。
+  // ★ buildSystem 自身出问题也不能连累已读出来的历史：失败就退回占位 system。
+  try{ aiConv[0] = {role:'system', content: buildSystem(), id: aiConv[0].id||('m'+Date.now()+'_sys')}; }
+  catch(e){ console.error('buildSystem 失败', e); try{ aiConv[0] = {role:'system', content: '', id: aiConv[0].id||('m'+Date.now()+'_sys')}; }catch(e2){} }
+  try{ renderConvFromState(); }catch(e){ console.error('对话渲染失败', e); }
+  if(fromBak){ try{ toast('主存档读取失败，已用备份存档恢复对话（'+Math.max(0, aiConv.length-1)+' 条）'); }catch(e){} }
+  return true;
 }
 // 渲染窗口：本地存档可达 300 条，但首屏只渲染最近 40 条（与原体验一致、加载不卡），
 // 要看更早的对话点顶部「查看更早」按钮，每批再加载 60 条；滚动位置保持不跳动。
@@ -7047,12 +7115,17 @@ function renderConvFromState(){
   if(!aiConv || aiConv.length<=1) return;
   const start = Math.max(1, aiConv.length - convShown);
   const frag = document.createDocumentFragment();
+  let drawn = 0, failed = 0;
   for(let i=start;i<aiConv.length;i++){
-    const el = convBubbleEl(aiConv[i]);
-    if(el) frag.appendChild(el);
+    let el = null;
+    // ★ 2026-09-11：单条消息渲染抛错不再连累整个列表（旧版一条坏消息就能让对话页看起来「全空」）
+    try{ el = convBubbleEl(aiConv[i]); }catch(e){ failed++; console.warn('气泡渲染失败', e); continue; }
+    if(el){ frag.appendChild(el); drawn++; }
   }
   const more = start - 1; // 更早还有多少条原始消息未显示
   if(more>0) frag.insertBefore(convMoreButton(more), frag.firstChild);
+  // 存档里有内容却一条都没画出来：如实告知（数据没丢，别让用户以为对话被清空了）
+  if(!drawn && failed) frag.appendChild(convFailNotice(failed));
   wrap.appendChild(frag);
   wrap.scrollTop = wrap.scrollHeight;
   memMarkBubbles().catch(()=>{}); // 重进渲染后补气泡状态记号（已打标光晕 + 记忆小星）
@@ -7096,6 +7169,12 @@ function attachDelBtn(d, mid){
   x.setAttribute('onclick', "deleteConvMsg('"+mid+"')");
   d.appendChild(x);
 }
+function convFailNotice(n){
+  const d = document.createElement('div');
+  d.className = 'ai-msg sys';
+  d.textContent = '⚠️ 有 '+n+' 条消息没能画出来（存档还在，数据没丢）。点设置里的「🩺 诊断自检」把结果发给 AI 排查即可。';
+  return d;
+}
 function convMoreButton(more){
   const b = document.createElement('button');
   b.type = 'button';
@@ -7114,7 +7193,8 @@ function loadMoreConv(){
   convShown += CONV_RENDER_PAGE;
   const frag = document.createDocumentFragment();
   for(let i=start;i<end;i++){
-    const el = convBubbleEl(aiConv[i]);
+    let el = null;
+    try{ el = convBubbleEl(aiConv[i]); }catch(e){ console.warn('气泡渲染失败', e); continue; }
     if(el) frag.appendChild(el);
   }
   const more = start - 1;
@@ -8153,6 +8233,7 @@ function openAISettings(){
   document.getElementById('appTitle').value = getAppTitle()===DEFAULT_TITLE ? '' : getAppTitle();
   document.getElementById('aiSetHint').textContent='';
   updateBackupUI();
+  bkRenderStatus(); // 打开设置时刷新「自动本机快照」状态（含健康位）
   openMask(document.getElementById('aiSetMask'));
 }
 /* ---- 视觉模型开关联动：关掉时配置区变灰禁用 ---- */
@@ -8227,7 +8308,31 @@ async function collectDiag(){
     L('aiBusy(卡死标志)', 'false');
   }
   L('对话条数', (aiConv && aiConv.length) || 0);
-  L('记忆开关', (localStorage.getItem('mhm_mem_enabled') !== '0'));
+  // ★ 2026-09-11 新增：对话存档体检（「对话记录一下子消失」排查用）
+  L('--- 对话存档(localStorage) ---', '');
+  try{
+    const raw = localStorage.getItem(CONV_KEY);
+    if(!raw) L('mhm_ai_conv', '❌ 键不存在（存档已丢失，或被「清空对话」删过）');
+    else{
+      L('mhm_ai_conv', '存在 · '+raw.length+' 字符');
+      try{
+        const a = JSON.parse(raw);
+        L('存档结构', Array.isArray(a) ? ('数组 '+a.length+' 条 · 首条 role='+(a[0]&&a[0].role)) : '❌ 不是数组');
+      }catch(e){ L('存档结构', '❌ JSON 解析失败：'+e.message+' ｜ 头部='+raw.slice(0,60)); }
+    }
+    const bk = localStorage.getItem(CONV_BAK_KEY), bad = localStorage.getItem(CONV_BAD_KEY);
+    L('备份存档', bk ? ('存在 · '+bk.length+' 字符') : '不存在');
+    if(bad){ try{ const o = JSON.parse(bad); L('上次读档失败现场', o.at+' · '+o.err+' · 长度 '+o.len+' · 头部='+String(o.head||'').slice(0,60)); }catch(e){ L('上次读档失败现场', String(bad).slice(0,80)); } }
+    L('写档错误', window.__convSaveErr ? window.__convSaveErr : '(无)');
+    L('云消息水位', localStorage.getItem(CLOUD_LAST_SEEN_KEY) || '(无)');
+    try{
+      const big = Object.keys(localStorage).filter(k=>k.indexOf('mhm_')===0)
+        .map(k=>({k, n:String(localStorage.getItem(k)||'').length}))
+        .sort((a,b)=>b.n-a.n).slice(0,6).map(o=>o.k+'='+o.n);
+      L('localStorage 占比 Top6', big.join(' / '));
+    }catch(e){}
+  }catch(e){ L('对话存档', '读取异常: '+(e.message||e)); }
+  L('记忆开关', memEnabled());
   L('最近AI错误', window.__lastAIError ? window.__lastAIError : '(无)');
   // 当前请求是否在飞（fetch 已开始但未返回）——这是判断「真·卡死」的关键，比 aiBusy 更准
   const st = window.__aiReqStart || 0, dn = window.__aiReqDone || 0;
@@ -8619,7 +8724,8 @@ function clearAIConv(){
       const wrap = document.getElementById('aiMsgs');
       if(wrap) wrap.innerHTML='';
       addAIMsg('sys','对话已清空（任务与课表不受影响）。继续说吧～');
-      saveConv();
+      saveConv({clear:true}); // ★ 只有这里（用户明确点清空）才真删存档，普通保存绝不删
+      try{ localStorage.removeItem(CONV_BAD_KEY); }catch(e){}
       markAIRead();
     }},
     {label:'取消', cls:'ghost'}
@@ -8651,7 +8757,7 @@ function deleteConvMsg(mid){
       const el2 = document.querySelector('#aiMsgs [data-mid="'+mid+'"]');
       if(el2) el2.remove();
       if(aiTtsLast && aiTtsLast.mid===mid) aiTtsClearLast();
-      saveConv();
+      saveConv(aiConv.length<=1 ? {clear:true} : undefined); // 删到一条不剩 = 用户确实要清空，才允许删存档键
       markAIRead();
       memDeleteByMid(mid); // 联动删除记忆库（messages+entries+tags）：已删内容不再被磁铁召回，重发也不会产生重复打标
     }},
@@ -8823,6 +8929,299 @@ async function importData(ev){
     }
   };
   reader.readAsText(file);
+}
+/* ═══════════════════════════════════════════════════════════════════════
+   自动本机快照 · mhm_backup_db（2026-09-11 数据丢失事故后的加固）
+   ───────────────────────────────────────────────────────────────────────
+   事故复盘：浏览器「清除网站数据」把 localStorage 整体清空（任务/课表/记账/配置/对话全没），
+   而 IndexedDB（mhm_mem_db：日记/记忆/原料/朋友圈）完好 —— 两层存储不是同步被清的。
+   结论：把 localStorage 的业务数据 + IndexedDB 全表，定期快照进「另一个 IndexedDB 库」，
+   下次再被清就有得救；换手机/卸载也能靠导出这份快照救回来。
+   频率：数据有变化（防抖 90s 后写）＋ 距上次超 5 小时保底写一次 ⇒ 每天自然至少 2 份。
+   保留：latest / prev / good 三个槽位，**不累积**（旧的自动被顶掉）。
+        · good 只在「体检正常」时推进：万一数据已被清空、快照拍在了丢失之后，
+          latest 会变成空数据而 good 仍是健康的那份，不会被顶掉。
+   ═══════════════════════════════════════════════════════════════════════ */
+const BK_DB = 'mhm_backup_db';
+const BK_STORE = 'snapshots';
+const BK_VER = 1;
+const BK_SLOTS = ['latest','prev','good'];
+const BK_MIN_GAP_MS    = 10*60*1000;    // 两次自动快照最短间隔
+const BK_FRESH_GAP_MS  = 5*3600*1000;   // 保底新鲜度：距上次超 5 小时补一份（⇒ 每天至少 2 次）
+const BK_DEBOUNCE_MS   = 90*1000;       // 检测到数据变化后延迟写（躲开连续操作）
+const BK_STATE_KEY     = 'mhm_bk_meta'; // 快照状态（也算业务键，跳过自身）
+const BK_SKIP_KEYS = ['mhm_hk_weather','mhm_hk_warning','mhm_last_doc_text','mhm_ai_usage_log','mhm_bk_meta']; // 缓存/瞬态数据不进快照
+const BK_IDB_STORES = ['journal','entries','tags','messages','oc_posts','kv']; // 从 mhm_mem_db 快照这些表
+let __bkLastFp = '', __bkLastChange = 0, __bkTimer = null, __bkInFlight = false, __bkDayCache = '';
+
+function bkDayKey(){ const d = new Date(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate(); }
+function bkMeta(){ try{ return JSON.parse(localStorage.getItem(BK_STATE_KEY)||'{}')||{}; }catch(e){ return {}; } }
+function bkSetMeta(o){ try{ localStorage.setItem(BK_STATE_KEY, JSON.stringify(Object.assign(bkMeta(), o))); }catch(e){} }
+function bkFmtTime(ts){
+  if(!ts) return '—';
+  const d = new Date(Number(ts));
+  const p = n=>String(n).padStart(2,'0');
+  const sameDay = bkDayKey() === (d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate());
+  return (sameDay ? '' : (p(d.getMonth()+1)+'/'+p(d.getDate())+' ')) + p(d.getHours())+':'+p(d.getMinutes());
+}
+function bkAgo(ts){
+  if(!ts) return '';
+  const m = Math.floor((Date.now()-Number(ts))/60000);
+  if(m < 1) return '刚刚';
+  if(m < 60) return m+' 分钟前';
+  if(m < 60*24) return Math.floor(m/60)+' 小时前';
+  return Math.floor(m/1440)+' 天前';
+}
+// ---- 独立库（故意不复用 mhm_mem_db：避免升级版本号把 rescue/export 那些第三方救火页顶掉）----
+function bkOpen(){
+  return new Promise(res=>{
+    try{
+      if(!window.indexedDB) return res(null);
+      const rq = indexedDB.open(BK_DB, BK_VER);
+      rq.onupgradeneeded = ()=>{ const db = rq.result; if(!db.objectStoreNames.contains(BK_STORE)) db.createObjectStore(BK_STORE, {keyPath:'slot'}); };
+      rq.onsuccess = ()=>res(rq.result);
+      rq.onerror = ()=>res(null);
+    }catch(e){ res(null); }
+  });
+}
+function bkDo(mode, fn){
+  return bkOpen().then(db=>{
+    if(!db) return Promise.resolve(null);
+    return new Promise(res2=>{
+      try{
+        const tx = db.transaction(BK_STORE, mode);
+        const st = tx.objectStore(BK_STORE);
+        let out = null;
+        const r = fn(st);
+        if(r && 'onsuccess' in r) r.onsuccess = ()=>{ out = r.result; };
+        tx.oncomplete = ()=>res2(out);
+        tx.onerror = ()=>res2(null);
+        tx.onabort = ()=>res2(null);
+      }catch(e){ res2(null); }
+    });
+  });
+}
+const bkPutRec = rec => bkDo('readwrite', st=>st.put(rec));
+const bkGetRec = slot => bkDo('readonly', st=>st.get(slot));
+const bkAllRecs = () => bkDo('readonly', st=>st.getAll());
+
+// ---- 采集：localStorage 全部业务键 + IndexedDB 全表 ----
+async function bkCollect(){
+  const ls = {};
+  try{
+    for(const k of Object.keys(localStorage)){
+      if(k.indexOf('mhm_') !== 0 || BK_SKIP_KEYS.indexOf(k) >= 0) continue;
+      try{ const v = localStorage.getItem(k); if(v !== null) ls[k] = v; }catch(e){}
+    }
+  }catch(e){}
+  const idb = {};
+  try{
+    const db = await memOpenDB();
+    if(db){
+      for(const s of BK_IDB_STORES){
+        if(!db.objectStoreNames.contains(s)) continue;
+        idb[s] = await new Promise(res2=>{
+          try{
+            const tx = db.transaction(s, 'readonly');
+            const st = tx.objectStore(s);
+            if(st.keyPath){ const rq = st.getAll(); rq.onsuccess = ()=>res2(rq.result||[]); rq.onerror = ()=>res2([]); }
+            else{
+              const out = []; const rq = st.openCursor();   // kv 表是 out-of-line key，只有 cursor 才拿得到键名
+              rq.onsuccess = ()=>{ const c = rq.result; if(c){ out.push([c.key, c.value]); c.continue(); } else res2(out); };
+              rq.onerror = ()=>res2(out);
+            }
+          }catch(e){ res2([]); }
+        });
+      }
+    }
+  }catch(e){}
+  return { v:1, at:new Date().toISOString(), title:(typeof getAppTitle === 'function' ? getAppTitle() : ''), ls, idb };
+}
+function bkArr(v){ return Array.isArray(v) ? v.length : 0; }
+function bkJson(s){ try{ return JSON.parse(s); }catch(e){ return null; } }
+function bkCounts(p){
+  const L = (p && p.ls) || {}, D = (p && p.idb) || {};
+  const conv = bkJson(L['mhm_ai_conv']);
+  const exp = bkJson(L['mhm_expense_v1']);
+  const cfg = bkJson(L['mhm_ai_cfg']);
+  return {
+    tasks: bkArr(bkJson(L['mhm_cloud_v1'])),
+    expense: bkArr(exp && exp.items),
+    courses: bkArr(bkJson(L['mhm_courses_v1'])),
+    conv: Array.isArray(conv) ? conv.filter(m=>m && m.role !== 'system').length : 0,
+    cfgLen: (L['mhm_ai_cfg'] ? String(L['mhm_ai_cfg']).length : 0),
+    keyLen: (cfg && cfg.apiKey ? String(cfg.apiKey).length : 0),
+    journal: bkArr(D.journal), entries: bkArr(D.entries), tags: bkArr(D.tags),
+    raw: bkArr(D.messages), posts: bkArr(D.oc_posts)
+  };
+}
+function bkTotal(c){ c = c||{}; return (c.tasks||0)+(c.expense||0)+(c.courses||0)+(c.conv||0)+(c.journal||0)+(c.entries||0)+(c.tags||0)+(c.raw||0)+(c.posts||0); }
+function bkSummary(c){
+  c = c||{};
+  return '任务'+(c.tasks||0)+'·记账'+(c.expense||0)+'·课表'+(c.courses||0)+'·对话'+(c.conv||0)
+       + '·日记'+(c.journal||0)+'·记忆'+(c.entries||0)+'·标签'+(c.tags||0)+'·原料'+(c.raw||0);
+}
+
+// ---- 写快照（含轮转 + 健康体检）----
+async function bkSaveNow(trigger, opts){
+  opts = opts || {};
+  const payload = await bkCollect();
+  const counts = bkCounts(payload);
+  const total = bkTotal(counts);
+  let size = 0; try{ size = JSON.stringify(payload).length; }catch(e){}
+  const rec = { slot:'latest', at:Date.now(), iso:payload.at, trigger:trigger||'manual', counts, total, size, payload };
+  const prev = await bkGetRec('latest');
+  const good = await bkGetRec('good');
+  const goodTotal = good ? (good.total||0) : 0;
+  const degraded = !!(good && goodTotal >= 20 && total < goodTotal * 0.6); // 骤降 = 疑似「数据刚被清空就拍了快照」
+  if(prev && prev.payload) await bkPutRec(Object.assign({}, prev, {slot:'prev'}));   // 旧的最新 → 上一份（自动顶掉更旧）
+  await bkPutRec(rec);
+  if(!degraded) await bkPutRec(Object.assign({}, rec, {slot:'good'}));              // 健康位只在体检正常时推进
+  const day = bkDayKey();
+  const m = bkMeta();
+  bkSetMeta({ last:rec.at, lastTrigger:rec.trigger, lastTotal:total, lastCounts:counts, lastDegraded:degraded,
+              day, dayN:(m.day === day ? (Number(m.dayN)||0) : 0) + 1 });
+  bkRenderStatus();
+  if(!opts.silent) toast(degraded ? ('⚠️ 已存本机快照，但比上一份少了 '+(goodTotal-total)+' 项（疑似数据被清），健康那份已保留') : ('已存本机快照 · '+bkSummary(counts)));
+  return { rec, degraded };
+}
+
+// ---- 自动节奏：变化触发（防抖）＋ 5 小时保底 ----
+function bkFingerprint(){
+  let fp = '';
+  try{
+    const keys = Object.keys(localStorage).filter(k=>k.indexOf('mhm_') === 0 && BK_SKIP_KEYS.indexOf(k) < 0).sort();
+    for(const k of keys){ const v = localStorage.getItem(k) || ''; fp += k+':'+v.length+';'; }
+  }catch(e){}
+  return fp + '|conv:' + ((aiConv && aiConv.length) || 0);
+}
+async function bkTick(force){
+  try{
+    if(__bkInFlight) return null;
+    if(!force && document.visibilityState === 'hidden') return null;
+    const meta = bkMeta(), now = Date.now();
+    const last = Number(meta.last) || 0;
+    const day = bkDayKey();
+    const dayN = (meta.day === day) ? (Number(meta.dayN)||0) : 0;
+    const fp = bkFingerprint();
+    const changed = fp !== __bkLastFp;
+    if(changed){ __bkLastFp = fp; __bkLastChange = now; }
+    const first = !last;
+    const freshOk = last && (now - last) >= BK_FRESH_GAP_MS;                 // 保底新鲜度
+    const day2 = dayN < 2 && (now - last) >= BK_MIN_GAP_MS;                  // 每天至少 2 次
+    const changeOk = changed && (now - __bkLastChange) >= BK_DEBOUNCE_MS && (now - last) >= BK_MIN_GAP_MS;
+    if(!(force || first || freshOk || day2 || changeOk)) return null;
+    __bkInFlight = true;
+    const r = await bkSaveNow(force ? 'manual' : (first ? 'open' : (changeOk ? 'change' : 'schedule')), { silent:!force });
+    __bkInFlight = false;
+    return r;
+  }catch(e){ __bkInFlight = false; return null; }
+}
+function bkStartAuto(){
+  try{
+    if(__bkTimer) clearInterval(__bkTimer);
+    __bkLastFp = bkFingerprint();
+    __bkTimer = setInterval(()=>{ bkTick(); }, 60*1000);                     // 每分钟体检一次节奏（内部有节流，不会频繁写）
+    setTimeout(()=>{ bkTick(); }, 20000);                                    // 打开 20 秒后先来一份（等数据都加载完）
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') setTimeout(()=>bkTick(), 4000); });
+    bkRenderStatus();
+  }catch(e){}
+}
+
+// ---- 状态展示 ----
+async function bkRenderStatus(){
+  const el = document.getElementById('bkStatus');
+  if(!el) return;
+  const m = bkMeta();
+  let extra = '';
+  try{
+    const good = await bkGetRec('good');
+    if(good && m.last && good.at !== m.last) extra = ' · 健康位 '+bkFmtTime(good.at);
+  }catch(e){}
+  el.textContent = m.last
+    ? ('本机快照：'+bkFmtTime(m.last)+'（'+bkAgo(m.last)+'·'+(m.lastTrigger==='manual'?'手动':m.lastTrigger==='change'?'数据变化':m.lastTrigger==='open'?'打开时':'定时')+'）'
+       + (m.lastCounts ? ('｜'+bkSummary(m.lastCounts)) : '') + extra)
+    : '本机快照：还没有（打开 App 20 秒后会自动存第一份）';
+}
+function bkOpenRestore(){
+  bkAllRecs().then(all=>{
+    const map = {}; (all||[]).forEach(r=>{ if(r && r.slot) map[r.slot] = r; });
+    const rows = BK_SLOTS.filter(s=>map[s]).map(s=>{
+      const r = map[s];
+      const label = s==='latest' ? '最新一份' : (s==='prev' ? '上一份（latest 被顶下来的）' : '健康位（只在体检正常时推进）');
+      return '<label style="display:block;padding:9px 11px;margin:0 0 8px;border:1px solid var(--glass-line);border-radius:12px;background:var(--glass-strong);">'
+        + '<input type="radio" name="bkSlot" value="'+s+'"'+(s==='latest'?' checked':'')+' style="margin-right:8px;">'
+        + '<b>'+label+'</b><br><span style="font-size:11.5px;color:var(--ink-soft);line-height:1.7;">'
+        + bkFmtTime(r.at)+'（'+bkAgo(r.at)+'）· '+bkSummary(r.counts||{})+'<br>体积 '+Math.round((r.size||0)/1024)+' KB</span></label>';
+    }).join('');
+    if(!rows){ showDialog('还没有本机快照', '打开 App 后 20 秒会自动存第一份；也可以点「立即存一份」马上存。', [{label:'知道了', cls:'ghost'}]); return; }
+    const html = rows
+      + '<div style="margin-top:10px;padding:9px 11px;border-radius:12px;background:rgba(233,195,145,.16);border:1px solid var(--glass-line);">'
+      + '<label style="display:block;font-size:12px;margin-bottom:6px;"><input type="radio" name="bkMode" value="merge" checked style="margin-right:8px;">只补缺失的（推荐：本地没有的键才写回，绝不覆盖现有数据）</label>'
+      + '<label style="display:block;font-size:12px;"><input type="radio" name="bkMode" value="overwrite" style="margin-right:8px;">整份覆盖（回到快照当时的样子，本地已有的键会被改写）</label></div>'
+      + '<p style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">记忆/日记/原料等按内容去重后「只追加不清空」；恢复前会自动先给当前状态存一份快照，随时可退回来。</p>';
+    showDialog('从本机快照恢复', html, [
+      {label:'开始恢复', cls:'', fn: async ()=>{
+        const slot = (document.querySelector('input[name="bkSlot"]:checked')||{}).value || 'latest';
+        const mode = (document.querySelector('input[name="bkMode"]:checked')||{}).value || 'merge';
+        const r = await bkRestore(slot, mode);
+        if(!r || r.err){ toast('⚠️ 恢复失败：'+((r&&r.err)||'未知错误')); return; }
+        toast('✅ 已恢复：补回 '+r.lsN+' 个键 / 新增 '+r.idbN+' 条记忆数据，2 秒后刷新界面');
+        setTimeout(()=>{ try{ location.reload(); }catch(e){} }, 2000);
+      }},
+      {label:'先算了', cls:'ghost'}
+    ], true);
+  });
+}
+async function bkRestore(slot, mode){
+  const rec = await bkGetRec(slot);
+  if(!rec || !rec.payload) return { err:'这份快照是空的' };
+  const p = rec.payload;
+  let lsN = 0, idbN = 0, err = '';
+  try{
+    await bkSaveNow('pre-restore', { silent:true });   // 恢复前先留一份「现在的样子」，恢复错了还能退回来
+    const overwrite = (mode === 'overwrite');
+    for(const k of Object.keys(p.ls||{})){
+      if(k === BK_STATE_KEY) continue;
+      try{
+        const cur = localStorage.getItem(k);
+        if(overwrite || cur === null){ localStorage.setItem(k, p.ls[k]); lsN++; }
+      }catch(e){}
+    }
+    const db = await memOpenDB();
+    if(db){
+      for(const s of Object.keys(p.idb||{})){
+        if(!db.objectStoreNames.contains(s)) continue;
+        const rows = p.idb[s] || [];
+        if(!rows.length) continue;
+        // 去重键：有 mid 用 mid，有内容哈希用内容，其余用 JSON 摘要
+        const sig = r => {
+          if(!r || typeof r !== 'object') return String(r);
+          if(r.mid) return 'mid:'+r.mid;
+          return 'h:'+String(r.role||'')+'|'+String(r.when||r.created_at||'')+'|'+String(r.content||'').slice(0,120)+'|'+String(r.who||'');
+        };
+        const exist = await memGetAll(s);
+        const have = {}; (exist||[]).forEach(r=>{ have[sig(r)] = true; });
+        if(s === 'kv'){
+          for(const kv of rows){                                   // kv：只在本地缺这个键时补（水位类状态不乱写）
+            const k2 = Array.isArray(kv) ? kv[0] : null;
+            if(k2 === null || k2 === undefined) continue;
+            const cur = await memKvGet(k2);
+            if(cur === null || cur === undefined){ await memKvSet(k2, Array.isArray(kv) ? kv[1] : kv).catch(()=>{}); idbN++; }
+          }
+        } else {
+          for(const r of rows){
+            const s2 = sig(r);
+            if(have[s2]) continue;
+            const cp = Object.assign({}, r); delete cp.id;            // 剥离原自增主键，交给浏览器重新分配
+            await memPut(s, cp).catch(()=>{});
+            have[s2] = true; idbN++;
+          }
+        }
+      }
+    }
+  }catch(e){ err = (e && e.message) || String(e); }
+  return { lsN, idbN, err };
 }
 async function testAIConn(){
   const cfg = {
@@ -10271,6 +10670,64 @@ async function memRescueNow(){
   if(hint) hint.textContent = left > 0
     ? ('✅ 已恢复 ' + added + ' 条对话并完成本批打标，还有 ' + left + ' 条待处理，可再点一次继续。')
     : ('✅ 已恢复 ' + added + ' 条对话并完成打标。');
+}
+/* ---- 反向救火：从记忆库重建对话记录（2026-09-11 新增） ----
+   记忆库的 messages 表是对话的「全文镜像」：每条 user/assistant 消息发送/回复时都记了
+   {role, content, mid, created_at}。所以哪怕 localStorage 的对话存档（mhm_ai_conv）丢了或坏了，
+   只要记忆库还在，就能把聊天记录整条重建回来——按 mid 幂等合并，不会跟现有消息重复。 */
+async function memRebuildConvFromMemory(){
+  const rows = await memGetAll('messages');
+  const list = (rows||[]).filter(r=>r && (r.role==='user'||r.role==='assistant') && String(r.content||'').trim());
+  if(!list.length) return {built:0, kept:0, total:0};
+  list.sort((a,b)=>String(a.created_at||'').localeCompare(String(b.created_at||'')) || ((a.id||0)-(b.id||0))); // 时间升序（同秒按自增 id）
+  const built = list.map(r=>({ role:r.role, content:String(r.content), id: r.mid || ('memmsg_'+r.id) }));
+  const have = {}; built.forEach(m=>{ have[m.id] = true; });
+  const kept = [];
+  if(Array.isArray(aiConv)){
+    for(const m of aiConv.slice(1)){
+      if(m && m.id && !have[m.id]){ have[m.id] = true; kept.push(m); } // 本地有、记忆库还没的（如云端主动消息）
+    }
+  }
+  const merged = built.concat(kept);
+  const capped = merged.length > CONV_KEEP ? merged.slice(merged.length - CONV_KEEP) : merged;
+  let sysId = 'm'+Date.now()+'_sys', sysContent = '';
+  try{ if(aiConv && aiConv[0] && aiConv[0].id) sysId = aiConv[0].id; }catch(e){}
+  try{ sysContent = buildSystem(); }catch(e){}
+  aiConv = [{role:'system', content: sysContent, id: sysId}].concat(capped);
+  saveConv();
+  try{ renderConvFromState(); }catch(e){ console.error(e); }
+  return {built: built.length, kept: kept.length, total: capped.length};
+}
+async function memRebuildConvNow(){
+  const hint = document.getElementById('memTagHint');
+  let n = 0;
+  try{ const rows = await memGetAll('messages'); n = (rows||[]).filter(r=>r && (r.role==='user'||r.role==='assistant') && String(r.content||'').trim()).length; }catch(e){}
+  if(!n){
+    showDialog('记忆库里没有对话原料', '记忆库的 messages 表是空的（可能之前点过「连对话记录也清」）。这样对话记录就重建不出来了，只能重新开始聊。', [{label:'知道了', cls:'ghost'}]);
+    return;
+  }
+  if(hint) hint.textContent = '正在从记忆库重建对话记录…';
+  const r = await memRebuildConvFromMemory();
+  if(hint) hint.textContent = '✅ 已重建对话记录：记忆库 '+r.built+' 条 + 本地新消息 '+r.kept+' 条（共 '+r.total+' 条）。';
+  toast('✅ 对话记录已从记忆库重建（'+r.total+' 条）');
+}
+/* 启动自愈（2026-09-11）：本机对话存档没读出来（丢了/坏了），但记忆库里存着对话原文时，
+   主动问一句要不要重建——不让「对话记录消失」变成一个用户自己摸不着头脑的死局。 */
+async function convSelfHeal(){
+  try{
+    if(window.__convSelfHealed) return;
+    window.__convSelfHealed = true;
+    const archiveFailed = (window.__convLoadFailed === true);
+    if(!archiveFailed && Array.isArray(aiConv) && aiConv.length > 1) return;   // 存档读到了：不用管
+    if(!memEnabled()) return;
+    const rows = await memGetAll('messages');
+    const n = (rows||[]).filter(r=>r && (r.role==='user'||r.role==='assistant') && String(r.content||'').trim()).length;
+    if(n < 4) return;
+    showDialog('对话记录没读出来', '本机的对话存档没有读出来（记忆、日记不在这个存档里，不受影响）。好消息：记忆库存着 '+n+' 条对话原文，可以直接把聊天记录重建回来。', [
+      {label:'重建对话记录', cls:'', fn:()=>{ memRebuildConvNow(); }},
+      {label:'先不用', cls:'ghost'}
+    ]);
+  }catch(e){}
 }
 async function memClear(){
   // 默认只清「已提炼的记忆条目+标签」，保留 messages（对话记录=打标原料）：
