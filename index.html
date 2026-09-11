@@ -9229,11 +9229,22 @@ async function bkApplyPayload(p, mode){
         if(!db.objectStoreNames.contains(s)) continue;
         const rows = p.idb[s] || [];
         if(!rows.length) continue;
-        // 去重键：有 mid 用 mid，其余用「角色+时间+内容摘要」拼指纹
+        /* 去重键：有 mid 用 mid（对话气泡天然唯一），其余表一律用「整行内容指纹」。
+           ⚠️ 2026-09-11 修复：旧实现只取 role/when/content/who 四个字段，但各表字段名根本不同——
+              entries = {summary,event,source_msg_id,created_at}、tags = {entry_id,axis,tag,weight}、
+              journal = {type,start,end,content}。这些行的四字段全为空，指纹退化成同一个常量，
+              恢复时被当成「重复」静默丢弃。实测：备份里 5 条 entries → 恢复后 1 条、5 条 tags → 1 条。
+              改为对整行做稳定序列化（忽略自增 id），任何字段差异都能区分开。 */
+        const stableKey = x => {
+          if(x === null || x === undefined) return 'null';
+          if(Array.isArray(x)) return '[' + x.map(stableKey).join(',') + ']';
+          if(typeof x !== 'object') return JSON.stringify(x);
+          return '{' + Object.keys(x).filter(k=>k !== 'id').sort()
+            .map(k=>JSON.stringify(k) + ':' + stableKey(x[k])).join(',') + '}';
+        };
         const sig = r => {
-          if(!r || typeof r !== 'object') return String(r);
-          if(r.mid) return 'mid:'+r.mid;
-          return 'h:'+String(r.role||'')+'|'+String(r.when||r.created_at||'')+'|'+String(r.content||'').slice(0,120)+'|'+String(r.who||'');
+          if(r && typeof r === 'object' && r.mid) return 'mid:' + r.mid;
+          return 'h:' + stableKey(r);
         };
         const exist = await memGetAll(s);
         const have = {}; (exist||[]).forEach(r=>{ have[sig(r)] = true; });
@@ -16256,6 +16267,8 @@ init();
     }
   }catch(e){ console.warn('PDF worker inline setup failed:', e); }
 })();
+</script>
+
 <script>
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', function(){
