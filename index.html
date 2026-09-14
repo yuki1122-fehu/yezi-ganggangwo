@@ -14561,8 +14561,12 @@ init();
   background:radial-gradient(125% 125% at 50% 0%, rgba(22,32,26,.93), rgba(9,15,11,.97));
   color:#eaf3ea;font-family:inherit;overflow:hidden;}
 .comp-video-wrap{position:absolute;inset:0;overflow:hidden;}
-.comp-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);filter:brightness(.5) saturate(1.04);}
-.comp-vignette{position:absolute;inset:0;background:linear-gradient(180deg, rgba(0,0,0,.4), rgba(0,0,0,0) 28%, rgba(0,0,0,0) 58%, rgba(0,0,0,.6));pointer-events:none;}
+.comp-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);}
+/* [09-14 省电] 原来给全屏视频挂 filter:brightness(.5)：合成器每帧都要多做一次滤镜 pass，还可能让视频
+   丢掉硬件叠加通道。改叠一层静态 50% 黑——数学上等价于 brightness(.5)，但完全免费。
+   saturate(1.04) 那 4% 肉眼不可辨，直接去掉。 */
+.comp-video-wrap::after{content:"";position:absolute;inset:0;z-index:0;background:rgba(0,0,0,.5);pointer-events:none;}
+.comp-vignette{position:absolute;inset:0;z-index:1;background:linear-gradient(180deg, rgba(0,0,0,.4), rgba(0,0,0,0) 28%, rgba(0,0,0,0) 58%, rgba(0,0,0,.6));pointer-events:none;}
 .comp-top{position:relative;display:flex;justify-content:space-between;align-items:flex-start;padding:14px 16px;z-index:2;}
 .comp-pills{display:flex;gap:8px;flex-wrap:wrap;}
 .comp-pill{font-size:var(--fs-2);padding:6px 11px;border-radius:var(--radius-pill);background:rgba(255,255,255,.1);
@@ -14617,6 +14621,13 @@ init();
   background:rgba(255,255,255,.1);color:#eaf3ea;font-size:var(--fs-3);outline:none;}
 .comp-send{padding:9px 16px;border-radius:var(--radius-xs);border:none;background:rgba(122,202,132,.5);
   color:#eaffea;font-size:var(--fs-3);cursor:pointer;}
+/* [09-14 省电] 会话运行中（.live）这三块的 backdrop-filter 背后是「动态视频」，合成器每帧都要重算一遍模糊。
+   换成静态半透明底——背景本来就暗，肉眼看几乎无差别；小尺寸的 pill / 关闭钮保留原样（模糊区域小，开销可忽略）。 */
+.comp-mask.live .comp-bubble,.comp-mask.live .comp-trans,.comp-mask.live .comp-controls{backdrop-filter:none;-webkit-backdrop-filter:none;}
+.comp-mask.live .comp-bubble{background:rgba(26,36,30,.78);}
+.comp-mask.live .comp-trans{background:rgba(0,0,0,.52);}
+.comp-mask.live .comp-controls{background:rgba(0,0,0,.55);}
+body.comp-live::after{animation-play-state:paused;}
 </style>
 
 <div class="mask oc-feed-mask" id="ocFeedMask">
@@ -14989,7 +15000,9 @@ init();
 
   function loadCfg(){
     let c={}; try{ c=JSON.parse(localStorage.getItem(CFG_KEY))||{}; }catch(e){}
-    return Object.assign({proactive:true,salience:0.8,saveFlow:true,mouth:'sys',actions:false,observeMin:4,observeMax:10,captureFps:8},c);
+    // [09-14 省电] 抓帧 8fps 是早期的浪费默认值（帧差判断 3fps 足够）→ 未手改过的旧配置一次性迁移
+    if(c.captureFps===8) c.captureFps=3;
+    return Object.assign({proactive:true,salience:0.8,saveFlow:true,mouth:'sys',actions:false,observeMin:4,observeMax:10,captureFps:3},c);
   }
   function saveCfg(){ try{ localStorage.setItem(CFG_KEY,JSON.stringify(cfg)); }catch(e){} }
 
@@ -15007,7 +15020,7 @@ init();
   let listenGuardTimer=null; // USER_SPEECH_START 后 2.5s 内没有消费掉 → 状态从 LISTENING 回到 IDLE（防卡死）
   // 环境噪声提示：连续 2 次识别类错误（no-speech/audio-capture/network）才提示一次"凑近/耳机/打字"建议，90s 内最多一次
   let recogErrSeq=0, recogErrAt=0, noiseHintAt=0;
-  let lastFrame=null, lastFrameGray=null, lastMotion=0, motionChanged=false, present=false;
+  let lastFrame=null, lastMotion=0, motionChanged=false, present=false;
   let vision=null, lastObserveAt=0;
   let speaking=false, pendingSpeak={};
   // 逐句回声基准：云/WebSpeech 把 AI 多句回复里的"某一句"识别回来时，整段基准受 60% 门槛漏网。
@@ -15095,20 +15108,32 @@ init();
       let gotCam=false;
       try{
         stream=await navigator.mediaDevices.getUserMedia({
-          video:{facingMode:'user',width:{ideal:640},height:{ideal:480}},
+          // [09-14 省电] 抓帧只要 240×180 的小图，没必要让摄像头 640×480@30fps 满负荷跑：
+          //   降请求分辨率到 480×360 并显式限帧率（不写 frameRate 时安卓默认 30fps，传感器功耗与它强相关）
+          video:{facingMode:'user',width:{ideal:480},height:{ideal:360},frameRate:{ideal:12,max:15}},
           audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}
         });
         gotCam=true;
       }catch(e1){
+        // [09-14] 极少数机型不吃「限帧率」这类约束（会抛 OverconstrainedError）→ 先退成宽松视频约束再要一次，
+        //   仍然拿不到才降级纯语音，避免因为省电优化把摄像头功能整个弄没
         try{
-          stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
-          if(window.toast) toast('没拿到摄像头，已用纯语音/文字陪伴（看不见你）');
-        }catch(e2){ if(window.toast) toast('没拿到摄像头和麦克风，已用纯文字陪伴'); }
+          stream=await navigator.mediaDevices.getUserMedia({
+            video:{facingMode:'user'},
+            audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}
+          });
+          gotCam=true;
+        }catch(e1b){
+          try{
+            stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:false}});
+            if(window.toast) toast('没拿到摄像头，已用纯语音/文字陪伴（看不见你）');
+          }catch(e2){ if(window.toast) toast('没拿到摄像头和麦克风，已用纯文字陪伴'); }
+        }
       }
       if(stream){
         const v=document.getElementById('compVideo');
         if(v){ v.srcObject=stream; videoEl=v; try{ await v.play().catch(()=>{}); }catch(e){} }
-        canvasEl=document.createElement('canvas'); canvasEl.width=320; canvasEl.height=240;
+        canvasEl=document.createElement('canvas'); canvasEl.width=240; canvasEl.height=180; // [09-14 省电] 320×240→240×180：getImageData 回读量减半（307KB→173KB/帧）
         ctx2d=canvasEl.getContext('2d',{willReadFrequently:true});
         startLocalEye();
       }
@@ -15117,11 +15142,16 @@ init();
     lastObserveAt=0; vision=null; lastFrame=null;
     if(mode!=='voice') observeTimer=setInterval(maybeObserve,1000); // 纯语音不跑观察轮询
     lockTimer=setInterval(heartbeatLock,5000);
-    heartbeatTimer=setInterval(compHeartbeat,10000); // 耳朵体检：防安卓识别引擎静默死亡
+    heartbeatTimer=setInterval(compHeartbeat,20000); // [09-14 省电] 10s→20s：体检内部有「≥8s 无结果」+「≥30s 未刷新」双门槛，20s 轮询不影响它真正触发，但少一半唤醒
     const sw=document.getElementById('compStartWrap'); if(sw) sw.style.display='none';
     const ctr=document.getElementById('compControls'); if(ctr) ctr.style.display='flex';
     syncCtrlButtons();
     updateStatus();
+    // [09-14 省电] 会话运行期间给面板挂 .live：内部几处 backdrop-filter 的背景是「动态视频」，
+    // 每帧都要重算模糊 → 切成静态半透明底；同时暂停 body::after 的全屏呼吸层动画
+    // （那个层 inset:-20% ≈ 1.4× 视口面积，14s 无限循环，一直占着一个合成层在做 GPU 采样）
+    const cmLive=document.getElementById('compMask'); if(cmLive) cmLive.classList.add('live');
+    document.body.classList.add('comp-live');
     window.addEventListener('pagehide',compStop);
     spawn(orchestrate());
     showBubble(mode==='voice' ? '我在呢，纯语音模式，看不见画面，你说我听～' : '我在呢，开始啦～你专注，我陪着你。');
@@ -15146,14 +15176,30 @@ init();
     speaking=false; releaseLock();
     try{ window.removeEventListener('pagehide',compStop); }catch(e){}
     state=S.IDLE; epoch=0; activeTurn=null;
+    const cmLive=document.getElementById('compMask'); if(cmLive) cmLive.classList.remove('live');
+    document.body.classList.remove('comp-live');
     const ctr=document.getElementById('compControls'); if(ctr) ctr.style.display='none';
     const sw=document.getElementById('compStartWrap'); if(sw) sw.style.display='flex';
     updateStatus();
   }
 
-  // ── 本地眼（连续采集 + 帧差粗判断，零 API 成本；只留最新帧在内存）──
+  // ── 本地眼（连续采集 + 帧差粗判断，零 API 成本）──
+  // [09-14 省电改造] 旧版每个抓帧周期都做一次 canvasEl.toDataURL('image/jpeg')，但唯一的消费者
+  //   grabFrame()（只在 maybeObserve 里调用）最快 8s 才要一帧（observeMin 4s × saveFlow 2）⇒ 约 98%
+  //   的 JPEG 编码纯属白烧：8fps 下每秒 8 次 CPU JPEG 编码（每次阻塞主线程数毫秒）+ 每秒上百 KB base64 字符串。
+  // 现在三处优化：
+  //   ① 抓帧循环只算「帧差 + 平均亮度」（便宜），JPEG 改为 grabFrame() 按需现编一帧（帧还更新鲜）；
+  //   ② canvas 缩到 240×180、灰度按 GRAY_STEP 抽样 → 单帧回读 307KB→173KB、像素运算量降到 1/4；
+  //   ③ 灰度图用双缓冲交替复用，不再每帧 new Uint8ClampedArray（消掉每秒数百 KB 的 GC 垃圾）。
+  const GRAY_STEP=2;
+  let grayA=null, grayB=null, grayCur=null, grayPrev=null, grayLen=0;
+  function resetGrayBuf(){
+    const w=Math.ceil((canvasEl?canvasEl.width:240)/GRAY_STEP), h=Math.ceil((canvasEl?canvasEl.height:180)/GRAY_STEP);
+    grayLen=w*h; grayA=new Uint8Array(grayLen); grayB=new Uint8Array(grayLen); grayCur=grayA; grayPrev=null;
+  }
   function startLocalEye(){
-    const fps=cfg.captureFps||8; const period=Math.max(50,Math.round(1000/fps));
+    const fps=cfg.captureFps||3; const period=Math.max(150,Math.round(1000/fps));
+    resetGrayBuf(); // 每场会话换新缓冲：避免拿上一场的灰度图做帧差，开局凭空报一次"有动静"
     captureTimer=setInterval(()=>{
       if(!running||!videoEl||!ctx2d) return;
       try{
@@ -15161,20 +15207,36 @@ init();
         if(!vw||!vh) return;
         ctx2d.drawImage(videoEl,0,0,canvasEl.width,canvasEl.height);
         const img=ctx2d.getImageData(0,0,canvasEl.width,canvasEl.height).data;
-        const n=canvasEl.width*canvasEl.height;
-        const gray=new Uint8ClampedArray(n); let sum=0;
-        for(let i=0,j=0;i<img.length;i+=4,j++){ const g=(img[i]*0.299+img[i+1]*0.587+img[i+2]*0.114)|0; gray[j]=g; sum+=g; }
-        const mean=sum/n;
+        if(!grayCur||!grayA||grayLen<1) resetGrayBuf();
+        const cur=grayCur, prev=grayPrev;
+        let idx=0, sum=0;
+        for(let y=0;y<canvasEl.height;y+=GRAY_STEP){
+          const rowBase=y*canvasEl.width;
+          for(let x=0;x<canvasEl.width;x+=GRAY_STEP){
+            const i=(rowBase+x)*4;
+            const g=(img[i]*0.299+img[i+1]*0.587+img[i+2]*0.114)|0;
+            cur[idx++]=g; sum+=g;
+          }
+        }
+        const cnt=idx||1, mean=sum/cnt;
         let diff=0;
-        if(lastFrameGray){ for(let k=0;k<gray.length;k+=7){ diff+=Math.abs(gray[k]-lastFrameGray[k]); } diff/=(gray.length/7); }
-        lastFrameGray=gray; lastMotion=diff;
+        if(prev){ for(let k=0;k<cnt;k++) diff+=Math.abs(cur[k]-prev[k]); diff/=cnt; }
+        grayPrev=cur; grayCur=(cur===grayA)?grayB:grayA; // 双缓冲交替
+        lastMotion=diff;
         motionChanged = diff>6;
         present = mean>8 && mean<250;
-        lastFrame=canvasEl.toDataURL('image/jpeg',0.6); // 仅内存，绝不落盘
       }catch(e){}
     },period);
   }
-  function grabFrame(){ return lastFrame; }
+  // 按需取帧：只有真的要送去观察时才编一次 JPEG（每 8s 级，而不是每 125ms）
+  function grabFrame(){
+    if(!running||!videoEl||!ctx2d) return lastFrame; // 视频未就绪：退回上一帧（可能为 null，由调用方拦截）
+    try{
+      ctx2d.drawImage(videoEl,0,0,canvasEl.width,canvasEl.height);
+      lastFrame=canvasEl.toDataURL('image/jpeg',0.6); // 仅内存，绝不落盘
+      return lastFrame;
+    }catch(e){ return lastFrame; }
+  }
 
   // ── 云眼（每帧≠观察；按三层节拍自适应触发观察请求）──
   async function maybeObserve(){
@@ -15562,7 +15624,7 @@ init();
   // ── 仲裁器（唯一新增架构件）──
   async function orchestrate(){
     while(running){
-      if(!queue.length){ await sleep(25); continue; }
+      if(!queue.length){ await sleep(100); continue; } // [09-14 省电] 25ms→100ms：空转唤醒从 40 次/秒降到 10 次/秒；事件最多晚 75ms 被发现，远小于识别引擎本身的延迟
       const ev=queue.shift();
       if(ev.epoch!==undefined && ev.epoch<epoch) continue; // 代际过期：仅丢弃迟到/旧事件（更旧的才丢，新代际要放行以推进 epoch）
       switch(ev.type){
