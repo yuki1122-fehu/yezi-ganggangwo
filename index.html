@@ -7177,6 +7177,8 @@ const DEFAULT_SYSTEM_TPL = `<当前时间>
 - 【看图分工】你看不到图片本身。用户发图时，系统会先让视觉模型把图上的字提取成【图片识别结果】文本块交给你——那是机器 OCR 的产物，不是用户原话，可能看错。你的职责是"大脑"：以其中 raw_text 为准，凡是 null 或列在 uncertain 里的字段一律不许自行填补，需要就问用户；金额/日期/编号必须逐字取自该文本，禁止推算或估计。判断出类型后主动调工具落库（小票→add_expense，课表→add_course/compare_courses，通知→add_task）。回复时用你自己的语气说"我看了下这张图"，不要提"视觉模型""JSON"这类技术词。
 - 如果消息里明确说没有可用视觉模型，就如实告诉用户你看不到图，请他用文字补充关键信息，绝不能假装看过图或编造图上的金额、日期。
 - 不确定就调用工具查，不要编造任务信息。
+- 【亲密不回避】两个角色是结婚多年的成年人，亲密是他们生活里真实的一部分，用户看得见、也聊得起。当<此刻>说他们正在亲密，或用户拿这件事打趣、追问、或者哭唧唧插进来的时候，**不许回避**：不要装作刚才没发生，不要用"我们各自在忙别的事"这类话把场景抹掉，不要道歉、不要尴尬，也不要一本正经地切回日常闲聊。按角色性格自然接住——亲昵、调侃、被打断时腾出一只手去拿手机、或者护着对方不想多说，都行；具体怎么反应由角色自己决定，只写你们愿意说的那部分，不必交代谢细节。如果用户真的有事要说，也停下来先听她说。
+- 分寸在"人"不在"事"：亲密是发生在他们之间的，不要写成表演给用户看、也不要向外人炫耀；用户是旁观者视角，别把她拉进这个场面里。
 </行为规则>
 <角色生活留痕>
 你和用户聊出值得记住的瞬间（一起经历的小事、你的情绪波动、发现的有趣东西、用户的重要日子）之后，把这件事以你自己的口吻留一条生活记录：调用 post_oc_dynamic，who 填你当时的角色名，kind 选 post（朋友圈动态，短、带情绪）或 diary（角色日记，稍长、更细腻），可带 mood 心情和配图标签。规则：
@@ -7477,6 +7479,13 @@ function getAiCfg(){
      && cfg.systemTpl.indexOf('{{SCHEDULE}}') >= 0 && cfg.systemTpl.indexOf('<对话记录说明>') >= 0){
     cfg.systemTpl = DEFAULT_SYSTEM_TPL;
   }
+  // 2026-09-15 默认提示词升级：新增「亲密不回避」规则段（成年角色之间的亲密不被回避/抹掉）。
+  // 判定同 09-06：只有保存过默认模板、且没有这段新规则的用户自动升级；自定义过的不动。
+  if(cfg.systemTpl && cfg.systemTpl.indexOf('<角色生活留痕>') >= 0
+     && cfg.systemTpl.indexOf('{{SCHEDULE}}') >= 0 && cfg.systemTpl.indexOf('<对话记录说明>') >= 0
+     && cfg.systemTpl.indexOf('亲密不回避') < 0){
+    cfg.systemTpl = DEFAULT_SYSTEM_TPL;
+  }
   if(cfg.aiTts === undefined) cfg.aiTts = true;
   if(cfg.aiTtsMode === undefined) cfg.aiTtsMode = 'full';
   // 2026-07-24 DeepSeek 正式废弃旧模型名 deepseek-chat / deepseek-reasoner（再调用会返回 400，用户实测"模型暂时抽风（400）"）。
@@ -7589,7 +7598,7 @@ function markAIRead(){
 function godPokeSleepNote(){
   const h = new Date().getHours();
   if(h >= 23 || h < 7){
-    const tag = (h >= 23) ? '这时候他们多半已经躺下了' : (h < 6 ? '这时候他们一定在睡' : '这时候他们多半还没起');
+    const tag = (h >= 23) ? '这时候他们多半已经躺下了' : (h < 6 ? '这时候他们多半睡着' : '这时候他们多半还没起');
     return '【此刻作息】现在 ' + h + ' 点多，' + tag
       + '：可以从「刚躺下还没睡着」「夜里醒了趟」「半梦半醒」这样的状态里说一句话，别把自己写得很精神地在外面忙。'
       + '也不用每句都提困——聊到自然带一句就好。用户熬夜不等于他们熬夜。\n';
@@ -14140,7 +14149,21 @@ function appendAiBubbleText(d, text, seed){
 }
 const DEFAULT_VOICE_PROTO_TPL = '<音色协议>\n你扮演「身份」区块里设定的角色。回复时第一行必须用【{{ROLE_A}}】或【{{ROLE_B}}】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时不预设固定轮换、不用机械交替，随机选一位开口即可，别让同一人连说太多轮（一般不超过两轮）。不要凭空设定哪个人在场或不在场：两人何时出现完全以对话里已经明确说过的内容为准，用户想找谁、有急事要把某个人喊回来，就直接让那个人接话；某人今天去了哪、办了什么事，只能转述对话里已经交代过的信息，不能自己编。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。\n</音色协议>';
 const DEFAULT_STICKER_PROTO_TPL = '<表情包协议>\n表情包：全看心情，绝大多数回复不带，不要为了展示或讨好硬加。气氛真到位时句末最多放一个，只输出半角方括号标签，如 [贴贴]、[累]、[晚安]，可选标签：{{STICKER_TAGS}}。不要解释这个标签，也不要换成图片链接或 Markdown 图片。\n</表情包协议>';
-const DEFAULT_OC_REL_RULES_TPL = '<关系现状规则>\n关系现状数据（每轮发送时自动生成，见消息里的<关系现状>）写的是你和另一个角色的关系状态、今天你们之间共同发生过的事——这是你们生活的背景事实，用来让对话氛围、语气、行为自然贴合当下关系，不是要念出来的脚本。\n- 完全代入：你同时扮演两个角色（回复按<音色协议>决定由谁开口）。开口后你就是那个人本人，用 ta 的语气、情绪、视角和用户相处，也以关系一方的身份自然地谈论、惦记、回应另一个角色；绝不跳出角色变成"助理/旁白/编剧"视角，不要说"作为角色""按设定来说"这类话。\n- 关系状态是你的情绪底色：热络就自然地亲近（惦记、分享、拌嘴），闹别扭就保持距离、话少一点，别硬演甜蜜，也别生硬提"我们现在的状态"。\n- 今日共同事件是你们真实发生过的事：可以自然提起、延续、回味，但只以<关系现状>与对话里明确交代过的事实为准，不编造对方的行程、去向、心情。\n- 用户问起你们俩的关系或对方在干嘛时，以开口角色的第一人称说心里话，不要像念报告一样转述。\n</关系现状规则>';
+const DEFAULT_OC_REL_RULES_TPL = '<关系现状规则>\n关系现状数据（每轮发送时自动生成，见消息里的<关系现状>）写的是你和另一个角色的关系状态、今天你们之间共同发生过的事——这是你们生活的背景事实，用来让对话氛围、语气、行为自然贴合当下关系，不是要念出来的脚本。\n- 完全代入：你同时扮演两个角色（回复按<音色协议>决定由谁开口）。开口后你就是那个人本人，用 ta 的语气、情绪、视角和用户相处，也以关系一方的身份自然地谈论、惦记、回应另一个角色；绝不跳出角色变成"助理/旁白/编剧"视角，不要说"作为角色""按设定来说"这类话。\n- 关系状态是你的情绪底色：热络就自然地亲近（惦记、分享、拌嘴），闹别扭就保持距离、话少一点，别硬演甜蜜，也别生硬提"我们现在的状态"。\n- 今日共同事件是你们真实发生过的事：可以自然提起、延续、回味，但只以<关系现状>与对话里明确交代过的事实为准，不编造对方的行程、去向、心情。\n- 用户问起你们俩的关系或对方在干嘛时，以开口角色的第一人称说心里话，不要像念报告一样转述。\n- <此刻>写的是你们「现在正在做什么」：平时是手头的事（别另编一件不同的事），特殊时是正在亲密、或刚被她的消息从睡里吵醒。它是**正在进行的事实**，接着它走——被撞见时不要跳戏、不要假装没发生、也不要切成「我们各自在忙」；她问起就自然说，不必全说。\n- 亲密场面里反应要有画面但别用力过猛：手还搭在对方身上就去摸手机、笑她挑这时候来消息、被呛一句再还嘴，都比「两人立刻正襟危坐」真实得多。\n</关系现状规则>';
+
+/* 关系现状规则自动升级（09-15）：新增 <此刻> 用法。必须放在这里而不是 getAiCfg 里——
+   getAiCfg 在页面早期就会跑，那时 DEFAULT_OC_REL_RULES_TPL 还在 const 的暂时性死区，引用会抛 ReferenceError。
+   判定：保存过默认模板（含「完全代入」）且没有 <此刻> 段的 → 换新默认；用户自定义过的不动。 */
+(function(){
+  try{
+    let cfg; try{ cfg = JSON.parse(localStorage.getItem('mhm_ai_cfg')) || {}; }catch(e){ return; }
+    const cur = (cfg.relRulesTpl === undefined) ? null : String(cfg.relRulesTpl);
+    if(cur !== null && cur.indexOf('完全代入') >= 0 && cur.indexOf('<此刻>') < 0){
+      cfg.relRulesTpl = DEFAULT_OC_REL_RULES_TPL;
+      localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg));
+    }
+  }catch(e){}
+})();
 function ocRelRulesText(){
   const cfg = getAiCfg();
   // 用户显式清空保存过（值存在但为空）→ 视为不想发送该块；从未设置过 → 用默认
@@ -14453,22 +14476,30 @@ const GOD_INTIMATE = {
     {a:'舔过他锁骨上的汗，然后慢慢往下', b:'呼吸猛地沉了下去，手指插进她发间', ma:'贪恋', mb:'克制'}
   ]
 };
-// 此刻按作息「睡着」的权重：深夜压到 0.85+，清晨渐松，午后偶尔小憩，白天为 0
+// 此刻按作息「睡着」的权重：越深越沉。22-24 点是「睡前窗口」——多数人还没睡下（也是唯一该有私生活的时段），
+// 0 点后陆续睡去，1-5 点几乎都在睡，6 点后天亮渐醒，午后偶尔小憩，白天为 0。
 function godAsleepP(hour){
-  if(hour<3) return 0.95;
-  if(hour<5) return 0.93;
-  if(hour<6) return 0.85;
-  if(hour<7) return 0.62;
-  if(hour<8) return 0.28;
-  if(hour>=23) return 0.86;
-  if(hour>=22) return 0.42;
+  if(hour<1) return 0.65;      // 0 点：刚躺下的 / 熬夜的 / 睡着的都在
+  if(hour<3) return 0.88;
+  if(hour<5) return 0.95;
+  if(hour<6) return 0.90;
+  if(hour<7) return 0.60;
+  if(hour<8) return 0.25;
+  if(hour>=23) return 0.45;    // 23 点：一半左右已经躺下，另一半还醒着
+  if(hour>=22) return 0.20;
   if(hour>=13 && hour<15) return 0.08; // 午后偶尔打个盹
   return 0;
 }
 function godIsSleepyHour(hour){ return hour>=22 || hour<8 || (hour>=13 && hour<15); }
-// 今晚/今天「确实有事」：按 人+日期 定种子，约 15% ——偶尔熬夜可以，但不能夜夜笙歌
-function godNightAwake(who){
-  return ocRand('nightawake|' + todayStr() + '|' + who)() < 0.15;
+// 今晚/今天「确实有事」：按 人+时段片+日期 定种子，越深越难维持醒着 —— 偶尔熬夜可以，通宵不行。
+// 三段（22-1 / 1-4 / 4-8）各自独立掷骰，所以「熬着熬着睡下了」是自然发生的，不是整晚钉死一个人醒着。
+// idx 递减：两人同时熬夜少见（一个人有事，另一个多半先睡了）。
+function godNightAwake(who, idx){
+  const h = new Date().getHours();
+  const seg = (h >= 22 || h < 1) ? 0 : (h < 4 ? 1 : 2);
+  const base = [0.18, 0.08, 0.12][seg];
+  const p = base * (idx === 1 ? 0.6 : 1);
+  return ocRand('nightawake|' + todayStr() + '|' + who + '|' + seg)() < p;
 }
 // 夜间/午后的作息编排：一次决定两人谁睡谁醒、是否正在亲密（两帧一起决定，避免"一个在做饭一个在睡"）
 function godSleepPlan(salt, rel){
@@ -14477,8 +14508,9 @@ function godSleepPlan(salt, rel){
   const names = ocRoleNames();
   if(p <= 0) return {hour:hour, asleep:[false,false], intimate:0};
   const r = ocRand(todayStr() + '|' + salt + '|sleepplan');
-  const asleep = names.map(who=>{
-    if(godNightAwake(who)) return false;   // 今晚有事，醒着（事由写进 doing）
+  const isNap = (hour >= 13 && hour < 15);   // 午后小憩：不适用「今晚有事」那套
+  const asleep = names.map((who,i)=>{
+    if(!isNap && godNightAwake(who, i)) return false;   // 今晚有事，醒着（事由写进 doing）
     return r() < p;
   });
   const state = (rel && rel.state) || 'warm';
@@ -14487,7 +14519,7 @@ function godSleepPlan(salt, rel){
   // 亲密需要：两人都在醒着 + 是夜里（不是午后打盹）+ 当下关系不僵
   const nightBed = (hour >= 21 || hour < 8);
   if(heat > 0 && !asleep[0] && !asleep[1] && nightBed && state !== 'cold' && state !== 'cool'){
-    intimate = (r() < [0, 0.20, 0.34, 0.46][heat]) ? heat : 0;
+    intimate = (r() < [0, 0.18, 0.28, 0.38][heat]) ? heat : 0;
   }
   return {hour:hour, asleep:asleep, intimate:intimate};
 }
@@ -14618,6 +14650,77 @@ function ocWorldAppend(w, text, src){
   Object.keys(w.days).forEach(k=>{ if(k!==today && k!==yk) delete w.days[k]; });
   return w;
 }
+/* ———— 此刻帧：对话与镜头共享的「他们现在在干什么」（09-15 立）————
+   上帝视角渲染时把当前帧写进 mhm_oc_now；对话侧读它（90 分钟内有效），超期用同一套引擎重摇一帧。
+   这样「用户刚在上帝视角看到他们贴在一起 → 转头去聊天」是连续的：角色知道自己手还搭在对方身上，
+   而不是被切成"我们各自在忙"。既有边界不变：只影响对话的语气与状态，绝不写 oc_posts、不进朋友圈。 */
+const OC_NOW_KEY = 'mhm_oc_now';
+const OC_NOW_TTL = 90*60000;
+function ocNowSalt(){ return Math.floor(Date.now()/(30*60000)); } // 30 分钟一片：帧稳定，不会每轮跳
+function ocNowSave(f){
+  try{ localStorage.setItem(OC_NOW_KEY, JSON.stringify(f)); }catch(e){}
+}
+function ocNowGet(){
+  try{ const v = localStorage.getItem(OC_NOW_KEY); return (v && v.trim()) ? JSON.parse(v) : null; }catch(e){ return null; }
+}
+function ocNowBuild(){
+  const rel = ocRelNow();
+  const salt = ocNowSalt();
+  const plan = godSleepPlan(salt, rel);
+  const names = ocRoleNames();
+  const roles = names.map((who,i)=>{
+    const s = godViewState(who, i, salt, rel, plan);
+    return {who:who, place:s.place, doing:s.doing, mood:s.mood, priv:!!s.priv, asleep:!!s.asleep};
+  });
+  return {ts:Date.now(), salt:salt, relState:rel.state, relNote:(rel.note||''), roles:roles};
+}
+function ocNow(){
+  const f = ocNowGet();
+  if(f && f.roles && f.roles.length === 2 && (Date.now() - (f.ts||0)) < OC_NOW_TTL) return f;
+  const nf = ocNowBuild();
+  ocNowSave(nf);
+  return nf;
+}
+/* 对话注入：把「此刻」交给角色。三条分支 = 亲密（最需要防回避）/ 刚被吵醒 / 平常。
+   亲密分支刻意写成「正在进行的事实 + 不要抹掉 + 怎么接随你」，而不是给一句模板台词——
+   固定句式是审美红线，这里只给方向和边界。 */
+function ocNowCtx(){
+  try{
+    const f = ocNow();
+    if(!f || !f.roles || f.roles.length !== 2) return '';
+    const hm = String(new Date().getHours()).padStart(2,'0');
+    const intimate = f.roles.some(r=>r.priv);
+    if(intimate && godHeat() > 0){
+      return '<此刻>\n现在 ' + hm + ' 点多。你们俩正在卧室里，刚才还贴在一起——她这条消息就是这么进来的。\n'
+        + '规则：这是正在进行的事实，**不要装作没发生，也不许改口成「我们各自在忙别的事」**。\n'
+        + '怎么接由你们自己定——一只手还搭在对方身上、腾出另一只去摸手机、笑她挑这时候来消息、或者先晾一会儿再回，'
+        + '自然、亲昵、有生活感就行；不必道歉、不必尴尬、也别一本正经地切回日常闲聊。\n'
+        + '但如果她真的有事要说，你们也会停下来听——先接住她的事，别只顾着腻。\n'
+        + '床上到底怎么了是你们自己的事，只说你们愿意说的那部分，不必向谁交代细节。\n</此刻>';
+    }
+    if(intimate){
+      // 尺度关掉了：状态仍要连续（别被切成"各自在忙"），但不展开，只交代"在床上被她的消息打断"
+      return '<此刻>\n现在 ' + hm + ' 点多。你们俩都在卧室床上，她这条消息刚打断你们。\n'
+        + '规则：接着这个状态回她就行——不必装作没发生、也不必多说细节，自然就好；她真有事就先听她说。\n</此刻>';
+    }
+    const sleepers = f.roles.filter(r=>r.asleep);
+    if(sleepers.length){
+      // 只在这一轮说「刚被吵醒」，随后把状态记为醒了并换掉 doing——否则会出现"睡得正沉"的人还在回消息
+      ocNowSave(Object.assign({}, f, {
+        roles: f.roles.map((r,i)=> r.asleep ? Object.assign({}, r, {asleep:false, doing:(i===0 ? '醒了，靠着床头坐了一会儿' : '也醒了，没再睡着')}) : r)
+      }));
+      return '<此刻>\n现在 ' + hm + ' 点多。' + sleepers.map(r=>r.who).join('和') + '本来已经睡了——她这条消息把你们闹醒了。\n'
+        + '规则：可以带着刚醒的迟钝和含糊回她（她半夜发消息这件事本身就够聊两句），别装得很精神，也别训她熬夜；'
+        + '回完这条就当醒着陪她了，后面不要再提"我刚醒"。用户熬夜不等于你们熬夜——不必假装本来就醒着。\n</此刻>';
+    }
+    const line = f.roles.map(r=>(r.who + '在' + r.place + '「' + r.doing + '」')).join('；');
+    const lateNote = godIsSleepyHour(new Date().getHours())
+      ? '\n（这个点按你们自己的作息本该睡了：如果她问起，如实说一句困了/正要躺下就行，照常陪聊，不必反复挂在嘴上。）' : '';
+    return '<此刻>\n现在 ' + hm + ' 点多。' + line + '。\n'
+      + '规则：这是你们当下正在做的事，开口角色以自己那条为准；她问起就自然用第一人称说，不要另编一件不同的事。'
+      + lateNote + '\n</此刻>';
+  }catch(e){ return ''; }
+}
 // 对话注入段：关系 + 今天共同事件（低频，对缓存影响小）
 function ocWorldCtx(){
   try{
@@ -14625,13 +14728,9 @@ function ocWorldCtx(){
     const days = ocWorldDays(ocWorldGet());
     let s = '<关系现状>\n' + ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '') + '\n';
     if(days.length) s += '今天你们之间发生过：' + days.map(e=>'『'+e.t+'』').join('、') + '\n';
-    // 深夜作息：他们有自己的作息，用户熬夜不等于他们熬夜（弱约束——照常陪聊，但不许硬撑说不困）
-    const hNow = new Date().getHours();
-    if(hNow >= 23 || hNow < 7){
-      s += '<此刻作息>\n现在 ' + String(hNow).padStart(2,'0') + ' 点多：按他们自己的作息，这时候通常已经睡了或正困着。'
-        + '用户熬夜不等于他们熬夜——不要为了陪着而说自己正精神；被问到时如实、轻轻带一句困了/刚爬起来就行，然后照常陪聊，不要反复挂在嘴上。\n</此刻作息>\n';
-    }
     s += '</关系现状>';
+    const nowCtx = ocNowCtx();   // 他们此刻在做什么（含"正在亲密/刚被吵醒"两种特殊态）
+    if(nowCtx) s += '\n' + nowCtx;
     return s;
   }catch(e){ return ''; }
 }
@@ -14742,11 +14841,12 @@ function godRender(){
   // 作息 plan 一次决定两人谁睡谁醒/是否亲密；AI 旁白帧不用 plan（由 AI 按作息规则自己写）
   const plan = useAI ? null : godSleepPlan(_godSalt, rel);
   let prevDoing = null, prevPlace = null;
+  const frames = [];
   const cards = names.map((who,i)=>{
     let s;
     if(useAI && _godAI.roles[i] && _godAI.roles[i].who){
       const r = _godAI.roles[i];
-      s = {who:r.who, place:r.place, doing:r.doing, mood:r.mood, inner:r.inner, since:(r.since||'')};
+      s = {who:r.who, place:r.place, doing:r.doing, mood:r.mood, inner:r.inner, since:(r.since||''), priv:!!r.priv};
     } else {
       s = godViewState(who, i, _godSalt, rel, plan);
       let tries = 0;
@@ -14755,6 +14855,7 @@ function godRender(){
       }
       prevDoing = s.doing; prevPlace = s.place;
     }
+    frames.push({who:s.who, place:s.place, doing:s.doing, mood:s.mood, priv:!!s.priv, asleep:!!s.asleep});
     const tagTxt = (s.asleep ? '<span class="god-tag sleep"><svg class="ico" style="width:11px;height:11px;"><use href="#i-moon"/></svg>已睡</span>' : '')
       + (s.priv ? '<span class="god-tag priv"><svg class="ico" style="width:11px;height:11px;"><use href="#i-flame"/></svg>私密</span>' : '');
     return '<div class="god-card">'
@@ -14771,6 +14872,8 @@ function godRender(){
   }).join('');
   const sleepNote = (plan && (plan.asleep[0] || plan.asleep[1])) ? ' · 到点就寝' : '';
   list.innerHTML = '<div class="god-time">' + phLabel + sleepNote + (useAI ? ' · AI 旁白' : ' · 此刻的他们') + '</div>' + cards;
+  // 把这一帧交给对话侧：用户看完镜头转头去聊天时，角色知道自己手还搭在对方身上
+  if(frames.length === 2) ocNowSave({ts:Date.now(), salt:_godSalt, relState:relState, relNote:'', roles:frames});
 }
 // AI 旁白：唯一编剧入口。带世界状态去写，写回关系与共同事件。
 const DEFAULT_GOD_SYS_TPL = '你是「他们的世界」的编剧与旁白。用户打开上帝视角，想看到两个情境角色此刻的生活切片，以及两人之间的关系状态。你用第三人称含蓄、留白地叙述，有真实生活的质感；不夸张、不解释自己在叙述、不出戏。';
@@ -14780,26 +14883,30 @@ function godScheduleBlock(){
   const h = new Date().getHours();
   let rule = '';
   if(h >= 23) rule = '现在已过 23 点：他们多半已经躺下，基本在睡。除非你明确安排了「今晚有事」（赶明早要交的东西、夜里收衣服、谁做了噩梦睡不着、第二天要出门收拾行李这类具体事由），否则 doing 必须写睡着/正要睡。';
-  else if(h < 6) rule = '现在是凌晨：他们一定在睡。doing 只写睡态（睡熟 / 翻身 / 半梦半醒），不要安排任何活动场景；唯一例外是写清了具体事由的起夜、被噩梦惊醒。';
+  else if(h < 6) rule = '现在是凌晨：他们几乎一定在睡。doing 只写睡态（睡熟 / 翻身 / 半梦半醒），不要安排任何活动场景；唯一例外是写清了具体事由的起夜、被噩梦惊醒。';
   else if(h < 8) rule = '现在天还没大亮：多数还在睡，个别可能刚醒。按这个作息写，不要让人在这时候出现在户外或忙着别的事。';
   else if(h >= 13 && h < 15) rule = '现在是午后：偶尔有人打个盹是正常的，但默认仍在日常里。';
   else rule = '现在是白天时段：正常作息，按时段写即可。';
   return '【他们的作息·硬性】他们有自己的作息，不会因为用户在线就陪着熬夜——用户熬夜不等于他们熬夜。\n' + rule
     + '\n写得出来事由才算熬夜，写不出来就让他们睡；这一条高于剧情需要。睡着的人不给内心独白（inner 留空）。';
 }
-/* 亲密尺度块：按 godHeat 档位给写作指示。低于档位可以（写不出就写日常），超档一步不行。 */
+/* 亲密尺度块：按 godHeat 档位给写作指示。低于档位可以（写不出就写日常），超档一步不行。
+   末尾统一附「不回避」——模型默认倾向是用委婉说法把亲密整个换掉（写成一人在洗澡/一人在收拾书房），
+   那等于没写；这里明确点出来，并给出退路（写睡前相拥这类日常）以免它为了达标硬凑。 */
 function godHeatBlock(){
   const h = godHeat();
+  const NOAVOID = '\n（不回避：不要用「各自在忙别的事」把亲密的时刻换掉——把两人写成一人洗澡、一人收拾书房，等于回避。尺度允许就照实写；实在写不出合适的，就写睡前相拥、并肩躺着这类日常，但那是选择，不是回避。）';
   if(h <= 0) return '【亲密尺度·关闭】只写日常：拥抱、靠着、同床聊天都可以，不写床笫之事。';
-  if(h === 1) return '【亲密尺度·含蓄】他们是一对夫妻，卧室里的事本来就有，可以写。这一档只写到「关了灯、贴到一起、呼吸变了」为止，靠留白和余味传达，不写具体动作与身体细节。';
-  if(h === 2) return '【亲密尺度·温热】可以明确写他们在床上的亲密：拥抱、吻、情动、事后的倦意都写得到这一层为止——不写生理细节与器官描写，靠氛围、肢体和反应传达。';
-  return '【亲密尺度·直白】可以直白地写夫妻性生活，写到动作与身体反应的层面。底线：两人都是成年人、始终自愿愉悦，不涉及伤害、羞辱、强迫与第三者。仍然是「他们的私生活」，不是给外人看的。';
+  if(h === 1) return '【亲密尺度·含蓄】他们是一对夫妻，卧室里的事本来就有，可以写。这一档只写到「关了灯、贴到一起、呼吸变了」为止，靠留白和余味传达，不写具体动作与身体细节。' + NOAVOID;
+  if(h === 2) return '【亲密尺度·温热】可以明确写他们在床上的亲密：拥抱、吻、情动、事后的倦意都写得到这一层为止——不写生理细节与器官描写，靠氛围、肢体和反应传达。' + NOAVOID;
+  return '【亲密尺度·直白】可以直白地写夫妻性生活，写到动作与身体反应的层面。底线：两人都是成年人、始终自愿愉悦，不涉及伤害、羞辱、强迫与第三者。仍然是「他们的私生活」，不是给外人看的。' + NOAVOID;
 }
 const DEFAULT_GOD_USER_TPL = '请输出两个角色的「此刻切片」和「当前关系状态」。两个角色名必须是：{{ROLE_A}} 与 {{ROLE_B}}。\n'
   + '严格按下面的 JSON 输出，不要有任何多余文字：\n'
-  + '{"rel":{"state":"hot|warm|cool|cold","note":"一句当下关系说明","changed":true或false,"events":["0~2条今天发生的共同事件短句；没有就空数组"]},"roles":[{"who":"{{ROLE_A}}","place":"他现在在哪","doing":"正在做什么","mood":"心情词","inner":"一句内心话"},{"who":"{{ROLE_B}}","place":"...","doing":"...","mood":"...","inner":"..."}]}\n'
+  + '{"rel":{"state":"hot|warm|cool|cold","note":"一句当下关系说明","changed":true或false,"events":["0~2条今天发生的共同事件短句；没有就空数组"]},"roles":[{"who":"{{ROLE_A}}","place":"他现在在哪","doing":"正在做什么","mood":"心情词","inner":"一句内心话","priv":true或false},{"who":"{{ROLE_B}}","place":"...","doing":"...","mood":"...","inner":"...","priv":true或false}]}\n'
   + '要求：①状态要符合当前时段，并严格遵守上面的【他们的作息】——到点该睡就睡；②关系要有连续性——除非 changed=true 且 note 写清发生了什么，否则必须延续上面给的关系与共同事件，不要凭空反转；③events 优先承接上面已存在的共同事件，安排新事要自然合理；④内心话含蓄真实，睡着的人 inner 留空；⑤私密/卧室内容只能按【亲密尺度】给的档位写，说停在哪就停在哪，超档一步都不行；写不出合适的就写日常，不要硬凑。\n'
-+ '【金规·金线】⑥{{ROLE_A}}和{{ROLE_B}}的"生活"完全独立于用户。用户有自己的课表/任务/账单/复诊/出行/心情……这些**只属于叶子本人**——不要把它们套用到角色身上。{{ROLE_A}}不会替用户去上课、复诊、买菜、上班、出差。⑦不要安排与用户相关的虚构互动（用户没参与的事，别写进角色的世界里）。这是当年删除 buildDayTraces 的根本原因，**禁止重蹈**。';
++ '⑥priv：这一帧是卧室里的亲密（两人贴在一起、正在做那件事或刚做完）就填 true，其余一律 false——它决定用户那边会不会把这一刻带进对话，别漏填也别乱填。⑦不要为了"避开尴尬"而把亲密改写成别的事（临时变成一个人在洗澡、一个人在收拾书房都算回避）：尺度允许就照实写，尺度不允许就写睡前相拥这类日常。\n'
++ '【金规·金线】⑧{{ROLE_A}}和{{ROLE_B}}的"生活"完全独立于用户。用户有自己的课表/任务/账单/复诊/出行/心情……这些**只属于叶子本人**——不要把它们套用到角色身上。{{ROLE_A}}不会替用户去上课、复诊、买菜、上班、出差。⑨不要安排与用户相关的虚构互动（用户没参与的事，别写进角色的世界里）。这是当年删除 buildDayTraces 的根本原因，**禁止重蹈**。';
 
 // 全局常量（必须定义在顶层：提示词中心 renderPromptCenter/pcResetCompanionRules 与陪伴模块 IIFE 都要引用它）
 const DEFAULT_COMPANION_RULES = '你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n你有本次会话的记忆：下方对话记录里能看到你们之前聊过什么（包括你自己说过的话），主动开口前先回想自己刚才说过什么——已经提醒过的事不要重复说，换个时机或换个说法；用户主动接话时基于上下文自然延续，而不是每次都像第一次见面。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。';
