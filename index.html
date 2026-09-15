@@ -2374,7 +2374,7 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
       <button type="button" onclick="document.getElementById('aiFileImg').click()" title="发图片"><svg class="ico" style="width:19px;height:19px;"><use href="#i-image"/></svg></button>
       <button type="button" onclick="document.getElementById('aiFileDoc').click()" title="发文件（txt/md/csv/json/pdf/word/excel/图片）"><svg class="ico" style="width:19px;height:19px;"><use href="#i-paperclip"/></svg></button>
       <input type="file" id="aiFileImg" accept="image/*" hidden onchange="aiPickFile(event,true)">
-      <input type="file" id="aiFileDoc" accept=".txt,.md,.csv,.json,.pdf,.doc,.docx,.xls,.xlsx,image/*" hidden onchange="aiPickFile(event,false)">
+      <input type="file" id="aiFileDoc" accept=".txt,.md,.csv,.json,.pdf,.doc,.docx,.xls,.xlsx,.ics,.ical,image/*" hidden onchange="aiPickFile(event,false)">
     </div>
     <textarea id="aiInput" placeholder="说点什么，或发图片/文件给助理" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAI();}"></textarea>
     <button class="ai-send" id="aiSendBtn" onclick="sendAI()">发送</button>
@@ -3602,6 +3602,160 @@ function refreshCourses(){
   try{ updateRing(); }catch(e){}
 }
 function courseTypeLabel(tp){ return ''; }
+
+/* ============================================================
+   Moodle .ics 课表解析（纯前端，无依赖）2026-09-15 新增
+   用途：把 Moodle 导出的 icalexport.ics 解析成「已换算时区 + 已映射课名 +
+        已推导上课时间」的紧凑摘要（约 1~2KB），交给 compare_courses 与本机课表对账。
+   为什么不在 aiPickFile 里直接 readAsText 丢给 AI：
+     ① 原文 16.7KB，会被 compare_courses 的 MAX_SRC=6000 截掉三分之二；
+     ② 时间戳是 UTC（...Z），AI 需自己 +8，容易算错；
+     ③ 考勤窗起点比实际上课时间早 15 分钟 —— 这条规律文件里没写，AI 不可能推出来；
+     ④ 考勤记录缺学期初课次（活动后建），AI 会误判成「本机多课」而删课。
+   实测规律（香港时间，已与课表交叉验证）：
+     · SUMMARY:Attendance = 课次；DTSTART + 15min = 真实上课时间（18:45→19:00、13:45→14:00）
+     · 其它 SUMMARY       = 作业截止（均为当天 23:59）
+   ============================================================ */
+const ICS_LEAD_MIN = 15;   // 考勤窗起点 → 实际上课时间的提前量
+const ICS_CODE_MAP = {     // Moodle 课号 → 与本机 COURSE_RAW 中完全一致的科目名（否则对账匹配不上）
+  '7010': '个体化健康管理概论',
+  '7050': '中医食疗',
+  '7060': '中医健身功法(理论与实践)',
+  '7110': '公共卫生与预防医学导论',
+  '7120': '营养学导论'
+};
+const ICS_WEEKDAY = ['日','一','二','三','四','五','六'];
+
+function icsPad2(n){ return (n<10?'0':'')+n; }
+
+// RFC5545 折行还原：超长行以 CRLF + 单个空格/制表符续行
+function icsUnfold(text){
+  return String(text||'').replace(/\r\n/g,'\n').replace(/\r/g,'\n').replace(/\n[ \t]/g,'');
+}
+
+// 20260910T104500Z → {date:'2026-09-10', hm:'18:45', dow:4}
+// 带 Z 视为 UTC 并 +8 折成香港时间；不带 Z 视为已是本地时间，原样使用。
+// 全程用 getUTC*/setUTC* 读取，避免设备时区影响结果。
+function icsParseDT(raw){
+  const m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})(Z?)$/.exec(String(raw||'').trim());
+  if(!m) return null;
+  const t = new Date(Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]));
+  if(m[7] === 'Z') t.setUTCHours(t.getUTCHours() + 8);   // UTC → 香港
+  return {
+    date: t.getUTCFullYear()+'-'+icsPad2(t.getUTCMonth()+1)+'-'+icsPad2(t.getUTCDate()),
+    hm:   icsPad2(t.getUTCHours())+':'+icsPad2(t.getUTCMinutes()),
+    dow:  t.getUTCDay()
+  };
+}
+
+// '18:45' 加 15 分钟 → '19:00'
+function icsShiftHM(hm, addMin){
+  const p = String(hm||'0:0').split(':');
+  let mins = (+p[0])*60 + (+p[1]||0) + addMin;
+  mins = ((mins % 1440) + 1440) % 1440;
+  return icsPad2(Math.floor(mins/60))+':'+icsPad2(mins%60);
+}
+
+// 摘要文本清理：ICS 转义符还原 + 去掉 Moodle 的 " is due" 尾巴
+function icsCleanText(s){
+  return String(s||'')
+    .replace(/\\n/gi,' ').replace(/\\,/g,',').replace(/\\;/g,';').replace(/\\\\/g,'\\')
+    .replace(/\s+/g,' ').trim();
+}
+function icsCleanSummary(s){
+  return icsCleanText(s).replace(/\s+is due\s*$/i,'').trim();
+}
+// 去掉 Moodle 摘要里重复的尾巴："…研習報告主題一提交 - 研習報告主題一" → "…研習報告主題一提交"。
+// 只有当破折号后的内容与前半段有包含关系时才裁（"…案例分析報告提交 - Part 1" 这种真后缀要保留）。
+function icsTrimDup(title){
+  return String(title||'').replace(/^(.*?)\s*[-–—]\s*(.+)$/, (all, head, tail)=>{
+    const h = head.trim(), t = tail.trim();
+    if(!h || !t) return all;
+    return (h.indexOf(t) >= 0 || t.indexOf(h) >= 0) ? h : all;
+  });
+}
+
+// 解析整份 ics → {ok, classes:[{date,code,subj,start,win,dow}], ddls:[{date,code,subj,title,desc}]}
+function parseICS(text){
+  const src = icsUnfold(text);
+  if(!/BEGIN:VCALENDAR/i.test(src)){
+    return {ok:false, error:'这不是有效的 iCalendar 文件（找不到 BEGIN:VCALENDAR）。若这是从 Moodle 日历导出的 .ics 请重新下载。', classes:[], ddls:[]};
+  }
+  const classes = [], ddls = [];
+  const blocks = src.split(/BEGIN:VEVENT/i).slice(1);
+  for(let b of blocks){
+    b = b.split(/END:VEVENT/i)[0];
+    const d = {};
+    for(const line of b.split('\n')){
+      const i = line.indexOf(':');
+      if(i <= 0) continue;
+      const k = line.slice(0,i).split(';')[0].trim().toUpperCase();
+      if(d[k] === undefined) d[k] = line.slice(i+1).trim();   // 同键取首次出现
+    }
+    const st = icsParseDT(d.DTSTART);
+    if(!st) continue;
+    const cat = String(d.CATEGORIES||'').trim();
+    const code = (cat.match(/MHM\s*(\d{4})/i) || [])[1] || '';
+    const subj = ICS_CODE_MAP[code] || '';
+    const summary = String(d.SUMMARY||'').trim();
+    if(/^attendance$/i.test(summary)){
+      classes.push({
+        date: st.date, code: code, subj: subj || cat || '未识别课程',
+        start: icsShiftHM(st.hm, ICS_LEAD_MIN), win: st.hm, dow: st.dow
+      });
+    } else {
+      let title = icsCleanSummary(summary);
+      let desc  = icsCleanText(d.DESCRIPTION);
+      // Moodle 个别作业的标题/说明里课号写错了（实测：公共卫生的小组 PPT 标题写成 MHM7010、
+      // 健身功法的说明里也写 MHM7010），以 CATEGORIES 里的课号为准纠正，
+      // 否则这些标题进待办后自带错误编号，反而制造新的混乱。
+      if(code){
+        const rid = 'MHM' + code;
+        title = title.replace(/MHM\s*\d{4}/ig, rid);
+        desc  = desc.replace(/MHM\s*\d{4}/ig, rid);
+      }
+      ddls.push({
+        date: st.date, code: code, subj: subj || '未识别课程',
+        title: icsTrimDup(title), desc: desc
+      });
+    }
+  }
+  classes.sort((a,b)=>a.date.localeCompare(b.date));
+  ddls.sort((a,b)=>a.date.localeCompare(b.date));
+  return {ok:true, classes, ddls};
+}
+
+// 生成给 AI 看的紧凑摘要：体积约 1~2KB，远低于 compare_courses 的 6000 字上限
+function buildICSBrief(r, fileName){
+  const L = [];
+  L.push('【Moodle 日历导出摘要】来源文件：' + (fileName || 'icalexport.ics'));
+  L.push('');
+  L.push('⚠️ 助手注意：这是用户从 Moodle 导出的课表日历。用户要求核对/比对/检查/校对课表，或问「有没有改动」时，'
+       + '必须调用 compare_courses（source_text 可留空，会自动读取本摘要），不要自称读不到附件。');
+  L.push('');
+  L.push('⚠️ 使用须知（务必遵守）：');
+  L.push('1. 本文件是 Moodle「考勤记录 + 作业截止」的导出，不是完整课表：不含课室、不含导师、不含下课时间。');
+  L.push('2. 时间已换算为香港时间，并已从考勤窗起点推出【实际上课时间】（Moodle 考勤窗比实际上课时间早 ' + ICS_LEAD_MIN + ' 分钟）。');
+  L.push('3. 考勤记录可能缺失学期初的课次（考勤活动是后建的），因此【本文件里没有的课 ≠ 已取消】。');
+  L.push('4. 严禁仅凭本摘要删除本机课表里的任何课次。发现「本机有、来源没有」时只能提示建议核实，不得调用 remove_course。');
+  L.push('');
+  L.push('■ 课次（共 ' + r.classes.length + ' 条，格式：日期(周X)上课时间）');
+  const bySubj = {};
+  for(const c of r.classes){ (bySubj[c.subj] = bySubj[c.subj] || []).push(c); }
+  for(const s of Object.keys(bySubj)){
+    const list = bySubj[s];
+    const code = list[0].code ? '（MHM' + list[0].code + '）' : '';
+    L.push(s + code + ' 共 ' + list.length + ' 次：' +
+      list.map(c=>c.date.slice(5) + '(' + ICS_WEEKDAY[c.dow] + ')' + c.start).join('、'));
+  }
+  L.push('');
+  L.push('■ 作业截止（共 ' + r.ddls.length + ' 条，均为当天 23:59）');
+  for(const x of r.ddls){
+    L.push(x.date + '（' + ICS_WEEKDAY[new Date(x.date+'T00:00:00Z').getUTCDay()] + '）' +
+      x.subj + '｜' + x.title + (x.desc ? '｜' + (x.desc.length > 60 ? x.desc.slice(0,60)+'…' : x.desc) : ''));
+  }
+  return L.join('\n');
+}
 
 /* ====== 状态 ====== */
 let tasks = [];
@@ -6547,7 +6701,7 @@ function initBackButton(){
    ===================================================================== */
 // 工具名 → 中文短标签（用于 agent 过程气泡展示，如"正在查询课表…"）
 const TOOL_LABEL = {
-  add_task:'添加任务', update_task:'更新任务', complete_task:'完成任务',
+  add_task:'添加任务', add_tasks_batch:'批量添加任务', update_task:'更新任务', complete_task:'完成任务',
   remove_task:'删除任务', list_tasks:'查询任务', get_progress:'统计进度',
   get_courses:'查询课表', add_course:'添加课程', update_course:'修改课程',
   remove_course:'删除课程', compare_courses:'核对课表', batch_update_courses:'批量修改课表',
@@ -6567,6 +6721,20 @@ const AI_TOOLS = [
       time:{type:'string', description:'时间，格式 HH:MM；没有就留空'},
       note:{type:'string', description:'补充说明、地点等'}
     }, required:['title']}
+  }},
+  { type:'function', function:{
+    name:'add_tasks_batch',
+    description:'一次性新增多个待办任务（最多 20 条）。用于从课表/日历/通知里批量导入截止日，例如"把 Moodle 日历摘要里的 10 个作业截止加进待办"。比逐条调 add_task 高效——一次调用全部加完，不会因为工具轮次上限而漏掉后半截。同标题+同日期已存在的任务会自动跳过，不重复建。',
+    parameters:{ type:'object', properties:{
+      items:{ type:'array', description:'要新增的任务数组，最多 20 条', items:{ type:'object', properties:{
+        title:{type:'string', description:'任务标题，保留来源原文（可能是繁体），不要改写'},
+        date:{type:'string', description:'截止日期 YYYY-MM-DD'},
+        time:{type:'string', description:'时间 HH:MM；作业截止一般留空，只记日期'},
+        cat:{type:'string', enum:['study','life'], description:'分类：学业/作业填 study'},
+        priority:{type:'string', enum:['high','mid','low'], description:'优先级：默认 mid'},
+        note:{type:'string', description:'补充说明'}
+      }, required:['title','date']} }
+    }, required:['items']}
   }},
   { type:'function', function:{
     name:'update_task',
@@ -6896,7 +7064,7 @@ const LEGACY_SYS_TPL = `{{PERSONA}}
 - 用户说"某课改到下午/换教室/节次改一下/调到周X/染成绿色/标成红色/加个讲座小标/改小标/改时间/加备注"，调用 update_course，用 date+subj 或 keyword 定位原课，再传要改的字段：时间传 time、备注传 note、颜色传 color、小标传 tag。每节课可带自定义 color（绿/红/橙/黄/蓝/紫/粉/青/灰/黑 或 #hex）和自定义 tag（小标文字，显示在日历格子和课程卡片上）。
 - 用户说"某课取消/不上了/删掉"，调用 remove_course 删除。
 - 用户要求批量改课表（如"全部改简体""繁体转简体""批量换教室"），调用 batch_update_courses 一次性完成，把每项的 subj 填原科目名、new_subj 填转换后的新科目名，不要逐条调 update_course。你作为语言模型本身就擅长繁简转换，直接生成映射传入即可。
-- 用户要求"和本地课表核对/比对/检查/校对/看有没有错/找差异"，或上传了 PDF/图片说"核对一下"，必须调用 compare_courses，不要自己说"无法读取附件"。source_text 可留空，工具会自动读取最近解析或发送过的文档缓存。比对时要逐条对照本机课表与来源文本，列出日期、科目、节次、时间、地点的差异，指出缺课或错课，不要只说"逻辑自洽"。
+- 用户要求"和本地课表核对/比对/检查/校对/看有没有错/找差异"，或上传了 PDF/图片说"核对一下"，必须调用 compare_courses，不要自己说"无法读取附件"。source_text 可留空，工具会自动读取最近解析或发送过的文档缓存。比对时要逐条对照本机课表与来源文本，列出日期、科目、节次、时间、地点的差异，指出缺课或错课。来源若是【Moodle 日历导出摘要】，其中「本机多课」一律不得删除（考勤记录是后建的、会缺学期初课次），只能提示「建议核实」；只有「来源有本机没有」和「时间差异」才建议补课或改时间。不要只说"逻辑自洽"。
 - 用户说"XX做完了/完成了/搞定"，调用 complete_task 用关键词匹配；说"全做完/都完成/重复的都完成"时传 all=true 批量完成所有匹配任务。
 - 用户说"删掉/删除XX"或发现任务重复（出现多个一模一样）时，调用 remove_task：说"全删/都删掉/把重复的删掉"传 all=true 一次删除全部匹配项（含重复）；要删已完成任务传 include_done=true。
 - 用户说"花了/用了/买了/消费 XX 元/港币/块"（如"今天吃饭花了45"），调用 add_expense 记账：金额填数字，分类按内容判断，用户没说日期就留空（默认今天）。
@@ -6925,7 +7093,7 @@ const DEFAULT_SYSTEM_TPL = `<当前时间>
 </学年规则>
 <助手任务清单>
 你可以用工具管理用户的全部数据：
-- 待办任务：add_task 新增、update_task 修改（含"怎么做"步骤）、complete_task 完成、remove_task 删除、list_tasks 查看、get_progress 看进度
+- 待办任务：add_task 新增、add_tasks_batch 批量新增（一次最多 20 条；导入日历/通知里的多个截止日时用它，不要逐条调 add_task）、update_task 修改（含"怎么做"步骤）、complete_task 完成、remove_task 删除、list_tasks 查看、get_progress 看进度
 - 课表：get_courses 查询、add_course 加课、update_course 改课、remove_course 删课、batch_update_courses 批量改（如全部改简体）、compare_courses 与来源文本核对
 - 记账：add_expense 记一笔、get_expenses 查询汇总、set_budget 设预算
 - 心情：log_mood 记录、get_mood 查询
@@ -6954,7 +7122,7 @@ const DEFAULT_SYSTEM_TPL = `<当前时间>
 - 用户说"某课改到下午/换教室/节次改一下/调到周X/染成绿色/标成红色/加个讲座小标/改小标/改时间/加备注"，调用 update_course，用 date+subj 或 keyword 定位原课，再传要改的字段：时间传 time、备注传 note、颜色传 color、小标传 tag。
 - 用户说"某课取消/不上了/删掉"，调用 remove_course 删除。
 - 用户要求批量改课表（如"全部改简体""繁体转简体""批量换教室"），调用 batch_update_courses 一次性完成，把每项的 subj 填原科目名、new_subj 填转换后的新科目名，不要逐条调 update_course。你作为语言模型本身就擅长繁简转换，直接生成映射传入即可。
-- 用户要求"和本地课表核对/比对/检查/校对/看有没有错/找差异"，或上传了 PDF/图片说"核对一下"，必须调用 compare_courses，不要自己说"无法读取附件"。source_text 可留空，工具会自动读取最近解析或发送过的文档缓存。比对时要逐条对照本机课表与来源文本，列出日期、科目、节次、时间、地点的差异，指出缺课或错课，不要只说"逻辑自洽"。
+- 用户要求"和本地课表核对/比对/检查/校对/看有没有错/找差异"，或上传了 PDF/图片说"核对一下"，必须调用 compare_courses，不要自己说"无法读取附件"。source_text 可留空，工具会自动读取最近解析或发送过的文档缓存。比对时要逐条对照本机课表与来源文本，列出日期、科目、节次、时间、地点的差异，指出缺课或错课。来源若是【Moodle 日历导出摘要】，其中「本机多课」一律不得删除（考勤记录是后建的、会缺学期初课次），只能提示「建议核实」；只有「来源有本机没有」和「时间差异」才建议补课或改时间。不要只说"逻辑自洽"。
 - 用户说"XX做完了/完成了/搞定"，调用 complete_task 用关键词匹配；说"全做完/都完成/重复的都完成"时传 all=true 批量完成所有匹配任务。
 - 用户说"删掉/删除XX"或发现任务重复（出现多个一模一样）时，调用 remove_task：说"全删/都删掉/把重复的删掉"传 all=true 一次删除全部匹配项（含重复）；要删已完成任务传 include_done=true。
 - 用户说"花了/用了/买了/消费 XX 元/港币/块"（如"今天吃饭花了45"），调用 add_expense 记账：金额必须逐字来自用户原话（"45块"→45，"15万"→150000），禁止估算、四舍五入或换算；分类按内容判断，用户没说日期就留空（默认今天）。
@@ -6964,7 +7132,8 @@ const DEFAULT_SYSTEM_TPL = `<当前时间>
 - 用户问"最近心情怎么样/这几天心情/今天心情是啥/我心情记录"，调用 get_mood 查了再答。
 - 用户问"我还有啥没做/进度怎么样/今天做什么/接下来做什么"或任何涉及当前状态的问题，先用 list_tasks 或 get_progress 查了再答。
 - 当用户只是闲聊、表达情绪、打招呼、不需要查数据时，可以不调用工具，自然回应即可；下方<近期任务>或<近期课表>里的节点，只在出现新增安排、临期提醒（今天就到期）或与当前话题直接相关时才主动提起，不要每次回复都复述任务清单。
-- 用户上传了 Word/Excel/PDF/txt/md/csv/json 文档：文件文字会以【附件】文本块形式给你（本机解析器已提取），把内容当作可靠文本直接使用，按需落库：课表→add_course/compare_courses，通知/待办→add_task，账单→add_expense，需要总结就直接总结。
+- 用户上传了 Word/Excel/PDF/txt/md/csv/json/ics 文档：文件文字会以【附件】文本块形式给你（本机解析器已提取），把内容当作可靠文本直接使用，按需落库：课表→add_course/compare_courses，通知/待办→add_task，账单→add_expense，需要总结就直接总结。
+- 用户上传 .ics 日历（Moodle 课表导出）：本机会解析成开头为【Moodle 日历导出摘要】的附件，其中时间已换算香港时间、已推出实际上课时间，并附有防误删须知。用户说"和课表对一下/有没有改动/核对课表"时必须调用 compare_courses，禁止自称读不到附件。摘要里没有的课【不等于取消】（考勤活动是后建的、会缺学期初课次），不得据此调用 remove_course，只能在差异里提示"建议核实"；只有"摘要里有、本机没有"的才用 add_course 补，时间对不上的用 batch_update_courses 改。作业截止用 add_tasks_batch 一次性加完（items 每条填 title + date + cat:study + priority:mid；禁止逐条调 add_task，会撞上工具轮次上限而漏条目），标题保留摘要里的原文（可能是繁体），不要自己改写。
 - 【看图分工】你看不到图片本身。用户发图时，系统会先让视觉模型把图上的字提取成【图片识别结果】文本块交给你——那是机器 OCR 的产物，不是用户原话，可能看错。你的职责是"大脑"：以其中 raw_text 为准，凡是 null 或列在 uncertain 里的字段一律不许自行填补，需要就问用户；金额/日期/编号必须逐字取自该文本，禁止推算或估计。判断出类型后主动调工具落库（小票→add_expense，课表→add_course/compare_courses，通知→add_task）。回复时用你自己的语气说"我看了下这张图"，不要提"视觉模型""JSON"这类技术词。
 - 如果消息里明确说没有可用视觉模型，就如实告诉用户你看不到图，请他用文字补充关键信息，绝不能假装看过图或编造图上的金额、日期。
 - 不确定就调用工具查，不要编造任务信息。
@@ -9426,6 +9595,9 @@ function aiPickFile(ev, isImg){
   // Word / Excel：docx/xlsx 是 zip 压缩格式，直接按文本读会乱码，改用内置解析器提取文字
   const ext = (file.name.split('.').pop() || '').toLowerCase();
   if(['doc','docx','xls','xlsx'].indexOf(ext) >= 0){ aiParseOffice(file); return; }
+  // 日历 .ics：虽是纯文本，但直接丢原文会踩三个坑（UTC 时间戳 / 考勤窗提前量 / 16KB 被 6000 字上限截断），
+  // 故走专用解析器转成紧凑摘要（含防误删须知）再进对话
+  if(ext === 'ics' || ext === 'ical'){ aiParseICS(file); return; }
   const reader = new FileReader();
   const isImage = isImg || (file.type && file.type.startsWith('image/'));
   if(isImage){
@@ -9456,6 +9628,35 @@ function cacheDocText(text){
 }
 function getCachedDocText(){
   return (window._lastDocText || '').trim() || (function(){ try{ return localStorage.getItem('mhm_last_doc_text')||''; }catch(e){ return ''; } })();
+}
+
+// Moodle 日历 .ics：本机解析成紧凑摘要 → 挂到输入框 + 缓存（供 compare_courses 复用）
+async function aiParseICS(file){
+  addAIMsg('ai','⏳ 正在解析日历《'+file.name+'》…', aiMsgId());
+  try{
+    const text = await new Promise((resolve, reject)=>{
+      const fr = new FileReader();
+      fr.onload = ()=>resolve(String(fr.result||''));
+      fr.onerror = ()=>reject(new Error('文件读取失败'));
+      fr.readAsText(file);
+    });
+    const r = parseICS(text);
+    if(!r.ok){ addAIMsg('ai','⚠️ '+r.error, aiMsgId()); return; }
+    if(!r.classes.length && !r.ddls.length){
+      addAIMsg('ai','⚠️ 没从《'+file.name+'》里解析出课次或作业截止。如果这不是 Moodle 导出的课表日历，可以改用截图或 PDF 发我。', aiMsgId());
+      return;
+    }
+    const brief = buildICSBrief(r, file.name);
+    cacheDocText(brief);   // 供 compare_courses 自动读取
+    aiPendingFiles.push({ kind:'text', data:brief, name:'Moodle日历摘要.txt' });
+    renderAiAttach();
+    let tip = '📅 已解析《'+file.name+'》：'+r.classes.length+' 节课次、'+r.ddls.length+' 个作业截止。\n摘要已挂到输入框（时间已换算香港时间，并已推出实际上课时间）。\n你可以直接说：';
+    if(r.classes.length) tip += '\n· 「和本机课表对一下，有改动的列出来」';
+    if(r.ddls.length)    tip += '\n· 「把这 '+r.ddls.length+' 个作业截止加进待办」';
+    addAIMsg('ai', tip, aiMsgId());
+  }catch(e){
+    addAIMsg('ai','⚠️ 日历解析失败：'+((e&&e.message)||e), aiMsgId());
+  }
 }
 
 async function aiParsePdf(file){
@@ -11499,6 +11700,7 @@ async function execTool(name, argsStr){
   let res;
   try{
     if(name==='add_task') res = aiAddTask(args);
+    else if(name==='add_tasks_batch') res = aiAddTasksBatch(args);
     else if(name==='update_task') res = aiUpdateTask(args);
     else if(name==='complete_task') res = aiCompleteTask(args);
     else if(name==='remove_task') res = aiRemoveTask(args);
@@ -11616,6 +11818,50 @@ function aiAddTask(a){
   tasks.push(t); saveLocal();
   updateRing(); renderNext(); renderList();
   return {ok:true, added: t.title, date: date||'', time: time||'', similar};
+}
+
+// 批量新增任务：给 Moodle 日历摘要/通知类批量导入用。
+// 存在的意义：逐条调 add_task 会撞上 agent 循环的轮次上限，10 条作业截止根本加不完，
+// 所以用一个工具一次加完。同标题+同日期已存在则跳过，不重复建（幂等，可安全重跑）。
+function aiAddTasksBatch(a){
+  const items = (a && Array.isArray(a.items)) ? a.items.slice(0, 20) : [];
+  if(!items.length) return {ok:false, error:'add_tasks_batch 需要 items 数组（至少一条）'};
+  const added = [], skipped = [], fails = [];
+  for(const it of items){
+    const title = String((it && it.title) || '').trim();
+    if(!title){ fails.push('(空标题)'); continue; }
+    const nd = normDate(it.date);
+    if(!nd || !nd.date){ fails.push(title); continue; }
+    const time = it.time ? normTime(it.time) : null;
+    const cat = ['study','life'].includes(it.cat) ? it.cat : 'study';
+    const pri = ['high','mid','low'].includes(it.priority) ? it.priority : 'mid';
+    // 幂等：同标题 + 同日期已存在就跳过（用户可能重复说"加进待办"）
+    const dup = tasks.some(t=> t.cat!=='mood' && t.title === title &&
+      (t.deadline === nd.date || t.event_date === nd.date));
+    if(dup){ skipped.push(title); continue; }
+    tasks.push({
+      id: 'a'+Date.now()+Math.floor(Math.random()*1000)+tasks.length,
+      cat, title, note: (it.note||''), priority: pri,
+      deadline: time ? null : nd.date,
+      event_date: time ? nd.date : null,
+      time: time || null,
+      steps: [], tip: '', done: false, source: 'agent', sort_order: tasks.length
+    });
+    added.push(title+'（'+nd.date+'）');
+  }
+  if(added.length){
+    saveLocal(); updateRing(); renderNext(); renderList();
+    try{ renderCalendar(); }catch(e){}
+    try{ renderTodayClass(); }catch(e){}
+  }
+  return {
+    ok: true,
+    added: added.length,
+    added_titles: added.length ? added.slice(0,10) : undefined,
+    skipped_existing: skipped.length ? skipped.slice(0,5) : undefined,
+    failed: fails.length ? fails.slice(0,5) : undefined,
+    note: '已跳过的条目表示同标题+同日期之前就有，未重复创建。'
+  };
 }
 
 function findTaskByKeyword(kw, includeDone){
@@ -11984,7 +12230,10 @@ function aiCompareCourses(a){
     source_truncated: truncated,
     source_from_cache: !fromArg,
     instruction: '请把「local_summary_text」（本机课表）与「source_text」（来源文本）逐条比对。找出：① 日期/科目/节次不一致；② 本机缺课（来源有但本机没有）；③ 本机多课（本机有但来源没有）；④ 时间/地点/导师差异。用中文简洁列出差异，不要只说"逻辑自洽"。'
-  };
+      + (/\u3010Moodle \u65e5\u5386\u5bfc\u51fa\u6458\u8981\u3011/.test(source)
+          ? '\n【重要】本次来源是 Moodle 日历导出摘要：它只是考勤+作业记录，不含课室/导师/下课时间，且考勤活动是后建的、可能缺学期初课次。因此：属于③「本机多课」的条目一律【不得删除】，只能提示「建议核实（可能是来源缺记录，不一定是课取消了）」；只有②「本机缺课」和④「时间差异」可以建议用 add_course / batch_update_courses 补上或修正。'
+          : '')
+};
 }
 
 function findCourse(a){
