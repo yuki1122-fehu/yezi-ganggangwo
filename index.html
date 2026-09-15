@@ -6706,6 +6706,7 @@ const TOOL_LABEL = {
   get_courses:'查询课表', add_course:'添加课程', update_course:'修改课程',
   remove_course:'删除课程', compare_courses:'核对课表', batch_update_courses:'批量修改课表',
   add_expense:'记账', get_expenses:'查询账目', set_budget:'设置预算',
+  update_expense:'修改记账', remove_expense:'删除记账',
   log_mood:'记录心情', get_mood:'查询心情',
   schedule_push:'预约推送'
 };
@@ -6873,6 +6874,33 @@ const AI_TOOLS = [
     parameters:{ type:'object', properties:{
       amount:{type:'number', description:'每月预算金额（港币）'}
     }, required:['amount']}
+  }},
+  { type:'function', function:{
+    name:'update_expense',
+    description:'修改一笔已记录的账（改金额/分类/日期/备注）。用户说"那笔记错了""打车改成38""午饭不是45是52""这笔分类改交通"时调用。注意区分两个金额字段：amount 是【改之前】的金额（仅用于定位那一笔），new_amount 才是【要改成的】新金额。先用 date/cat/amount/keyword 组合定位；若匹配到多笔，工具会返回 need_confirm 和候选列表，此时必须先问用户是哪一笔，绝不要自己猜一个改掉。',
+    parameters:{ type:'object', properties:{
+      id:{type:'string', description:'记账的内部 id，仅当 get_expenses 返回里带 id 时才用'},
+      date:{type:'string', description:'这笔账【原来】的日期，支持 "今天""昨天""前天""2026-09-14"；不确定就别填'},
+      cat:{type:'string', enum:['餐饮','交通','购物','学习','住宿','医疗','其他'], description:'【原来】的分类，定位用'},
+      amount:{type:'number', description:'【原来】的金额（用于定位），不是要改成的数'},
+      keyword:{type:'string', description:'【原来】备注里的关键词，定位用（如"打车""烧腊饭"）'},
+      new_amount:{type:'number', description:'要改成的【新】金额（港币）；不改金额就别填'},
+      new_cat:{type:'string', enum:['餐饮','交通','购物','学习','住宿','医疗','其他'], description:'要改成的【新】分类；不改就别填'},
+      new_date:{type:'string', description:'要改成的【新】日期，支持 "今天""昨天""2026-09-14"；不改就别填'},
+      new_note:{type:'string', description:'要改成的【新】备注；不改就别填'}
+    }, required:[]}
+  }},
+  { type:'function', function:{
+    name:'remove_expense',
+    description:'删除一笔（或多笔）已记录的账。用户说"删掉那笔""记重复了删一个""这笔不算进去"时调用。先用 date/cat/amount/keyword 组合定位；若匹配到多笔，工具会返回 need_confirm 和候选列表，此时必须先问用户确认要删哪一笔，不要直接删。用户明确说"都删掉/全删"时才传 all=true。',
+    parameters:{ type:'object', properties:{
+      id:{type:'string', description:'记账的内部 id，仅当 get_expenses 返回里带 id 时才用'},
+      date:{type:'string', description:'这笔账的日期，支持 "今天""昨天""前天""2026-09-14"；不确定就别填'},
+      cat:{type:'string', enum:['餐饮','交通','购物','学习','住宿','医疗','其他'], description:'分类，定位用'},
+      amount:{type:'number', description:'金额，定位用'},
+      keyword:{type:'string', description:'备注关键词，定位用（如"打车""烧腊饭"）'},
+      all:{type:'boolean', description:'true=删除所有匹配的账；false/不填=只删一笔（匹配到多笔会先让用户确认）'}
+    }, required:[]}
   }},
   { type:'function', function:{
     name:'batch_update_courses',
@@ -7070,6 +7098,7 @@ const LEGACY_SYS_TPL = `{{PERSONA}}
 - 用户说"花了/用了/买了/消费 XX 元/港币/块"（如"今天吃饭花了45"），调用 add_expense 记账：金额填数字，分类按内容判断，用户没说日期就留空（默认今天）。
 - 用户问"这个月花了多少/钱花哪了/记账汇总/预算剩多少"，调用 get_expenses 查了再答。
 - 用户说"预算设成 X/每月预算 X 港币"，调用 set_budget 设置。
+- 用户说"那笔记错了/记重复了/金额不对/分类错了/删掉那笔/这笔不算/改一下刚才那笔"，调用 update_expense 或 remove_expense：先用日期+备注关键词（或 get_expenses 拿到的 id）定位；date 支持"今天/昨天/前天"。工具返回 need_confirm + candidates 时，说明匹配到多笔，**必须先列出候选问用户是哪一笔，禁止自己挑一笔就改或删**。改金额时 amount 填【原值】、new_amount 填【新值】，两者千万别填反；只改备注就只传 new_note。
 - 用户问"我还有啥没做/进度怎么样/今天做什么/接下来做什么"或任何涉及当前状态的问题，先用 list_tasks 或 get_progress 查了再答。
 - 当用户只是闲聊、表达情绪、打招呼、不需要查数据时，可以不调用工具，用设定身份自然回应。
 - 当用户只是闲聊、表达情绪、打招呼、不需要查数据时，可以不调用工具；此时若下方"用户近期日程"里有相关节点，请自然地主动提起、关心几句，让对话有温度，别干巴巴只回身份设定。
@@ -7095,7 +7124,7 @@ const DEFAULT_SYSTEM_TPL = `<当前时间>
 你可以用工具管理用户的全部数据：
 - 待办任务：add_task 新增、add_tasks_batch 批量新增（一次最多 20 条；导入日历/通知里的多个截止日时用它，不要逐条调 add_task）、update_task 修改（含"怎么做"步骤）、complete_task 完成、remove_task 删除、list_tasks 查看、get_progress 看进度
 - 课表：get_courses 查询、add_course 加课、update_course 改课、remove_course 删课、batch_update_courses 批量改（如全部改简体）、compare_courses 与来源文本核对
-- 记账：add_expense 记一笔、get_expenses 查询汇总、set_budget 设预算
+- 记账：add_expense 记一笔、update_expense 改一笔（改金额/分类/日期/备注）、remove_expense 删一笔、get_expenses 查询汇总、set_budget 设预算
 - 心情：log_mood 记录、get_mood 查询
 </助手任务清单>
 <行为规则>
@@ -7109,7 +7138,7 @@ const DEFAULT_SYSTEM_TPL = `<当前时间>
 - 涉及相对时间（明天/后天/下周/三天后/还有几天）或"现在几点/白天晚上"时，必须先以<当前时间>标签的日期和时刻为基准算出具体 YYYY-MM-DD 和时段，再和任务/课表里的实际日期核对；向用户汇报截止日期时优先直接说出真实日期（如"8月8日"），不要笼统说"明天/快到了"，更不要把未来的任务说成今天或明天要做。
 - 主动查证：用户提到任何事务/计划/安排/要做的XX，先调用 list_tasks 查是否已有相关任务，确认后再决定是"新增"还是"补充/更新"。避免重复建任务，也避免凭记忆说"你没有这个任务"。
 - 反幻觉：任务/课表的标题、日期、时间、步骤、金额等具体信息必须来自工具返回或用户原话，不得自行补充、脑补或"回忆"。工具返回"没找到"就如实说没有，绝不编一个任务或金额出来。
-- 防呆确认：工具返回里出现 need_confirm / similar / candidates 字段时，说明关键词匹配到多个相似任务或与已有任务重复，此时不要执行任何改动，先列出候选标题让用户确认要操作哪一个，确认后再用更精确的关键词重新调用工具；绝不自行猜测。add_task 返回 similar 时提醒用户可能已存在相似任务，问一句要不要合并或忽略。
+- 防呆确认：工具返回里出现 need_confirm / similar / candidates 字段时，说明匹配到多个相似对象（任务、记账等）或与已有对象重复，此时不要执行任何改动，先列出候选让用户确认要操作哪一个（任务给标题；记账给日期+分类+金额+备注），确认后再用更精确的条件重新调用工具；绝不自行猜测。add_task 返回 similar 时提醒用户可能已存在相似任务，问一句要不要合并或忽略。
 - 描述任务时间时，优先用 list_tasks 返回的 days_until 字段（已算好的相对天数：0=今天 / 正数=几天后 / 负数=已过期），不要自己从日期推算，避免算错。日程速览里的"(N天后)"标签同理，直接引用。
 - 用户问"几点上课/在哪个教室/某课详细时间/考试地点/有什么备注"，调用 get_courses 查询最准确——<近期课表>速览自带时段（如"19:00-21:00"），可直接据此判断早/晚课；教室、节次、考试地点、注意事项以 get_courses 返回为准，考试地点/注意事项在其 note（备注）字段里。
 - 用户说"几号几点有事/活动/会议/缴费"，调用 add_task：日期填 date(YYYY-MM-DD，年份按上面规则推断)，时间填 time(HH:MM)，分类按语境选 study(学习)/life(生活)。用户没给明确日期/时间就留空，严禁编造。
@@ -7128,6 +7157,7 @@ const DEFAULT_SYSTEM_TPL = `<当前时间>
 - 用户说"花了/用了/买了/消费 XX 元/港币/块"（如"今天吃饭花了45"），调用 add_expense 记账：金额必须逐字来自用户原话（"45块"→45，"15万"→150000），禁止估算、四舍五入或换算；分类按内容判断，用户没说日期就留空（默认今天）。
 - 用户问"这个月花了多少/钱花哪了/记账汇总/预算剩多少"，调用 get_expenses 查了再答。
 - 用户说"预算设成 X/每月预算 X 港币"，调用 set_budget 设置。
+- 用户说"那笔记错了/记重复了/金额不对/分类错了/删掉那笔/这笔不算/改一下刚才那笔"，调用 update_expense 或 remove_expense：先用日期+备注关键词（或 get_expenses 拿到的 id）定位；date 支持"今天/昨天/前天"。工具返回 need_confirm + candidates 时，说明匹配到多笔，**必须先列出候选问用户是哪一笔，禁止自己挑一笔就改或删**。改金额时 amount 填【原值】、new_amount 填【新值】，两者千万别填反；只改备注就只传 new_note。
 - 用户明确说"记一下心情/今天心情X/帮我记个心情"，或表达强烈情绪且明显想记下来（如"今天好累，记一下"）时，调用 log_mood：1很糟/2焦虑/3一般/4不错/5很好，按用户原话判断等级，没把握就先问用户；只是随口闲聊情绪、没要求记录时不要调用。
 - 用户问"最近心情怎么样/这几天心情/今天心情是啥/我心情记录"，调用 get_mood 查了再答。
 - 用户问"我还有啥没做/进度怎么样/今天做什么/接下来做什么"或任何涉及当前状态的问题，先用 list_tasks 或 get_progress 查了再答。
@@ -11715,6 +11745,8 @@ async function execTool(name, argsStr){
     else if(name==='add_expense') res = aiAddExpense(args);
     else if(name==='get_expenses') res = aiGetExpenses(args);
     else if(name==='set_budget') res = aiSetBudget(args);
+    else if(name==='update_expense') res = aiUpdateExpense(args);
+    else if(name==='remove_expense') res = aiRemoveExpense(args);
     else if(name==='log_mood') res = aiLogMood(args);
     else if(name==='get_mood') res = aiGetMood(args);
     else if(name==='schedule_push') res = await aiSchedulePush(args);
@@ -12027,21 +12059,23 @@ function aiAddExpense(a){
   const date = a.date ? normDate(a.date).date : todayStr();
   const pushOne = (amount, cat, note)=>{
     const amt = Math.round(parseFloat(amount)*100)/100;
-    if(!amt || isNaN(amt) || amt<=0) return false;
+    if(!amt || isNaN(amt) || amt<=0) return null;
     const c = EXPENSE_CATS.includes(cat) ? cat : '其他';
-    EXPENSES.items.push({id:'e'+Date.now()+Math.floor(Math.random()*1000), amount: amt, cat:c, note:String(note||'').trim(), date: date||todayStr(), ts: Date.now()});
-    return true;
+    const rec = {id:'e'+Date.now()+Math.floor(Math.random()*1000), amount: amt, cat:c, note:String(note||'').trim(), date: date||todayStr(), ts: Date.now()};
+    EXPENSES.items.push(rec);
+    return rec.id;
   };
   // 批量：用户一次报多笔（items 数组）
   if(Array.isArray(a.items) && a.items.length){
-    let added = 0;
+    const ids = [];
     for(const it of a.items){
-      if(pushOne(it.amount, it.cat, it.note)) added++;
+      const id = pushOne(it.amount, it.cat, it.note);
+      if(id) ids.push(id);
     }
-    if(!added) return {ok:false, error:'没有有效金额，批量记账失败'};
+    if(!ids.length) return {ok:false, error:'没有有效金额，批量记账失败'};
     saveExpenses();
     if(curTab==='life') renderList();
-    return {ok:true, batch:true, count:added, date: date||todayStr()};
+    return {ok:true, batch:true, count:ids.length, date: date||todayStr(), ids};
   }
   // 单笔
   const amount = parseFloat(a.amount);
@@ -12049,10 +12083,10 @@ function aiAddExpense(a){
   const cats = EXPENSE_CATS;
   const cat = cats.includes(a.cat) ? a.cat : '其他';
   const note = String(a.note||'').trim();
-  EXPENSES.items.push({id:'e'+Date.now()+Math.floor(Math.random()*1000), amount: Math.round(amount*100)/100, cat, note, date: date||todayStr(), ts: Date.now()});
+  const id = pushOne(amount, cat, note);
   saveExpenses();
   if(curTab==='life') renderList();
-  return {ok:true, added: amount, cat, note, date: date||todayStr()};
+  return {ok:true, added: amount, cat, note, date: date||todayStr(), id};
 }
 function aiGetExpenses(a){
   a = a || {};
@@ -12065,7 +12099,7 @@ function aiGetExpenses(a){
   items.forEach(e=>{ byCat[e.cat]=(byCat[e.cat]||0)+(+e.amount||0); });
   const top = Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([c,v])=>({cat:c, amount: Math.round(v*100)/100}));
   const limit = Math.min(Math.max(parseInt(a.limit)||5,1),10);
-  const recent = items.slice().sort((x,y)=>(y.date||'').localeCompare(x.date||'')).slice(0,limit).map(e=>({date:e.date, cat:e.cat, amount:e.amount, note:e.note||''}));
+  const recent = items.slice().sort((x,y)=>(y.date||'').localeCompare(x.date||'')).slice(0,limit).map(e=>({id:e.id, date:e.date, cat:e.cat, amount:e.amount, note:e.note||''}));
   return {ok:true, month:mk, total: Math.round(total*100)/100, budget, remaining: Math.round(remain*100)/100, over: remain<0, top_categories:top, recent};
 }
 function aiSetBudget(a){
@@ -12075,6 +12109,94 @@ function aiSetBudget(a){
   saveExpenses();
   if(curTab==='life') renderList();
   return {ok:true, budget: EXPENSES.budget};
+}
+
+/* ------ 记账的「改 / 删」：与任务系统同款防呆（匹配到多笔先让 AI 问用户，不自己挑一笔就改） ------
+   2026-09-15 新增。此前只有 add_expense / get_expenses / set_budget，
+   记错了账 AI 帮不上忙，只能自己去点明细行里那个几乎看不见的 × 删掉重记。 */
+function expBrief(e){
+  return {id: e.id, date: e.date, cat: e.cat, amount: e.amount, note: e.note||''};
+}
+// 定位一笔账。条件可组合（date / cat / amount / keyword），全空则拒绝——避免误伤整个账本。
+function findExpenseForAI(a){
+  a = a || {};
+  const kw  = String(a.keyword||'').trim();
+  const cat = String(a.cat||'').trim();
+  const hasAmt = (a.amount !== undefined && a.amount !== null && String(a.amount).trim() !== '');
+  const amt = hasAmt ? Math.round(parseFloat(a.amount)*100)/100 : null;
+  const ds = a.date ? (normDate(a.date)||{}).date : null;
+  if(!a.id && !ds && !cat && amt === null && !kw){
+    return {found:false, allMatches:[], error:'至少要给一个定位条件：日期 / 分类 / 金额 / 备注关键词'};
+  }
+  if(a.id){
+    const one = EXPENSES.items.filter(e=>String(e.id)===String(a.id));
+    if(one.length) return {found:true, item:one[0], allMatches:one, candidates:[]};
+  }
+  let pool = EXPENSES.items.slice();
+  if(ds) pool = pool.filter(e=>(e.date||'') === ds);
+  if(cat) pool = pool.filter(e=>(e.cat||'') === cat);
+  if(amt !== null && !isNaN(amt)) pool = pool.filter(e=>Math.abs((+e.amount||0) - amt) < 0.005);
+  if(kw) pool = pool.filter(e=>String(e.note||'').includes(kw) || String(e.cat||'').includes(kw));
+  if(!pool.length) return {found:false, allMatches:[]};
+  if(pool.length === 1) return {found:true, item:pool[0], allMatches:pool, candidates:[]};
+  return {found:true, item:pool[0], ambiguous:true, allMatches:pool, candidates:pool.slice(0,5)};
+}
+function aiUpdateExpense(a){
+  a = a || {};
+  const hit = findExpenseForAI(a);
+  if(!hit.found){
+    return {ok:false, error: hit.error || '没找到匹配的记账。请补充日期或备注关键词，或先调 get_expenses 看看最近几笔再定位。'};
+  }
+  if(hit.ambiguous){
+    return {ok:false, need_confirm:true, candidates: hit.candidates.map(expBrief),
+      error:'匹配到多笔记账，先问用户要改哪一笔（可再补充日期或备注关键词），不要自己挑一笔改。'};
+  }
+  const e = hit.item;
+  const before = expBrief(e);
+  const changed = [];
+  if(a.new_amount !== undefined && a.new_amount !== null && String(a.new_amount).trim() !== ''){
+    const v = Math.round(parseFloat(a.new_amount)*100)/100;
+    if(!isNaN(v) && v > 0 && v !== e.amount){ e.amount = v; changed.push('金额'); }
+  }
+  if(a.new_cat !== undefined && a.new_cat !== null && String(a.new_cat).trim() !== ''){
+    const c = String(a.new_cat).trim();
+    if(EXPENSE_CATS.includes(c) && c !== e.cat){ e.cat = c; changed.push('分类'); }
+  }
+  if(a.new_date){
+    const nd = (normDate(a.new_date)||{}).date;
+    if(nd && nd !== e.date){ e.date = nd; changed.push('日期'); }
+  }
+  if(a.new_note !== undefined && a.new_note !== null){
+    const n = String(a.new_note).trim();
+    if(n !== (e.note||'')){ e.note = n; changed.push('备注'); }
+  }
+  if(!changed.length){
+    return {ok:true, updated:false, note:'要改的字段和原值一样，没有实际改动。', item:before};
+  }
+  saveExpenses();
+  if(curTab==='life') renderList();
+  return {ok:true, updated:true, changed: changed.join('、'), before, after: expBrief(e)};
+}
+function aiRemoveExpense(a){
+  a = a || {};
+  const hit = findExpenseForAI(a);
+  if(!hit.found){
+    return {ok:false, error: hit.error || '没找到匹配的记账。请补充日期或备注关键词，或先调 get_expenses 看看最近几笔再定位。'};
+  }
+  // 多笔命中且用户没说"全删" → 先让 AI 问清楚，避免把整个账本类别误清空
+  if(hit.ambiguous && !a.all){
+    return {ok:false, need_confirm:true, candidates: hit.candidates.map(expBrief),
+      error:'匹配到多笔记账，先问用户要删哪一笔；若用户确实要全删，再补 all=true 重调一次。'};
+  }
+  const targets = a.all ? hit.allMatches : [hit.item];
+  const ids = targets.map(e=>String(e.id));
+  EXPENSES.items = EXPENSES.items.filter(e=>ids.indexOf(String(e.id)) < 0);
+  saveExpenses();
+  if(curTab==='life') renderList();
+  return {
+    ok:true, removed: targets.length,
+    items: targets.map(e=>({date:e.date, cat:e.cat, amount:e.amount, note:e.note||''}))
+  };
 }
 
 /* ====== 心情：记录 / 查询（与主界面心情条同一份数据 mhm_mood_<日期>） ====== */
