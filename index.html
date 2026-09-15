@@ -955,8 +955,6 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-btn.primary{background:linear-gradient(135deg,#7fc5e2,#6e92de);color:#fff;border:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 20px rgba(96,130,220,.26);}
 .god-btn.ghost{background:var(--green-soft);color:var(--green-dark);border:1px solid rgba(165,192,162,.5);}
 .god-btn:disabled{opacity:.5;}
-.god-btn.heat-on{background:linear-gradient(135deg,#f0b3ca,#d98dad);color:#fff;border:none;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 20px rgba(214,138,168,.24);}
 /* 镜头卡上的状态小标：已睡 / 私密（夜里那点事） */
 .god-tag{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:800;letter-spacing:.3px;
   padding:2px 7px;border-radius:var(--radius-pill);margin-right:6px;vertical-align:1px;white-space:nowrap;}
@@ -8847,13 +8845,8 @@ function renderPromptCenter(){
     + '<p class="prompt-desc">定义AI如何生成角色生活切片。{{ROLE_A}}/{{ROLE_B}}会自动替换为实际角色名。</p>'
     + '<textarea id="pcGodSysTpl" class="prompt-body" rows="6">'+escHtml(godSysTpl)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetGodSysTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
-  const _ghRaw = parseInt(cfg.godHeat, 10);
-  const _gh = (isNaN(_ghRaw) || _ghRaw < 0 || _ghRaw > 3) ? 1 : _ghRaw;
-  const _heatOpt = ['关闭：不写床笫之事（只有日常）','含蓄：写到关灯为止，其余交给留白','温热：明确写了，仍有余地','直白：成人内容']
-    .map((t,i)=>'<option value="'+i+'"'+(i===_gh?' selected':'')+'>'+t+'</option>').join('');
   sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">8</span><span>上帝视角 · AI旁白用户指令</span></div>'
-    + '<p class="prompt-desc">控制输出格式和要求，JSON结构必须严格匹配。旁白每次会额外自动附上【他们的作息】与【亲密尺度】两段硬性规则。</p>'
-    + '<div class="prompt-actions" style="margin-bottom:8px;"><label>亲密尺度 <select id="pcGodHeat">'+_heatOpt+'</select></label></div>'
+    + '<p class="prompt-desc">控制输出格式和要求，JSON结构必须严格匹配。旁白每次会额外自动附上【他们的作息】与【亲密尺度】两段硬性规则；亲密尺度已固定为最大（成年夫妻私生活，不写分档）。</p>'
     + '<textarea id="pcGodUserTpl" class="prompt-body" rows="10">'+escHtml(godUserTpl)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetGodUserTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
   
@@ -8897,7 +8890,6 @@ function savePromptCenter(){
   // 新增：上帝视角和陪伴规则
   const godSysEl = document.getElementById('pcGodSysTpl');
   const godUserEl = document.getElementById('pcGodUserTpl');
-  const godHeatEl = document.getElementById('pcGodHeat');
   const compRulesEl = document.getElementById('pcCompanionRules');
   
   if(sysEl) cfg.systemTpl = sysEl.value;
@@ -8910,7 +8902,6 @@ function savePromptCenter(){
   // 保存新字段
   if(godSysEl) cfg.godSysTpl = godSysEl.value;
   if(godUserEl) cfg.godUserTpl = godUserEl.value;
-  if(godHeatEl) cfg.godHeat = Math.max(0, Math.min(3, parseInt(godHeatEl.value, 10) || 0));
   if(compRulesEl) cfg.companionRules = compRulesEl.value;
   
   if(vOn){
@@ -14427,17 +14418,37 @@ function godPhase(hour){
   if(hour<5) return 0; if(hour<8) return 1; if(hour<11) return 2; if(hour<13) return 3;
   if(hour<17) return 4; if(hour<19) return 5; if(hour<22) return 6; return 7;
 }
-// 每时段：{room, do:[[做什么, 心情]...]}；全是通用生活片段，不绑定 OC 具体人设（避免与你设定冲突）
+/* 场景池：按「角色位」分池——A 位默认零落（狼，闷骚寡言、动手派），B 位默认沈容（狐狸，克制、文书与应酬）。
+   09-16 改：原先两人共用一个通用池，结果谁都像谁，读起来像样板间。
+   现在 A/B 各一套，地点也分开（r:[A的地点, B的地点]）。世界元素沿用他们既有的：长庚书局、落落甜、家。
+   ⚠️ 角色名可在设置里改，改了之后「气质」可能与位置对调，但场景本身仍是可信的日常。 */
 const GOD_SCENES = {
-  0:{room:'家', do:[['睡得正沉','安宁'],['翻了个身，把被子裹得更紧','沉静'],['半梦半醒间低低说了句什么','安然'],['起来喝了口水，又躺回去','平稳']]},
-  1:{room:'家', do:[['刚醒，在窗边发了一会儿呆','清冽'],['在灶台前慢慢准备早餐','平和'],['晨跑回来，额头还挂着汗','清爽'],['在阳台给花草浇水，哼着什么','轻快']]},
-  2:{room:'书店 / 咖啡馆 / 工作台', do:[['认真做着自己手头的事','专注'],['刚写完一段，停下来发愣','安静'],['在挑一本书，迟迟没决定','悠闲'],['给窗边的花换水','柔和']]},
-  3:{room:'餐桌旁 / 小馆子', do:[['慢悠悠吃午饭','满足'],['研究新菜谱，边看边尝','好奇'],['望着窗外的人走来走去','漫然'],['把碗筷收好，泡了杯茶','惬意']]},
-  4:{room:'旧书店 / 工作台 / 街头', do:[['埋头做自己的事','沉着'],['在旧货摊前停下看了很久','兴致'],['替一位陌生人指了路','温暖'],['在小本子上写写画画','安定']]},
-  5:{room:'回家的路上 / 菜场', do:[['挑了几棵青菜，慢慢往回走','踏实'],['在路口等红灯，顺手整理衣领','平静'],['给家里回了条消息','温柔'],['闻见路边饭香，脚步快了些','期待']]},
-  6:{room:'家', do:[['靠窗读完最后一页，合上书','餍足'],['两个人各自安静地做着事','默契'],['泡了热茶，坐在沙发上放空','松弛'],['浇完花，抬头看了看天色','恬淡']]},
-  7:{room:'家', do:[['灯还亮着，在读没读完的那一章','安和'],['洗漱完靠在床头，窗帘拉了一半','宁静'],['写了点什么，又停笔看向窗外','出神'],['声音轻轻，怕吵到谁','小心']]}
+  0:{r:['卧室','卧室'],
+     a:[['睡得正沉，一只手搭在被子上','安宁'],['翻了个身，把被子卷了过去','沉静'],['呼吸又长又匀，脸埋在枕头里','沉酣']],
+     b:[['睡得很沉，一只手还搭在她那边','沉静'],['半梦半醒间把被子往她身上推了推','安然'],['眉心松着，睡得比平时沉','平稳']]},
+  1:{r:['厨房 / 阳台','书房 / 窗边'],
+     a:[['已经在灶台前忙着，头发随手扎起来','专注'],['晨跑回来，额发还湿着，在门口压腿','清爽'],['把晾了一夜的衣服收进来，抖开一件件叠','平静'],['蹲在阳台给那几盆花浇水，水声很轻','柔和'],['砧板上剁得笃笃响，没回头也知道谁进来了','利落'],['把今天要穿的衬衫熨好挂上，顺手拽平了领口','仔细']],
+     b:[['系到一半的领带停在那儿，在看窗外的天色','沉静'],['对着一份文件看了很久，笔尖一直没动','专注'],['把凉掉的茶换掉，重新冲了一杯','平和'],['晨间新闻放着，他没在看，手里在削一个苹果','出神'],['在便签上写了两行又划掉，重新写','斟酌'],['外套搭在臂弯，临出门前回头看了眼餐桌','克制']]},
+  2:{r:['长庚书局','办公室 / 会议室外'],
+     a:[['在长庚书局理货，把一摞书按高矮重新码过','安定'],['蹲着整理最下层那排，起来时扶了一下腰','踏实'],['给窗边那盆绿萝换水，顺手擦了擦叶面','柔和'],['在柜台后面啃半个饭团，眼睛还盯着门口','随意'],['把一本翻旧的书塞回原位，指腹蹭过书脊','专注'],['有人问路，抬手往街口一指，只说了两个字','淡然']],
+     b:[['会开到一半，在本子上记了一行，没抬头','沉着'],['把讲稿翻到第三页，划掉一句，换了种说法','斟酌'],['接了个电话，走到窗边，声音压得很低','克制'],['在日程本上圈了两个时间点，中间写了三个字','温和'],['听完一段发言，指尖在桌沿轻轻敲了两下','思量'],['把袖扣摘下来放在手边，松了松领口','倦怠']]},
+  3:{r:['落落甜 / 小馆子','落落甜 / 街角'],
+     a:[['在后厨试新配方，尝了一口，皱了下眉','认真'],['把刚出炉的塔摆进冷柜，端详了两秒','满意'],['端着碗蹲在店门口吃，看街对面的人来人往','散漫'],['掰了半个面包递过去，自己把剩下的吃了','随意'],['汤有点烫，边吹边把碗沿转了半圈','耐心']],
+     b:[['被酸得皱了下眉，还是把那一小块柠檬塔吃完了','认命'],['在店角落看文件，汤凉了也没动勺','专注'],['把盒饭里那块肉夹给了她，说自己不饿','温柔'],['饭后把餐具摆整齐，才拿出手机看消息','规矩'],['就着温水咽了口什么，眉头松开些','隐忍']]},
+  4:{r:['长庚书局 / 街市','议会 / 办公室'],
+     a:[['在市场挑肉，指节敲了敲，跟摊主比了个手势','利落'],['把一箱书从车上搬下来，抱着没让人帮忙','沉稳'],['在旧货摊前停下，拿起一个铜件翻来覆去看','兴致'],['坐在店门槛上磨刀，一下一下，声音很匀','沉静'],['给一位老人把重袋子拎到了路口','平实'],['趴在柜台上打了个盹，脸侧压着一小页纸','松弛']],
+     b:[['在议会走廊跟人简短交谈，笑意浅而标准','得体'],['把发言稿折了一角收进内袋，步子没停','从容'],['看完一份材料，在末尾签了字，笔压得很重','决断'],['接到临时会议通知，看了眼时间，改了行程','沉稳'],['站在窗前抽完半支烟，把剩下的摁灭了','压抑'],['把桌上一堆文件按顺序归好，边角对齐','条理']]},
+  5:{r:['菜场 / 回家路上','回家路上 / 玄关'],
+     a:[['挑了几棵青菜，又抓了把葱，往回走','踏实'],['在路口等灯，顺手把外套拉链拉到顶','平静'],['闻见路边饭香，脚步顿了一下，又快了些','期待'],['提着一袋东西，另一只手插在兜里晃着','散漫'],['在楼下停住，抬头看见自家那扇窗亮着','安稳']],
+     b:[['在街角的花店停了一下，买了一小束','克制'],['把领带松开塞进兜里，长长吐了口气','卸下'],['拎着两盒点心，走得比平时慢','从容'],['在门口站定，先把表情整理好才推门','谨慎'],['边走边回最后一条消息，到楼下才收起手机','疲倦']]},
+  6:{r:['家 · 厨房 / 阳台','家 · 书房 / 客厅'],
+     a:[['在厨房炖东西，锅盖掀开一角看火候','安定'],['洗完澡头发还滴着水，蹲在阳台上发呆','松弛'],['把明天要穿的衬衫拿出来挂好','仔细'],['窝在沙发一角翻一本翻了很多遍的旧书','餍足'],['一边擦桌子一边听他说今天的事，没接话','温和'],['把晾干的衣服叠好，一件件摞齐','平静']],
+     b:[['书房灯还亮着，一份文件看到第三遍','专注'],['泡了壶茶，两人各倒一杯，她那杯没加糖','周到'],['靠在沙发上闭目养神，领口已经松开了','倦怠'],['把明天要用的东西装进包里，一样样核对','严谨'],['在阳台站了会儿，回来时把她的杯子续满','温柔'],['看完一段新闻，把平板扣在了一边','思量']]},
+  7:{r:['卧室 / 客厅','卧室 / 书房'],
+     a:[['靠在床头没睡，灯只留了最暗那一档','安静'],['洗漱完坐在床边擦头发，没急着躺下','宁静'],['在客厅把明天的东西归置好，动作很轻','小心']],
+     b:[['靠在床头看最后一点东西，屏幕压得很暗','平静'],['把外套挂好，慢慢拆着袖扣','卸下'],['在书桌前又坐了一会儿，才起身关灯','沉静']]}
 };
+
 /* ———— 作息：他们也有自己的作息，不陪用户熬夜（09-15 立）————
    睡眠权重按整点给：深夜压到 0.85+，只有"今晚确实有事"才允许醒着，且 doing 必须写清事由。
    事由池刻意保持「生活里真会熬夜」的那几类：赶明早要交的东西、收衣服、夜里没睡稳、
@@ -14447,35 +14458,60 @@ const GOD_SLEEP_DO = [
   ['侧躺着，被子裹得严实','沉静'],
   ['半梦半醒地翻了个身','安然'],
   ['睡着睡着往另一边靠过去','安心'],
-  ['已在梦里，手里还攥着被角','沉定']
+  ['已在梦里，手里还攥着被角','沉定'],
+  ['一条腿压在被子外面，睡得毫无防备','松弛'],
+  ['脸埋进枕头，呼吸又深又匀','沉酣'],
+  ['床上只剩一小团起伏，安静得听不出人','平稳']
 ];
-const GOD_AWAKE_REASON = [
-  ['还在赶明天一早要交的东西，台灯压得很低','专注'],
-  ['把晾在阳台的衣服收了进来，一件件叠','平静'],
-  ['有点睡不着，坐在床头翻了两页书','安静'],
-  ['起来喝了口水，顺手确认了明天的闹钟','清明']
-];
-/* 亲密（夫妻私生活）分档：0=关（只写日常）/ 1=含蓄（默认）/ 2=温热 / 3=直白。
-   只在夜里床上、两人都在且关系不僵时出现；a/b 是两张卡的视角，不指定谁主动，留给画面本身。 */
-const GOD_HEAT_LABEL = ['关闭','含蓄','温热','直白'];
-const GOD_INTIMATE = {
-  1:[
-    {a:'灯熄了，两个人的手在被子里扣着，谁也没急着睡', b:'把她往自己这边带了带，下巴抵在她发顶', ma:'安宁', mb:'眷恋'},
-    {a:'被吻了一下，没躲，眼睛闭上了', b:'吻停在眼角，然后是被子里安静的一小会儿', ma:'心动', mb:'温柔'},
-    {a:'窗帘没拉严，月光下两个人的轮廓靠得很近', b:'灯压到最暗，搭着的手一直没有松开', ma:'安静', mb:'满足'}
+
+const GOD_AWAKE_REASON = {
+  a:[
+    ['还在赶明天一早要交的东西，台灯压得很低','专注'],
+    ['把晾在阳台的衣服收了进来，一件件叠','平静'],
+    ['有点睡不着，坐在床头翻了两页旧书','安静'],
+    ['起来喝了口水，顺手把明天的东西备好','清明'],
+    ['在厨房给明天要炖的汤焯了水，动作很轻','安心'],
+    ['洗完澡出来擦头发，在阳台站了一会儿','松散']
   ],
-  2:[
-    {a:'勾着他的脖子没松手，笑了一声又被咽回去', b:'吻得有点狠，她每喘一下他手都紧一分', ma:'炽热', mb:'贪恋'},
-    {a:'床单攥皱了一角，低低叫他名字', b:'俯身下去，含糊地应了一声，动作放得更慢', ma:'缠绵', mb:'克制'},
-    {a:'已经躺平了还在笑，碎发贴在汗湿的额角', b:'侧过身把她捞进怀里，胸口还在起伏', ma:'餍足', mb:'倦怠'},
-    {a:'动作越来越乱，被他托住了后腰', b:'仰头看着她，喉结动了一下，手顺着脊背往上', ma:'失控', mb:'沉溺'}
-  ],
-  3:[
-    {a:'已经在叫了，声音全压在枕头里，抓着床单的手发白', b:'把她整个人按进床垫里，一下比一下重', ma:'沉沦', mb:'餍足'},
-    {a:'已经说不出整句话，眼泪和汗混在一起，却不肯让他停', b:'掐着她的腰，喘息粗重地压下去', ma:'失控', mb:'沉溺'},
-    {a:'舔过他锁骨上的汗，然后慢慢往下', b:'呼吸猛地沉了下去，手指插进她发间', ma:'贪恋', mb:'克制'}
+  b:[
+    ['还在改明早要用的讲稿，屏幕调得很暗','专注'],
+    ['把西装挂好，慢慢拆着袖扣，没急着睡','卸下'],
+    ['接完最后一通电话，在窗边站了很久','压抑'],
+    ['在便签上补了两行明天要办的事','条理'],
+    ['睡不着，把白天那份材料又翻了一遍','斟酌'],
+    ['起来倒了杯温水，顺手确认了明天的闹钟','清明']
   ]
 };
+// 两人都还没睡、且关系不僵时才有这几条（不是"熬夜事由"，是"还没睡"）
+const GOD_AWAKE_TOGETHER = [
+  ['两个人各占床的一边，灯还亮着，谁也没催谁睡','松弛'],
+  ['靠在一起看手机，看到什么就递给对方','默契'],
+  ['说了句悄悄话，两个人都笑出了声','暖'],
+  ['一个在看东西，一个已经半靠着睡着了','安宁']
+];
+
+/* 亲密（夫妻私生活）：09-16 去掉了「尺度分档」，固定按最大尺度写——他们就是一对已婚多年的成年人。
+   a/b 是两张卡各自的视角，**不指定谁主动**，主动权留给画面本身。
+   底线：都是成年人、始终自愿且愉悦，不涉及伤害、羞辱、强迫与第三者。 */
+const GOD_INTIMATE = [
+  {a:'仰在枕头上，腿环上他的腰，手指扣着他的手腕', b:'撑在她上方，额头抵着她的，一下比一下沉', ma:'沉迷', mb:'克制'},
+  {a:'跪坐在他身上，手撑着他胸口，自己慢慢往下沉', b:'仰头看着她，手扶在她胯侧，由着她来', ma:'主动', mb:'纵容'},
+  {a:'跪趴着把脸埋进枕头，腰塌得很低', b:'从身后贴上去，一只手绕过她小腹把她按住', ma:'驯服', mb:'沉溺'},
+  {a:'侧躺着被他从身后搂进怀里，一条腿被抬起来架在他腿上', b:'贴着她的后背慢慢推进去，手捂着她的嘴', ma:'酥软', mb:'贪恋'},
+  {a:'俯下去，头发扫过他小腹，抬眼看了他一下', b:'手插进她发间，指节收紧，喉结动了动', ma:'坏心', mb:'失控'},
+  {a:'含住他，用手兜着顾不上的那截，腮帮子微微鼓着', b:'仰头吸了口气，另一只手按在她后颈上', ma:'认真', mb:'难耐'},
+  {a:'被抱到窗边，后背贴上凉玻璃，叫了一声又咬住唇', b:'托着她把她抵在玻璃上，窗帘没拉严', ma:'惊动', mb:'情热'},
+  {a:'被他抱上书桌坐下，一叠文件被扫到一边', b:'站在她两腿之间，把她的膝往两边推开', ma:'失序', mb:'破戒'},
+  {a:'被磨得受不了，指甲抠进他背里，声音断成好几截', b:'顶得很慢，就着她耳边问她还要不要', ma:'溃散', mb:'掌控'},
+  {a:'眼睛被他的领带蒙着，只能靠手感去够他', b:'把自己的领带缠上她眼睛，在后面打了个结', ma:'交付', mb:'玩味'},
+  {a:'手撑在镜面上，看着镜子里那两个人，耳朵红透了', b:'站在她身后，一只手从前面绕过去', ma:'羞赧', mb:'贪看'},
+  {a:'被翻过来压在床垫上，还在笑，回头咬了他一口', b:'扣着她手腕的力道却是轻的，低头吻住那声笑', ma:'挑衅', mb:'情动'},
+  {a:'跨坐上去之前故意停了停，看他被磨得皱眉', b:'仰头喘了一声，说了句"别闹"', ma:'得意', mb:'无奈'},
+  {a:'被顶醒，迷迷糊糊地把他往里让了让', b:'从身后贴上来，一手环着她的腰，动作还带着睡意', ma:'半梦', mb:'缠绵'},
+  {a:'裹着浴巾被他捞过去，水汽还没干', b:'把浴巾扯开丢在一边，吻从她肩头一路往下', ma:'潮湿', mb:'急切'},
+  {a:'趴在他胸口喘，汗把两个人的皮肤黏在一起', b:'揽着她没松手，下巴抵着她发顶，还没缓过来', ma:'餍足', mb:'眷恋'}
+];
+
 // 此刻按作息「睡着」的权重：越深越沉。22-24 点是「睡前窗口」——多数人还没睡下（也是唯一该有私生活的时段），
 // 0 点后陆续睡去，1-5 点几乎都在睡，6 点后天亮渐醒，午后偶尔小憩，白天为 0。
 function godAsleepP(hour){
@@ -14490,7 +14526,9 @@ function godAsleepP(hour){
   if(hour>=13 && hour<15) return 0.08; // 午后偶尔打个盹
   return 0;
 }
-function godIsSleepyHour(hour){ return hour>=22 || hour<8 || (hour>=13 && hour<15); }
+// 需要「事由」才允许醒着的时段：深夜 + 凌晨 + 午后打盹。
+// ⚠️ 5-8 点不在此列——那是晨起时段，醒着的人该在做早餐，不是被要求交代为什么还没睡。
+function godIsSleepyHour(hour){ return hour>=22 || hour<5 || (hour>=13 && hour<15); }
 // 今晚/今天「确实有事」：按 人+时段片+日期 定种子，越深越难维持醒着 —— 偶尔熬夜可以，通宵不行。
 // 三段（22-1 / 1-4 / 4-8）各自独立掷骰，所以「熬着熬着睡下了」是自然发生的，不是整晚钉死一个人醒着。
 // idx 递减：两人同时熬夜少见（一个人有事，另一个多半先睡了）。
@@ -14523,52 +14561,76 @@ function godSleepPlan(salt, rel){
   }
   return {hour:hour, asleep:asleep, intimate:intimate};
 }
-// 亲密尺度：0 关 / 1 含蓄（默认）/ 2 温热 / 3 直白。存 mhm_ai_cfg.godHeat
-function godHeat(){
-  try{
-    const cfg = getAiCfg();
-    const n = parseInt(cfg.godHeat, 10);
-    return (isNaN(n) || n < 0 || n > 3) ? 1 : n; // 默认「含蓄」：开关给你，但不擅自替你拉满
-  }catch(e){ return 1; }
-}
-function godHeatSet(n){
-  try{
-    const cfg = getAiCfg();
-    cfg.godHeat = Math.max(0, Math.min(3, parseInt(n, 10) || 0));
-    localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg));
-  }catch(e){}
-}
-function godCycleHeat(){
-  const next = (godHeat() + 1) % 4;
-  godHeatSet(next);
-  const tip = ['关闭：只剩日常镜头','含蓄：写到关灯为止，其余交给留白','温热：明确写了，仍有余地','直白：成人内容'];
-  toast('亲密尺度 · ' + tip[next]);
-  _godAI = null;  // 换档后重新摇一帧
-  godRender();
-}
-function godHeatBtnSync(){
-  const b = document.getElementById('godHeatBtn');
-  if(!b) return;
-  const h = godHeat();
-  b.innerHTML = '<svg class="ico" style="width:15px;height:15px;"><use href="#i-flame"/></svg>' + GOD_HEAT_LABEL[h];
-  b.classList.toggle('heat-on', h > 0);
-}
-// 真实相关性：今日任务 / 今日心情 / 天气 → 角色"内心的惦记"（只作状态内心话，不写进别处）
-function godCorrFactors(){
+/* 亲密尺度：09-16 去掉了分档开关，固定按最大尺度写（用户拍板：他们就是一对成年夫妻）。
+   godHeat() 保留常量 3，是为了让调用点（亲密池、AI 旁白尺度块、对话注入判断）不用大改。 */
+function godHeat(){ return 3; }
+/* 内心话（09-16 重写）：他们脑子里飘过的东西，**首先是他们自己的**。
+   用户反馈：「不用一直惦记崽崽，有自己的想法才真实；总是提起天气也奇怪。」
+   原则：① 默认走「自己的念头」——手头的事、对方、今天某个细节、一点没来由的情绪；
+        ② 真实处境（天气）只作**低概率**触发，且落点是他们自己的感受，绝不写"要提醒她"；
+        ③ 提到崽崽是**偶发**（约 1/8），措辞一律是"想起"，不是"惦记着要照顾她"。 */
+const GOD_INNER_SELF = [
+  '想着这件事做完，今天就算交代过去了',
+  '手上停了一下，又接着做下去',
+  '刚才那一瞬有点走神，也说不清在想什么',
+  '忽然想起一件很小的旧事，自己笑了一下',
+  '觉得这样不说话地把时间用掉，也挺好',
+  '没什么特别的念头，只是不太想动',
+  '做得比预想的顺，心里松了一点',
+  '在想要不要把那件事今晚就办了',
+  '有点饿，又懒得现在去弄',
+  '脑子里转着一个还没定下来的主意',
+  '今天的时间比想象中过得快',
+  '想把手头这点收个尾'
+];
+// 想起崽崽：偶发（约 1/8）。措辞一律是"想起"，不写"要提醒/照顾她"
+const GOD_INNER_HER_BASE = [
+  '忽然想起她那边这个点大概在做什么',
+  '想起来她说过的一句话，笑了笑',
+  '有点想知道她今天顺不顺利',
+  '想着下次见她，要问问那件事后来怎么样了',
+  '想起她爱吃酸，回头看见了就顺手留一份'
+];
+// 对方已经睡下时，醒着的那个心里的轻话（不提崽崽）
+const GOD_INNER_OTHER_SLEEPING = [
+  '想着动静小一点，别把人吵醒',
+  '手边的事做完就过去躺下',
+  '回头看了一眼床上那个人，又把灯调暗了些'
+];
+// 真实处境 → 他们**自己**的感受。天气只影响自己，不再变成"提醒她带伞"
+function godRealNotes(){
   const out = [];
   try{
-    const t = (typeof tasks !== 'undefined' && tasks) ? tasks : [];
-    const today = todayStr();
-    const due = t.filter(x=>!x.done && (x.deadline||x.event_date) === today);
-    if(due.length) out.push('崽崽今天有「'+due[0].title+'」，惦记着待会儿问问她');
-    const mk = localStorage.getItem('mhm_mood_' + today);
-    if(mk){
-      try{ const mp = JSON.parse(mk); if(mp && Number(mp.v)<=2) out.push('总觉得崽崽今天心里不太舒服，想多陪她一会儿'); }catch(e){}
-    }
-    const w = getWeatherSummary();
-    if(/雨|雷|暴|湿/.test(String(w || '')) && out.length<2) out.push('外面天气不讨好，想着提醒她带伞、早点回');
+    const w = String(getWeatherSummary() || '');
+    if(/雨|雷|暴|湿/.test(w)) out.push('雨声有点吵，看字都慢了', '下雨天骨头发酸，想把窗关小些', '雷声闷闷的，抬头看了眼窗外');
+    else if(/晴|晒|热|高温/.test(w)) out.push('天热得让人不想动，想喝点凉的', '太阳把窗台晒得发烫，把窗帘拉了拉');
+    else if(/冷|寒|风/.test(w)) out.push('风从窗缝里钻进来，起身关了窗', '天冷，想着把那件厚衣服找出来');
   }catch(e){}
   return out;
+}
+// 想起崽崽的候选：基础五条 + 今日心情很低时才多两条
+function godHerNotes(){
+  const out = GOD_INNER_HER_BASE.slice();
+  try{
+    const mk = localStorage.getItem('mhm_mood_' + todayStr());
+    if(mk){
+      const mp = JSON.parse(mk);
+      if(mp && Number(mp.v) <= 2) out.push('她今天好像不太舒服，想起就有点放不下', '想起她前阵子那副样子，心里不太落定');
+    }
+  }catch(e){}
+  return out;
+}
+function godInner(rng, idx, state, other, real){
+  if(state === 'cold') return idx === 0 ? '……不太想提起他。' : '先低头的念头在嘴边转了一圈，又咽回去了。';
+  if(state === 'cool') return idx === 0 ? '他要是先开口，也不是不行。' : '在等她先开口。';
+  // 天气与崽崽都只是「偶尔飘过」：各 8%，剩下八成是他们自己的念头。
+  // ⚠️ 两处别写成两次独立 rng() 判定——实测会出现相关性（天气 15% / 崽崽 5%），
+  //    用**一次掷骰分段**才能保证比例稳定。也别把天气调高：0.4 时每两条就有一条在说雨。
+  const roll = rng();
+  if(real && real.length && roll < 0.08) return ocPick(rng, real);
+  if(roll >= 0.08 && roll < 0.16) return ocPick(rng, godHerNotes());
+  if(state === 'hot' && rng() < 0.45) return '有点想' + other + '了。';
+  return ocPick(rng, GOD_INNER_SELF);
 }
 function godSince(rng){
   const mins = 8 + Math.floor(rng()*55);
@@ -14741,11 +14803,13 @@ function godViewState(who, idx, salt, rel, plan){
   const names = ocRoleNames();
   const other = names[1-idx];
   const state = (rel && rel.state) || 'warm';
-  const corr = godCorrFactors();
-  // ① 亲密（夜里两人都在床上醒着、关系不僵时按尺度命中）——优先于作息里的其他分支
+  const real = godRealNotes();
+  // ① 亲密（夜里两人都在床上醒着、关系不僵时命中）——优先于作息里的其他分支
   if(plan && plan.intimate > 0){
-    const pool = GOD_INTIMATE[plan.intimate] || [];
-    const it = pool[Math.floor(rng()*pool.length)] || pool[0];
+    // ⚠️ 这一条必须用**与 who 无关**的种子抽：两张卡各自 ocRand 会抽到不同条目，
+    //    结果一个正写到半途、另一个已经"事后揽着她"——配对错位。同一 salt 必须同一条。
+    const irng = ocRand(todayStr() + '|intimate|' + salt);
+    const it = GOD_INTIMATE[Math.floor(irng()*GOD_INTIMATE.length)] || GOD_INTIMATE[0];
     if(it) return {who:who, idx:idx, place:'卧室', doing:(idx===0 ? it.a : it.b),
       mood:(idx===0 ? it.ma : it.mb), inner:'', since:godSince(rng), priv:true};
   }
@@ -14754,25 +14818,16 @@ function godViewState(who, idx, salt, rel, plan){
     const d = ocPick(rng, GOD_SLEEP_DO);
     return {who:who, idx:idx, place:'卧室', doing:d[0], mood:d[1], inner:'', since:godSince(rng), asleep:true};
   }
-  // ③ 夜里/午后还醒着：必须有具体事由（或在床上共处），绝不写"还不想睡"式的陪熬
+  // ③ 深夜还醒着：必须有具体事由（或两人还没睡），绝不写"还不想睡"式的陪熬
   if(plan && godIsSleepyHour(hour)){
-    let pool = GOD_AWAKE_REASON.slice();
+    let pool = (idx===0 ? GOD_AWAKE_REASON.a : GOD_AWAKE_REASON.b).slice();
     if(plan.asleep && !plan.asleep[0] && !plan.asleep[1] && state !== 'cold' && state !== 'cool'){
-      pool = pool.concat([
-        ['两个人各占床的一边，灯还亮着，谁也没催谁睡','松弛'],
-        ['靠在一起看手机，看到什么就递给对方','默契'],
-        ['说了句悄悄话，两个人都笑出了声','暖']
-      ]);
+      pool = pool.concat(GOD_AWAKE_TOGETHER);
     }
     const d = ocPick(rng, pool);
-    let innerUp;
-    if(plan.asleep && plan.asleep[1-idx] && state !== 'cold' && state !== 'cool'){
-      // 另一个已经睡下：醒着的这个心里难免有句轻话，比通用素材更贴
-      innerUp = ocPick(rng, ['想着动静小一点，别把人吵醒','手边的事做完就过去躺下','回头看了一眼床上那个人，又把灯调暗了些']);
-    } else {
-      innerUp = corr.length ? ocPick(rng, corr)
-        : ocPick(rng, ['想把手头这点做完就去睡','明天还得早起，再看十分钟','夜里的时间，只想这样慢慢用掉']);
-    }
+    const innerUp = (plan.asleep && plan.asleep[1-idx] && state !== 'cold' && state !== 'cool')
+      ? ocPick(rng, GOD_INNER_OTHER_SLEEPING)
+      : godInner(rng, idx, state, other, real);
     return {who:who, idx:idx, place:'家', doing:d[0], mood:d[1], inner:innerUp, since:godSince(rng)};
   }
   const cuddleP = (ph===0 || ph===7) ? (state==='hot' ? 0.28 : 0.16) : 0;
@@ -14784,20 +14839,14 @@ function godViewState(who, idx, salt, rel, plan){
     ];
     return {who:who, idx:idx, place:'家', doing:ocPick(rng, s), mood:'安心', inner:'有些时候，不说话也好。', since:godSince(rng)};
   }
+  // ④ 日常：A/B 各一套场景池（零落和沈容过的不是同一种白天）
   const sc = GOD_SCENES[ph];
-  const d = ocPick(rng, sc.do);
-  let inner = corr.length ? ocPick(rng, corr)
-    : ocPick(rng, ['想着今天还来得及做些什么','没什么特别的，但可以是很好的一天','想把这一刻记住']);
+  const pool = (idx===0 ? sc.a : sc.b) || sc.a;
+  const d = ocPick(rng, pool);
+  const inner = godInner(rng, idx, state, other, real);
   let mood = d[1];
-  if(state==='cold'){
-    inner = idx===0 ? '……不太想提起他。' : '先低头的念头在嘴边转了一圈，又咽回去了。';
-    mood = ocPick(rng, ['低落','闷','发凉']);
-  } else if(state==='cool'){
-    inner = '在等他先开口。';
-  } else if(state==='hot' && !corr.length){
-    inner = '有点想 ' + other + ' 了。';
-  }
-  return {who:who, idx:idx, place:sc.room, doing:d[0], mood:mood, inner:inner, since:godSince(rng)};
+  if(state === 'cold') mood = ocPick(rng, ['低落','闷','发凉']);
+  return {who:who, idx:idx, place:((sc.r && sc.r[idx]) || '家'), doing:d[0], mood:mood, inner:inner, since:godSince(rng)};
 }
 let _godAI = null;      // AI 旁白帧：{rel, roles, ts}
 let _godAiBusy = false;
@@ -14817,7 +14866,6 @@ function godNext(){
   godRender();
 }
 function godRender(){
-  godHeatBtnSync();
   const list = document.getElementById('godList');
   const relEl = document.getElementById('godRel');
   if(!list) return;
@@ -14894,12 +14942,8 @@ function godScheduleBlock(){
    末尾统一附「不回避」——模型默认倾向是用委婉说法把亲密整个换掉（写成一人在洗澡/一人在收拾书房），
    那等于没写；这里明确点出来，并给出退路（写睡前相拥这类日常）以免它为了达标硬凑。 */
 function godHeatBlock(){
-  const h = godHeat();
   const NOAVOID = '\n（不回避：不要用「各自在忙别的事」把亲密的时刻换掉——把两人写成一人洗澡、一人收拾书房，等于回避。尺度允许就照实写；实在写不出合适的，就写睡前相拥、并肩躺着这类日常，但那是选择，不是回避。）';
-  if(h <= 0) return '【亲密尺度·关闭】只写日常：拥抱、靠着、同床聊天都可以，不写床笫之事。';
-  if(h === 1) return '【亲密尺度·含蓄】他们是一对夫妻，卧室里的事本来就有，可以写。这一档只写到「关了灯、贴到一起、呼吸变了」为止，靠留白和余味传达，不写具体动作与身体细节。' + NOAVOID;
-  if(h === 2) return '【亲密尺度·温热】可以明确写他们在床上的亲密：拥抱、吻、情动、事后的倦意都写得到这一层为止——不写生理细节与器官描写，靠氛围、肢体和反应传达。' + NOAVOID;
-  return '【亲密尺度·直白】可以直白地写夫妻性生活，写到动作与身体反应的层面。底线：两人都是成年人、始终自愿愉悦，不涉及伤害、羞辱、强迫与第三者。仍然是「他们的私生活」，不是给外人看的。' + NOAVOID;
+  return '【亲密尺度·直白】可以直白地写夫妻性生活，包括体位、动作与身体反应。底线：两人都是成年人、始终自愿愉悦，不涉及伤害、羞辱、强迫与第三者。仍然是「他们的私生活」，不是给外人看的。' + NOAVOID;
 }
 const DEFAULT_GOD_USER_TPL = '请输出两个角色的「此刻切片」和「当前关系状态」。两个角色名必须是：{{ROLE_A}} 与 {{ROLE_B}}。\n'
   + '严格按下面的 JSON 输出，不要有任何多余文字：\n'
@@ -15334,9 +15378,8 @@ body.comp-live::after{animation-play-state:paused;}
   <div class="god-tools">
     <button class="god-btn primary" id="godAiBtn" onclick="godAskAI()" type="button"><svg class="ico" style="width:15px;height:15px;"><use href="#i-sparkle"/></svg>旁白</button>
     <button class="god-btn ghost" onclick="godNext()" type="button"><svg class="ico" style="width:15px;height:15px;"><use href="#i-refresh"/></svg>换一帧</button>
-    <button class="god-btn ghost" id="godHeatBtn" onclick="godCycleHeat()" type="button" title="亲密尺度：多久写到哪一层，点一下换档"><svg class="ico" style="width:15px;height:15px;"><use href="#i-flame"/></svg>含蓄</button>
-  </div>
-  <div class="god-note">他们是活的：这里发生的关系波折与共同事件会写进「他们的世界」，朋友圈与对话都接得住；即时镜头细节仅供观看。<b>他们也有自己的作息</b>——到点就睡，偶尔有事（赶东西、收衣服、夜里没睡稳）才熬夜；你熬夜不等于他们熬夜。右侧「尺度」按钮决定夫妻私生活写道哪一层（含蓄／温热／直白／关闭），默认含蓄。AI 旁白每次会调用一次 AI 生成剧情（与你自己的 API Key 计费）。</div>
+   </div>
+  <div class="god-note">他们是活的：这里发生的关系波折与共同事件会写进「他们的世界」，朋友圈与对话都接得住；即时镜头细节仅供观看。<b>他们也有自己的作息</b>——到点就睡，偶尔有事（赶东西、收衣服、夜里没睡稳）才熬夜；你熬夜不等于他们熬夜。夫妻私生活按最大尺度写（他们是一对成年夫妻，不设分档）。AI 旁白每次会调用一次 AI 生成剧情（与你自己的 API Key 计费）。</div>
 </div>
 <div class="mask comp-mask" id="compMask">
   <div class="comp-video-wrap">
