@@ -7560,12 +7560,10 @@ function buildLiveContext(){
     if(jc.length>400) jc = jc.slice(0,400)+'…(截断)';
     s += '\n\n<近期回忆>\n' + jc + '\n</近期回忆>';
   }
-  if(OC_FEED_CTX){ // 角色这几天写过的东西（ocRefreshCtx 异步预取），让角色记得自己写过什么；同样限长保缓存
-    let fc = String(OC_FEED_CTX);
-    if(fc.length>300) fc = fc.slice(0,300)+'…(截断)';
-    s += '\n\n<角色动态>\n' + fc + '\n</角色动态>';
-  }
-  const wctx = ocWorldCtx(); // 关系现状 + 今天共同事件（角色世界单一事实源，对话与镜头不拆台）
+  // 角色动态（OC_FEED_CTX）09-17 起不再拼进每一轮对话：那主要是给用户看的主页内容，
+  // 角色只在「要生成一条新动态」时才需要知道已经写过什么（见 godAskAI 的「最近生活痕迹」，
+  // 以及工具 post_oc_dynamic 自身的防重复打回）。聊天侧每轮少发 300 字左右。
+  const wctx = ocWorldCtx(); // 关系现状 + 今天共同事件 + 此刻（角色世界单一事实源，对话与镜头不拆台）
   if(wctx) s += '\n\n' + wctx;
   return s;
 }
@@ -14384,7 +14382,9 @@ function buildAntiRepeat(){
 }
 /* ———— 角色朋友圈 / 角色日记本（oc_posts，IndexedDB v3 Store） ————
    由工具 post_oc_dynamic 沉淀「对话里真实发生的事」，主页「他们的生活」展示。
-   OC_FEED_CTX 快照照抄 AI_JOURNAL_CTX 模式：异步预取、buildLiveContext 同步拼入，让角色记得自己写过什么。 */
+   OC_FEED_CTX = 最近几条的摘要快照，**只在"要生成新动态"时使用**（godAskAI 的「最近生活痕迹」），
+   09-17 起不再拼进每轮对话的 buildLiveContext（那部分是给用户看的，聊天没必要每轮携带）。
+   防重复另有一道：ocPostTool 里的 ocSim 相似度打回。 */
 let OC_FEED_CTX = '';
 async function ocPostAdd(who, kind, content, img, mood){
   const rec = {
@@ -14582,6 +14582,21 @@ const GOD_SLEEP_DO = [
   ['床上只剩一小团起伏，安静得听不出人','平稳']
 ];
 
+/* 午后打盹（09-17 加）：和深夜入睡不是一件事——不在床上、不为过夜，眯一会儿就醒。
+   分 A/B 两套，和场景池一样各写各的。 */
+const GOD_NAP_DO = {
+  a:[
+    ['在沙发上歪着，抱着个靠垫就眯着了','松软'],
+    ['在阳台的躺椅上晒着太阳睡着，书扣在脸上','慵懒'],
+    ['午饭后往床上一倒就没了声，一只脚还搭在地上','放松']
+  ],
+  b:[
+    ['靠在书房的椅子上闭着眼，手里还捏着笔','困倦'],
+    ['在沙发上盖了条毯子小睡，茶几上摊着文件','倦怠'],
+    ['歪在床头眯着，手机还亮着没锁屏','松劲']
+  ]
+};
+
 const GOD_AWAKE_REASON = {
   a:[
     ['还在赶明天一早要交的东西，台灯压得很低','专注'],
@@ -14641,12 +14656,16 @@ function godAsleepP(hour){
   if(hour<8) return 0.25;
   if(hour>=23) return 0.45;    // 23 点：一半左右已经躺下，另一半还醒着
   if(hour>=22) return 0.20;
-  if(hour>=13 && hour<15) return 0.08; // 午后偶尔打个盹
+  if(godNapHour(hour)) return 0.08; // 午后偶尔打个盹（画面走 GOD_NAP_DO）
   return 0;
 }
-// 需要「事由」才允许醒着的时段：深夜 + 凌晨 + 午后打盹。
+// 需要「事由」才允许醒着的时段：只算深夜（22 点—次日 5 点）。
 // ⚠️ 5-8 点不在此列——那是晨起时段，醒着的人该在做早餐，不是被要求交代为什么还没睡。
-function godIsSleepyHour(hour){ return hour>=22 || hour<5 || (hour>=13 && hour<15); }
+// ⚠️ 13-15 点也不在此列（09-17 修）：那时是正常白天，下午两点被写「灯亮着谁也没催谁睡」是 bug。
+//   午后真想打盹就走 godNapHour() + GOD_NAP_DO 的「眯一会儿」画面，绝不套「本该睡了」那套话。
+function godIsSleepyHour(hour){ return hour>=22 || hour<5; }
+// 午后小憩窗口：只用来给「睡着」加权、挑打盹画面，不参与任何「熬夜事由 / 本该睡了」的判断。
+function godNapHour(hour){ return hour>=13 && hour<15; }
 // 今晚/今天「确实有事」：按 人+时段片+日期 定种子，越深越难维持醒着 —— 偶尔熬夜可以，通宵不行。
 // 三段（22-1 / 1-4 / 4-8）各自独立掷骰，所以「熬着熬着睡下了」是自然发生的，不是整晚钉死一个人醒着。
 // idx 递减：两人同时熬夜少见（一个人有事，另一个多半先睡了）。
@@ -14664,7 +14683,7 @@ function godSleepPlan(salt, rel){
   const names = ocRoleNames();
   if(p <= 0) return {hour:hour, asleep:[false,false], intimate:0};
   const r = ocRand(todayStr() + '|' + salt + '|sleepplan');
-  const isNap = (hour >= 13 && hour < 15);   // 午后小憩：不适用「今晚有事」那套
+  const isNap = godNapHour(hour);   // 午后小憩：不适用「今晚有事」那套
   const asleep = names.map((who,i)=>{
     if(!isNap && godNightAwake(who, i)) return false;   // 今晚有事，醒着（事由写进 doing）
     return r() < p;
@@ -14863,7 +14882,8 @@ function ocNow(){
 }
 /* 对话注入：把「此刻」交给角色。三条分支 = 亲密（最需要防回避）/ 刚被吵醒 / 平常。
    亲密分支刻意写成「正在进行的事实 + 不要抹掉 + 怎么接随你」，而不是给一句模板台词——
-   固定句式是审美红线，这里只给方向和边界。 */
+   固定句式是审美红线，这里只给方向和边界。
+   09-17 精简：这一段是每轮都发的动态尾巴，删掉套话只留判断依据（省 token，不省信息）。 */
 function ocNowCtx(){
   try{
     const f = ocNow();
@@ -14871,46 +14891,44 @@ function ocNowCtx(){
     const hm = String(new Date().getHours()).padStart(2,'0');
     const intimate = f.roles.some(r=>r.priv);
     if(intimate && godHeat() > 0){
-      return '<此刻>\n现在 ' + hm + ' 点多。你们俩正在卧室里，刚才还贴在一起——她这条消息就是这么进来的。\n'
-        + '规则：这是正在进行的事实，**不要装作没发生，也不许改口成「我们各自在忙别的事」**。\n'
-        + '怎么接由你们自己定——一只手还搭在对方身上、腾出另一只去摸手机、笑她挑这时候来消息、或者先晾一会儿再回，'
-        + '自然、亲昵、有生活感就行；不必道歉、不必尴尬、也别一本正经地切回日常闲聊。\n'
-        + '但如果她真的有事要说，你们也会停下来听——先接住她的事，别只顾着腻。\n'
-        + '床上到底怎么了是你们自己的事，只说你们愿意说的那部分，不必向谁交代细节。\n</此刻>';
+      return '<此刻>现在 ' + hm + ' 点多。你们俩正在卧室里，刚才还贴在一起——她这条消息就是这么进来的。'
+        + '不要装作没发生，也不许改口成「我们各自在忙别的事」。怎么接由你们自己定：一只手还搭在对方身上、腾出另一只去摸手机、笑她挑这时候来消息，都行；'
+        + '不必道歉、不必尴尬，也别一本正经地切回日常闲聊。她真有事就先接住她的事，别只顾着腻。床上到底怎么了只说你们愿意说的那部分。'
+        + '</此刻>';
     }
     if(intimate){
-      // 尺度关掉了：状态仍要连续（别被切成"各自在忙"），但不展开，只交代"在床上被她的消息打断"
-      return '<此刻>\n现在 ' + hm + ' 点多。你们俩都在卧室床上，她这条消息刚打断你们。\n'
-        + '规则：接着这个状态回她就行——不必装作没发生、也不必多说细节，自然就好；她真有事就先听她说。\n</此刻>';
+      // 兜底（尺度放开后基本走不到）：状态仍要连续，别被切成"各自在忙"，但不展开
+      return '<此刻>现在 ' + hm + ' 点多。你们俩都在卧室床上，她这条消息刚打断你们。接着这个状态回她就行，她真有事就先听她说。</此刻>';
     }
     const sleepers = f.roles.filter(r=>r.asleep);
     if(sleepers.length){
       // 只在这一轮说「刚被吵醒」，随后把状态记为醒了并换掉 doing——否则会出现"睡得正沉"的人还在回消息
+      const nap = godNapHour(new Date().getHours());
+      const names = sleepers.map(r=>r.who).join('和');
       ocNowSave(Object.assign({}, f, {
         roles: f.roles.map((r,i)=> r.asleep ? Object.assign({}, r, {asleep:false, doing:(i===0 ? '醒了，靠着床头坐了一会儿' : '也醒了，没再睡着')}) : r)
       }));
-      return '<此刻>\n现在 ' + hm + ' 点多。' + sleepers.map(r=>r.who).join('和') + '本来已经睡了——她这条消息把你们闹醒了。\n'
-        + '规则：可以带着刚醒的迟钝和含糊回她（她半夜发消息这件事本身就够聊两句），别装得很精神，也别训她熬夜；'
-        + '回完这条就当醒着陪她了，后面不要再提"我刚醒"。用户熬夜不等于你们熬夜——不必假装本来就醒着。\n</此刻>';
+      return '<此刻>现在 ' + hm + ' 点多。' + (nap
+          ? names + '正在家眯一会儿，她这条消息把你们弄醒了。可以带着刚醒的迟钝回她，别装得很精神；回完这条就当醒着陪她了，后面别再提"我刚醒"。'
+          : names + '本来已经睡了——她这条消息把你们闹醒了。可以带着刚醒的迟钝和含糊回她（她半夜发消息这件事本身就够聊两句），别装得很精神，也别训她熬夜；回完这条就当醒着陪她了，后面别再提"我刚醒"。用户熬夜不等于你们熬夜。')
+        + '</此刻>';
     }
     const line = f.roles.map(r=>(r.who + '在' + r.place + '「' + r.doing + '」')).join('；');
     const lateNote = godIsSleepyHour(new Date().getHours())
-      ? '\n（这个点按你们自己的作息本该睡了：如果她问起，如实说一句困了/正要躺下就行，照常陪聊，不必反复挂在嘴上。）' : '';
-    return '<此刻>\n现在 ' + hm + ' 点多。' + line + '。\n'
-      + '规则：这是你们当下正在做的事，开口角色以自己那条为准；她问起就自然用第一人称说，不要另编一件不同的事。'
-      + lateNote + '\n</此刻>';
+      ? '\n（这个点按你们作息本该睡了：她问起就如实说一句困了/正要躺下，照常陪聊，别挂在嘴上。）' : '';
+    return '<此刻>现在 ' + hm + ' 点多。' + line + '。她问起就照实说，别另编一件不同的事。' + lateNote + '</此刻>';
   }catch(e){ return ''; }
 }
-// 对话注入段：关系 + 今天共同事件（低频，对缓存影响小）
+// 对话注入段：关系 + 今天共同事件 + 此刻（09-17 压成三行以内——每轮都发，越短越省）
 function ocWorldCtx(){
   try{
     const rel = ocRelNow();
     const days = ocWorldDays(ocWorldGet());
-    let s = '<关系现状>\n' + ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '') + '\n';
-    if(days.length) s += '今天你们之间发生过：' + days.map(e=>'『'+e.t+'』').join('、') + '\n';
+    let s = '<关系现状>' + ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '');
+    if(days.length) s += '；今天发生：' + days.map(e=>'『'+e.t+'』').join('');
     s += '</关系现状>';
     const nowCtx = ocNowCtx();   // 他们此刻在做什么（含"正在亲密/刚被吵醒"两种特殊态）
-    if(nowCtx) s += '\n' + nowCtx;
+    if(nowCtx) s += nowCtx;
     return s;
   }catch(e){ return ''; }
 }
@@ -14931,12 +14949,14 @@ function godViewState(who, idx, salt, rel, plan){
     if(it) return {who:who, idx:idx, place:'卧室', doing:(idx===0 ? it.a : it.b),
       mood:(idx===0 ? it.ma : it.mb), inner:'', since:godSince(rng), priv:true};
   }
-  // ② 按作息睡着了：睡着的人没有内心独白
+  // ② 按作息睡着了：睡着的人没有内心独白。午后打盹走 GOD_NAP_DO（不是"上床过夜"，地点也不是卧室）
   if(plan && plan.asleep && plan.asleep[idx]){
-    const d = ocPick(rng, GOD_SLEEP_DO);
-    return {who:who, idx:idx, place:'卧室', doing:d[0], mood:d[1], inner:'', since:godSince(rng), asleep:true};
+    const isNap = godNapHour(hour);
+    const d = ocPick(rng, isNap ? (GOD_NAP_DO[idx===0 ? 'a' : 'b'] || GOD_NAP_DO.a) : GOD_SLEEP_DO);
+    return {who:who, idx:idx, place:(isNap ? '家' : '卧室'), doing:d[0], mood:d[1], inner:'', since:godSince(rng), asleep:true};
   }
-  // ③ 深夜还醒着：必须有具体事由（或两人还没睡），绝不写"还不想睡"式的陪熬
+  // ③ 深夜还醒着：必须有具体事由（或两人还没睡），绝不写"还不想睡"式的陪熬。
+  //    09-17 起 godIsSleepyHour 只覆盖 22-5 点，白天（含午后）不会误入这一支。
   if(plan && godIsSleepyHour(hour)){
     let pool = (idx===0 ? GOD_AWAKE_REASON.a : GOD_AWAKE_REASON.b).slice();
     if(plan.asleep && !plan.asleep[0] && !plan.asleep[1] && state !== 'cold' && state !== 'cool'){
