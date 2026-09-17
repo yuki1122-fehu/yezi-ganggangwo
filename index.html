@@ -8264,6 +8264,9 @@ async function visionExtract(files, userText){
   const msg = r.data.choices[0].message;
   const raw = (msg && typeof msg.content === 'string') ? msg.content.trim() : '';
   window.__lastVisionRaw = raw; // 供调试面板对照：到底是眼睛看错了还是大脑理解错了
+  // ★ 2026-09-17：再存一份到 localStorage。内存变量刷新即失，而「上次读图原文」恰恰是
+  //   「发图后助理没反应」这类问题最关键的现场 —— 用户往往是刷新/重开之后才来查诊断的。
+  try{ localStorage.setItem('mhm_last_vision_raw', raw.slice(0,4000)); }catch(e){}
   if(!raw) return { ok:false, error:'视觉模型返回了空内容', code:'empty' };
 
   const json = safeParseJson(raw);
@@ -8300,13 +8303,23 @@ function visionBlockForBrain(vres, imgCount){
   L.push('3. 金额、日期、时间、编号必须逐字来自上面的文本，禁止推算、换算或"合理估计"。金额缺失就问，不要写 0。');
   L.push('4. 日期没有年份时，按系统提示里的学年规则推断（9-12月→2026，1-8月→2027），并在回复中说明你按哪一年算的。');
   L.push('5. 判断出这是什么后，主动调用对应工具落库：小票/账单/付款截图→add_expense；课表→add_course 或 compare_courses；通知/待办/活动→add_task。落库后用一句话说清你记了什么。');
-  // ★ 2026-09-17：doc_type=other（视觉模型判不出类型）时最容易被"第 5 条"带偏 ——
-  //   模型在"没有对应工具可调"和"必须落库"之间反复权衡，偶发直接吐出空回复，界面上就成了「已读图后毫无下文」。
-  //   这里显式给退路：没有合适工具就直接说话。
+  /* ★ 2026-09-17：doc_type=other（生活照/随手拍）最容易被"第 5 条"带偏 ——
+     模型在"没有对应工具可调"和"必须落库"之间反复权衡，实测会直接吐出空正文，
+     界面上就成了「👁 已读图（other）· 交给助理整理…」之后再无下文（用户 09-17 报的就是晚饭照片）。
+     这里不能只写"禁止做什么"——负向指令只会让模型更谨慎、更容易继续摇摆。
+     必须给出**正向的、具体的**替代动作（当成收到朋友随手发来的照片，说一句真实反应），并明确"必须有正文"。 */
   if(String((j.doc_type) || '') === 'other'){
-    L.push('5b. 本次 doc_type 是 other（不属于小票/课表/通知等可落库类型）：这时**不要**为了"完成落库"去硬调工具、也不要编造字段。第 5 条不适用，直接用你原本的语气说说你从图里看到了什么、以及需不需要做什么就行。');
+    L.push('5b. 本次 doc_type 是 other —— 也就是「生活照 / 随手拍」：饭菜、风景、宠物、自拍、聊天截图这类。它不是票据、不是课表、也不是通知，**没有对应的落库工具**：');
+    L.push('    · 第 5 条对它**不适用**：不要调用任何工具，不要为了"完成落库"硬凑一个调用，更不要编造金额、日期这些字段。');
+    L.push('    · 正确的做法：就当你**自己收到了对方随手发来的一张照片** —— 用你原本的身份和语气，顺着你此刻的心情说一句真实反应（看见了什么、什么感觉、想到了什么、想说的话），像平时聊天那样自然，别像在念图注。');
+    L.push('    · 需要多说的场景：看看系统提示里用户最近在聊什么、她在意什么，把这张图接进那个话头里去（例如她前几天说过想吃什么、说过累），比单看食物本身有意思得多。');
+    L.push('    · 唯一的例外：图里明确出现了"要你记的账 / 要你办的事"（例如旁边就摆着一张写有金额的小票、截图里在约时间），这时才转去调对应工具；只是"拍了一顿饭"不算。');
   }
   L.push('6. 用你原本的身份和语气回复用户。不要暴露"视觉模型""JSON""字段"这些技术细节，就说"我看了下这张图"。');
+  /* ★ 硬规则（09-17）：直接堵死"空正文"这个口子。
+     aiRun 里虽然已经能分辨空回复并明确提示，但那是"兜底"；这里从源头要求必须有话说，
+     才是根因修复。放在最后压轴，优先级声明高于前面所有条。 */
+  L.push('★ 最高优先级（覆盖以上任何一条）：这一轮**必须给出正文**。任何时候如果你发现"没有合适的工具可调"或"不知道该调哪个"，就直接用你自己的话回应用户，**绝对不要返回空内容**。宁可只说一句普通的反应，也远好过一个字都不说。');
   if(vres.degraded) L.push('7. ⚠ 本次视觉模型没能按标准格式输出，可靠性偏低。落库前务必把关键数字复述给用户确认。');
   return L.join('\n');
 }
@@ -8623,8 +8636,9 @@ async function collectDiag(){
     L('上次空回复现场', new Date(er.at).toLocaleString() + ' · finish=' + (er.finish_reason || '(空)') + ' · 正文' + er.content_len + '字 · 思考' + er.reasoning_len + '字 · 工具' + er.tools + '次');
   }
   L('本轮可见产出', window.__aiTurnSaid ? '有' : '(无)');
-  if(window.__lastVisionRaw){
-    const vs = String(window.__lastVisionRaw);
+  const vrawAll = window.__lastVisionRaw || (function(){ try{ return localStorage.getItem('mhm_last_vision_raw') || ''; }catch(e){ return ''; } })();
+  if(vrawAll){
+    const vs = String(vrawAll);
     L('上次读图原文', vs.slice(0,140).replace(/\s+/g,' ') + (vs.length > 140 ? ('…(共'+vs.length+'字)') : ''));
   }
   const p = window.__lastAIPayload;
