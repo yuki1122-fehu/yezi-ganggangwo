@@ -1380,6 +1380,8 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 .sticker-body{display:none;margin-top:10px;}
 .sticker-body.open{display:block;}
 .ai-msg.sys{align-self:center;background:transparent;color:var(--ink-faint);font-size:var(--fs-2);text-align:center;max-width:92%;font-weight:500;}
+/* 步骤气泡已收尾（视觉读图 / 主模型直发已完成）：淡到背景里，一眼能看出"这步过去了" */
+.ai-msg.sys.step-done{opacity:.45;transition:opacity .4s ease;}
 /* 记忆已打标：淡金描边 = AI 扫过；右上角小星 = 从这里产出过记忆（手动/自动通用，低调不抢眼） */
 .ai-msg.mem-scanned{outline:2px solid rgba(240,196,79,.38);outline-offset:2px;}
 .ai-msg.mem-scanned.user{box-shadow:0 6px 18px rgba(130,160,126,.34),0 0 0 1px rgba(255,255,255,.13),0 0 14px rgba(240,196,79,.16);}
@@ -8298,6 +8300,12 @@ function visionBlockForBrain(vres, imgCount){
   L.push('3. 金额、日期、时间、编号必须逐字来自上面的文本，禁止推算、换算或"合理估计"。金额缺失就问，不要写 0。');
   L.push('4. 日期没有年份时，按系统提示里的学年规则推断（9-12月→2026，1-8月→2027），并在回复中说明你按哪一年算的。');
   L.push('5. 判断出这是什么后，主动调用对应工具落库：小票/账单/付款截图→add_expense；课表→add_course 或 compare_courses；通知/待办/活动→add_task。落库后用一句话说清你记了什么。');
+  // ★ 2026-09-17：doc_type=other（视觉模型判不出类型）时最容易被"第 5 条"带偏 ——
+  //   模型在"没有对应工具可调"和"必须落库"之间反复权衡，偶发直接吐出空回复，界面上就成了「已读图后毫无下文」。
+  //   这里显式给退路：没有合适工具就直接说话。
+  if(String((j.doc_type) || '') === 'other'){
+    L.push('5b. 本次 doc_type 是 other（不属于小票/课表/通知等可落库类型）：这时**不要**为了"完成落库"去硬调工具、也不要编造字段。第 5 条不适用，直接用你原本的语气说说你从图里看到了什么、以及需不需要做什么就行。');
+  }
   L.push('6. 用你原本的身份和语气回复用户。不要暴露"视觉模型""JSON""字段"这些技术细节，就说"我看了下这张图"。');
   if(vres.degraded) L.push('7. ⚠ 本次视觉模型没能按标准格式输出，可靠性偏低。落库前务必把关键数字复述给用户确认。');
   return L.join('\n');
@@ -8332,6 +8340,11 @@ function addSysStep(text){
   wrap.appendChild(d);
   wrap.scrollTop = wrap.scrollHeight;
   return d;
+}
+// 步骤气泡收尾：标成「已过去」的淡色，避免它孤零零挂着被当成「卡在这一步」
+function finishSysStep(el){
+  if(!el || !el.classList) return;
+  try{ el.classList.add('step-done'); }catch(e){}
 }
 
 function openAI(){
@@ -8373,7 +8386,9 @@ function sendQuick(text){
 function aiMsgId(){ return 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 
 function addAIMsg(role, text, mid){
-  if(role==='ai') hideTyping();
+  // ★ 2026-09-17：标记「本轮已有可见产出」。aiRun 结束时若仍是 false，会补一句明确提示，
+  //   杜绝「模型空回复 → 静默 break → 界面上只剩『👁 已读图…』步骤气泡」这种看起来像卡死的状态。
+  if(role==='ai'){ hideTyping(); window.__aiTurnSaid = true; }
   const wrap = document.getElementById('aiMsgs');
   const d = document.createElement('div');
   d.className = 'ai-msg '+(role==='user'?'user':(role==='sys'?'sys':'ai'));
@@ -8598,6 +8613,20 @@ async function collectDiag(){
     L('当前请求', '(无)');
   }
   L('残留思考气泡', document.getElementById('aiTypingBubble') ? '是(异常残留，三点未被清除)' : '无');
+  /* ★ 2026-09-17 新增三项：专治「发图之后一直停在『👁 已读图…』、助理毫无下文」这类静默失败。
+     以前这种现场诊断里什么都看不到（aiBusy=false、无错误、请求已完成），只能靠猜。
+     现在能直接分辨：被输出上限截断 / 模型只想没答 / 只调工具不回头说话。 */
+  const lr = window.__lastAIResp;
+  L('最近响应体检', lr ? (lr.at + ' · HTTP ' + lr.status + ' · finish=' + lr.finish_reason + ' · 正文' + lr.content_len + '字 · 思考' + lr.reasoning_len + '字 · 工具' + lr.tool_calls + '次') : '(无)');
+  if(window.__lastEmptyReply){
+    const er = window.__lastEmptyReply;
+    L('上次空回复现场', new Date(er.at).toLocaleString() + ' · finish=' + (er.finish_reason || '(空)') + ' · 正文' + er.content_len + '字 · 思考' + er.reasoning_len + '字 · 工具' + er.tools + '次');
+  }
+  L('本轮可见产出', window.__aiTurnSaid ? '有' : '(无)');
+  if(window.__lastVisionRaw){
+    const vs = String(window.__lastVisionRaw);
+    L('上次读图原文', vs.slice(0,140).replace(/\s+/g,' ') + (vs.length > 140 ? ('…(共'+vs.length+'字)') : ''));
+  }
   const p = window.__lastAIPayload;
   L('最近请求', p ? (p.time.toLocaleString()+' | '+p.mode+' | '+p.model) : '(无)');
   // 记忆库健康（带超时，避免又卡死）
@@ -11282,7 +11311,9 @@ async function memDeleteEntry(id, keepScanned){
 }
 if(window.addEventListener){ window.addEventListener('pagehide', ()=>{ if(_memPending > 0) memRunTagger(); }); }
 
-async function sendAI(){
+// 真正的发送流程。外层 sendAI 只负责统一兜底：这个函数很长且入口是 onclick/回车，
+// 一旦有意外异常抛出会成为「unhandled rejection」——用户端毫无提示，看起来就是发出去没反应。
+async function sendAIInner(){
   if(aiBusy){
     // agent 模式上一条可能还在"思考+调工具"，这里不静默丢弃，提示用户稍等
     toast('上一条还在处理中，稍等片刻…');
@@ -11326,9 +11357,10 @@ async function sendAI(){
   }
 
   // ───────── 路线 B：有图片，先过眼睛 ─────────
-  let visionBlock = null, visionErr = null;
+  let visionBlock = null, visionErr = null, visionStep = null;
   if(vcfg.enabled){
     const step = addSysStep('👁 正在用视觉模型读图…');
+    visionStep = step;
     setAIBusy(true);
     try{
       const vres = await visionExtract(files, text);
@@ -11362,6 +11394,7 @@ async function sendAI(){
     aiConv.push({ role:'user', content: pieces.join('\n\n'), userText: display.trim(), id: uid });
     memNoteUser(pieces.join('\n\n'), uid);
     await aiRun();
+    finishSysStep(visionStep); // 这一步已完成：淡下去，别让它孤零零挂着像卡死
     return;
   }
 
@@ -11403,8 +11436,26 @@ async function sendAI(){
   }
 }
 
+/* ★ 2026-09-17：发送流程的总兜底。
+   以前 sendAI 直接暴露给 onclick/回车，中间任何一步抛异常都只会成为控制台里的
+   unhandled rejection —— 界面上既没有报错也没有回复，用户看到的就是「发出去了但没动静」。
+   现在统一接住：释放忙碌标志、去掉转圈、如实说一句、并把原因记进诊断。 */
+async function sendAI(){
+  try{
+    return await sendAIInner();
+  }catch(e){
+    const msg = (e && e.message) ? e.message : String(e || '未知错误');
+    window.__lastAIError = 'sendAI异常: ' + msg;
+    try{ setAIBusy(false); hideTyping(); }catch(_){}
+    try{
+      addAIMsg('ai', '⚠️ 发送流程出了点问题：' + msg + '\n（这条不是网络的锅，已经把原因记进诊断。点设置里的「🩺 诊断自检」把结果发我即可。）', aiMsgId());
+    }catch(_){}
+  }
+}
+
 async function aiRun(){
   const cfg = getAiCfg();
+  window.__aiTurnSaid = false; // ★ 本轮是否产出过可见回复（addAIMsg('ai'…) 会置 true）；末尾兜底用
   if(!cfg.apiKey){
     addAIMsg('ai','还没配置 API Key，点右上角 ⚙ 填一下（推荐 DeepSeek：国内可直连、注册送免费额度；也可填 OpenRouter / opencode）。', aiMsgId());
     openAISettings();
@@ -11457,12 +11508,28 @@ async function aiRun(){
         if(stepEl) stepEl.remove(); // 工具步骤完成，去掉过程提示
         // 部分多模态接口返回的 content 是数组，防御性判断后再展示
         const content = (typeof msg.content === 'string') ? msg.content : (Array.isArray(msg.content) ? msg.content.map(p=>p&&p.text?p.text:'').join(' ').trim() : '');
-        if(content){
-          const vr = aiResolveVoice(content); // 角色音色：剥掉【角色名】标记，带 voice 下标（0=全局）
+        const vr = content ? aiResolveVoice(content) : {clean:'', voice:0}; // 角色音色：剥掉【角色名】标记，带 voice 下标（0=全局）
+        const shown = String(vr.clean || '').trim(); // 剥完标记后还剩多少正文
+        if(shown){
           const aiPlain = aiStickerPlain(vr.clean); // 表情包标记只用于展示，记忆与朗读里去掉
           addAIMsg('ai', vr.clean, msg.id);
           memNoteAssistant(aiPlain, msg.id); // 最终回复落库进记忆库（中间 tool_calls 消息不落）
           aiTtsSpeak(aiPlain, false, msg.id, vr.voice);
+        }else{
+          /* ★ 2026-09-17 修「发图之后一直停在『👁 已读图（other）· 交给助理整理…』」：
+             旧版这里 content 为空（或剥完角色标记后什么都不剩）就直接 break —— 不报错、不留痕、不说话，
+             界面上只剩那条视觉步骤气泡孤零零挂着，跟卡死一模一样，用户完全无从判断。
+             现在：① 把真实原因记进诊断（finish_reason / 思考字数 / 工具次数）；② 明确说一句话给用户。 */
+          const ch = (r.data.choices && r.data.choices[0]) || {};
+          const fr = ch.finish_reason || '';
+          const rlen = (typeof msg.reasoning_content === 'string') ? msg.reasoning_content.length : 0;
+          let why = '助理这轮没说出话来（模型返回了空内容）';
+          if(fr === 'length') why = '助理说到一半撞上了输出上限，这轮没留下完整的话';
+          else if(rlen) why = '助理这轮只想没答（只输出了思考过程，正文是空的）';
+          else if(content) why = '助理这轮只回了个标记、没有正文';
+          window.__lastAIError = '空回复: finish_reason=' + (fr || '(空)') + ' · 思考' + rlen + '字 · 正文' + content.length + '字 · 工具' + ((msg.tool_calls||[]).length) + '次';
+          window.__lastEmptyReply = { at: Date.now(), finish_reason: fr, reasoning_len: rlen, content_len: content.length, tools: (msg.tool_calls||[]).length };
+          addAIMsg('ai', '⚠️ ' + why + '。你再说一句（或把图重发一次），我接着办。\n（若反复这样，点设置里的「🩺 诊断自检」，把结果发我，里面已有具体原因。）', aiMsgId());
         }
         break;
       }
@@ -11471,6 +11538,13 @@ async function aiRun(){
       if(stepEl) stepEl.remove();
       // 明确告知：本轮涉及的操作较多，已尽力处理，超出的部分请用户再说一次
       addAIMsg('ai','🔄 这一步涉及的改动比较多，我连续处理了几轮后达到了单次上限。已经完成的部分都保存好了；如果还有没做完的，你直接再说一遍（例如"继续删剩下的"），我会接着处理。', aiMsgId());
+    }
+    /* ★ 2026-09-17 兜底闸门：跑完整个循环却一个字都没说出口（模型空回复、或只调工具不回头说话），
+       就补一句明确的，别让界面停在「👁 已读图…」上让人干等。比"静默卡住"强一万倍。 */
+    if(!window.__aiTurnSaid){
+      window.__lastAIError = window.__lastAIError || '本轮无可见产出（模型没吐出正文）';
+      if(stepEl) stepEl.remove();
+      addAIMsg('ai', '⚠️ 这一轮我没能给出内容（模型返回了空正文，或只顾着办事没回头说话）。已经办好的都存下来了；你再说一句，我接着办。\n（诊断自检里能看到这轮的 finish_reason 与输出字数。）', aiMsgId());
     }
   }catch(e){
     window.__lastAIError = '异常: '+(e.message||'未知错误');
@@ -11555,7 +11629,23 @@ async function aiCall(messages, cfg, attempt, opts){
   }
   clearTimeout(timer);
   window.__aiReqDone = Date.now(); // 响应已收到，标记请求结算（诊断据此区分「在飞」与「已完成」）
-  const rawText = await resp.text().catch(()=>''); // 保留原始响应体：400 等错误时能看到真实原因（不再只显示"抽风"）
+  /* ★ 2026-09-17：上面的 timer 只盯着 fetch() 拿到响应头，拿到就 clear 了。
+     移动端切网/弱网时，响应头秒回、正文却可能永远收不完 —— 旧版这里会无限 await，
+     aiBusy 永远不放，用户看到的就是「一直转圈」。现在给读正文单独加 30 秒上限。 */
+  let rawText = '', bodyTimedOut = false;
+  try{
+    rawText = await Promise.race([
+      resp.text(),
+      new Promise((_, rej)=>setTimeout(()=>rej(new Error('__body_timeout__')), 30000))
+    ]); // 保留原始响应体：400 等错误时能看到真实原因（不再只显示"抽风"）
+  }catch(e){
+    rawText = '';
+    bodyTimedOut = !!(e && e.message === '__body_timeout__');
+  }
+  if(bodyTimedOut){
+    window.__lastAIResp = { at: new Date().toLocaleString(), status: resp.status, finish_reason:'(正文读取超时)', content_len:0, reasoning_len:0, tool_calls:0 };
+    return { error: '响应体读取超时（30 秒）：响应头回来了、内容一直传不完（弱网或切网时常见）。已放弃本次，直接重发一次通常就好。' };
+  }
   let data = {};
   try{ data = rawText ? JSON.parse(rawText) : {}; }catch(e){ data = {}; }
   // 有些供应商/模型会在 200 里包 error，或无 choices，统一处理
@@ -11593,6 +11683,20 @@ async function aiCall(messages, cfg, attempt, opts){
     return {error: msg};
   }
   if(data && data.usage) logAIUsage(data.usage); // B1：记录本轮 token/缓存命中（供设置页统计）
+  // ★ 2026-09-17：记下这一次响应的体检数据（诊断面板直读）。空回复判定原因全靠它：
+  //   finish_reason=length → 被输出上限截断；reasoning 有值而 content 空 → 模型只想没答。
+  try{
+    const ch0 = (data.choices && data.choices[0]) || {};
+    const mm = ch0.message || {};
+    const clen = (typeof mm.content === 'string') ? mm.content.length : (Array.isArray(mm.content) ? mm.content.length : 0);
+    window.__lastAIResp = {
+      at: new Date().toLocaleString(), status: resp.status,
+      finish_reason: ch0.finish_reason || '(空)',
+      content_len: clen,
+      reasoning_len: (typeof mm.reasoning_content === 'string') ? mm.reasoning_content.length : 0,
+      tool_calls: (mm.tool_calls || []).length
+    };
+  }catch(e){}
   return {data: data};
 }
 
