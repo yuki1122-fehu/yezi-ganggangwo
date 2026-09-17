@@ -7203,7 +7203,7 @@ function buildSystem(){
     .replace(/\{\{WARNINGS\}\}/g, '')
     .replace(/\{\{SCHEDULE\}\}/g, '')
     .replace(/<角色身份>\s*<\/角色身份>/g, ''); // 清掉旧自定义模板残留的空壳标签（DEFAULT 已无此标签；历史自定义模板带 <角色身份></角色身份> 白费 token）
-  const memBlocks = buildMemorySyncBlocks(); // 记忆常驻块：仅关系身份（关系摘要/动作回执/磁铁召回皆为动态内容，改在发送时注入末尾 user 消息，见 buildLiveContext —— 动态块进 system 会打穿 prefix cache）
+  const memBlocks = buildMemorySyncBlocks(); // 记忆常驻块：仅关系身份（关系现状·此刻/动作回执/磁铁召回皆为动态内容，改在发送时注入末尾 user 消息，见 buildLiveContext —— 动态块进 system 会打穿 prefix cache）
   if(memBlocks) sys += '\n\n' + memBlocks;
   const roleProto = buildRoleProtocol(); // 音色协议（强制回复以【角色名】开头，音色切换用）+ 表情包协议
   if(roleProto) sys += '\n\n' + roleProto;
@@ -7543,7 +7543,7 @@ function trimMessagesForSend(messages){
 // 把"实时上下文"（时间/天气/警告/日程）注入到最后一条 user 消息开头。
 // 关键：这些内容原本拼在 system（prompt 最前前缀），每轮变化会打穿 DeepSeek/OpenRouter 的 prefix cache；
 // 移到 user 开头后，system + 历史消息全部稳定、命中缓存，只有这段"本就该变"的内容不命中，最大化省钱。
-// 关系摘要 / 动作回执 / 磁铁记忆同样是动态内容，一并收拢到这里（原来嵌在 system 中部，每个都会打断前缀缓存）。
+// 关系现状·此刻 / 动作回执 / 近期回忆 / 磁铁记忆同样是动态内容，一并收拢到这里（原来嵌在 system 中部，每个都会打断前缀缓存）。
 let AI_MAGNET_BLOCK = ''; // 本轮磁铁召回结果，由 injectTimeAnchor 一次性并入发送副本，用后即清
 function buildLiveContext(){
   const ta = nowAnchor();
@@ -7551,20 +7551,24 @@ function buildLiveContext(){
   const wn = getWarningSummary(false);
   const sc = aiScheduleSection();
   let s = '<当前时间>\n'+ta+'\n</当前时间>\n<天气>\n'+w+'\n</天气>\n<天气警告>\n'+wn+'\n</天气警告>\n'+sc;
-  const rel = memRelBlock();   // 动态：每 12 条消息打标后重写，挪到末尾注入（不再嵌 system）
-  if(rel) s += '\n<关系摘要>\n' + rel + '\n</关系摘要>';
-  const fb = memFeedbackTail(); // 动态：失败回执，60min TTL 时有时无，同样挪到末尾
+  // 关系现状 + 此刻：09-17 从末尾上移到课表之后（原来紧贴用户那句消息）。
+  // 它们是**背景**，越贴近用户说的话，模型越容易把它当成本轮话题去复述（用户反馈"总在回复里提及"）。
+  // 现在往下依次是动作回执与近期回忆（日记/周记/月记），让「近期回忆」成为紧贴用户消息的那一块——
+  // 那段才是角色该主动接上的东西，也是取代旧「关系摘要」的那份近况。
+  const wctx = ocWorldCtx(); // 关系现状 + 今天共同事件 + 此刻（角色世界单一事实源，对话与镜头不拆台）
+  if(wctx) s += '\n\n' + wctx;
+  const fb = memFeedbackTail(); // 动态：失败回执，60min TTL 时有时无
   if(fb) s += '\n' + fb;
   if(AI_JOURNAL_CTX){ // 日记/周记/月记（memJournalRefreshCtx 异步预取）；限长防注入块膨胀（越长 miss 越多，拉低缓存命中率）
     let jc = String(AI_JOURNAL_CTX);
     if(jc.length>400) jc = jc.slice(0,400)+'…(截断)';
     s += '\n\n<近期回忆>\n' + jc + '\n</近期回忆>';
   }
-  // 角色动态（OC_FEED_CTX）09-17 起不再拼进每一轮对话：那主要是给用户看的主页内容，
-  // 角色只在「要生成一条新动态」时才需要知道已经写过什么（见 godAskAI 的「最近生活痕迹」，
-  // 以及工具 post_oc_dynamic 自身的防重复打回）。聊天侧每轮少发 300 字左右。
-  const wctx = ocWorldCtx(); // 关系现状 + 今天共同事件 + 此刻（角色世界单一事实源，对话与镜头不拆台）
-  if(wctx) s += '\n\n' + wctx;
+  // 09-17 起还有两处不再发送：
+  // ① 角色动态（OC_FEED_CTX）——那主要是给用户看的主页内容，角色只在「要生成一条新动态」时才需要
+  //    知道已经写过什么（见 godAskAI 的「最近生活痕迹」，以及工具 post_oc_dynamic 自身的防重复打回）。
+  // ② 关系摘要（memRelBlock）——已整块删除：它和「近期回忆」讲的是同一件事，而日记/周记/月记更具体、
+  //    更有画面，留着只是重复喂一遍情绪底色（还会诱导模型复述"我们最近怎么样"）。
   return s;
 }
 /* ---- 打开页面后的自动主动开口：角色不等用户问就先发一条（每日限次） ----
@@ -7800,7 +7804,8 @@ function cloudRecentText(){
       // 剥掉注入的实时上下文（<当前时间>/<天气>/<近期任务>… 属于动态，云端实时拿会更好，别当对话正文）
       c = c.replace(/<当前时间>[\s\S]*?<\/当前时间>/g,'').replace(/<天气>[\s\S]*?<\/天气>/g,'')
            .replace(/<天气警告>[\s\S]*?<\/天气警告>/g,'').replace(/<近期任务>[\s\S]*?<\/近期任务>/g,'')
-           .replace(/<近期课表>[\s\S]*?<\/近期课表>/g,'').replace(/<关系摘要>[\s\S]*?<\/关系摘要>/g,'')
+           .replace(/<近期课表>[\s\S]*?<\/近期课表>/g,'')
+           .replace(/<关系现状>[\s\S]*?<\/关系现状>/g,'').replace(/<此刻>[\s\S]*?<\/此刻>/g,'')
            .replace(/<近期回忆>[\s\S]*?<\/近期回忆>/g,'')
            .replace(/<用户当前指令>[\s\S]*?<\/用户当前指令>/g,'')
            .replace(/\s+/g,' ').trim();
@@ -7876,7 +7881,7 @@ async function syncCloudContext(){
     const sys = buildSystem(); // 角色设定稳定部分（含记忆常驻块/角色协议/粤语模式等，不含动态时间/天气/日程）
     if(!sys || sys.length < 40) return false;
     const sysCloud = buildCloudSys(); // 云端苏醒专用精简版：剔除<助手任务清单>/<行为规则>工具规范，防止模型在云端场景联想输出 <plans>/<tonight> 结构化标签（Worker 优先读此字段）
-    const live = buildLiveContext(); // 当天动态：时间/天气/警告/任务/课表/关系摘要/近期回忆
+    const live = buildLiveContext(); // 当天动态：时间/天气/警告/任务/课表/关系现状·此刻/回执/近期回忆
     const recent = cloudRecentText();
     const payload = { secret:PUSH_SECRET, sys, sysCloud, live, recent, ts: Date.now() };
     const r = await fetch(PUSH_WORKER + '/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
@@ -8840,7 +8845,8 @@ function renderPromptCenter(){
     '<天气警告> {{天气警告}} </天气警告>',
     '<近期任务> {{未来近 '+daysTask+' 天任务}} </近期任务>',
     '<近期课表> {{未来近 '+daysCourse+' 天课程}} </近期课表>',
-    '<关系摘要> {{关系摘要（AI 自动刷新）}} </关系摘要>',
+    '<关系现状> {{关系状态 + 今日共同事件}} </关系现状>',
+    '<此刻> {{他们此刻在做什么（含"正在亲密"/"刚被吵醒"）}} </此刻>',
     '<动作回执> {{最近失败动作回执（有时无）}} </动作回执>',
     '<近期回忆> {{日记/周记/月记摘要}} </近期回忆>',
     '<磁铁记忆> {{本地磁铁记忆召回（聊到关键词时出现）}} </磁铁记忆>'
@@ -9933,7 +9939,7 @@ const MEM_REL_BOOST = {'我们的梗/暗号':1.3,'亲密互动':1.3,'委屈/心�
 const MEM_DB_NAME = 'mhm_mem_db';
 const MEM_ENABLED_KEY = 'mhm_mem_on';
 const MEM_IDENTITY_KEY = 'mhm_mem_identity';
-const MEM_REL_KEY = 'mhm_mem_rel';
+const MEM_REL_KEY = 'mhm_mem_rel'; // 关系摘要：09-17 起不再生成/注入（见 memRelRefresh 删除处的说明），此键仅用于「清除数据」时清掉老数据
 const MEM_FB_KEY = 'mhm_mem_feedback';
 const MEM_TAG_GAP = 24;      // 每累积 24 条新消息跑一次打标（回忆精而少，不必频繁）
 const MEM_RETAG_KEY = 'tagger_retag'; // 墓碑清单：删除记忆时登记的「原料批首消息 id」，下次打标自动重新提炼
@@ -10340,36 +10346,18 @@ async function memRunTagger(){
     const nextRetag = (Array.isArray(retag2) ? retag2 : []).filter(id=>!batchIds.has(Number(id)));
     await memKvSet(MEM_RETAG_KEY, nextRetag);
     if(batch.length && tagged === 0) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
-    memRelRefresh(cfg).catch(()=>{}); // 打标后顺手刷新关系摘要
-    memJournalMaintain(cfg).catch(()=>{}); // 打标后顺手归档日记分层
+    memJournalMaintain(cfg).catch(()=>{}); // 打标后顺手归档日记分层（关系摘要已于 09-17 删除）
     memJournalRefreshCtx().catch(()=>{}); // 与注入快照同步
     memMarkBubbles().catch(()=>{}); // 打标后刷新气泡状态记号
     return rows.filter(m=>!batchIds.has(Number(m.id))).length; // 剩余待打条数：本批已处理（含墓碑重打）的不再计入
   }catch(e){ console.warn('[mem] tagger', e); return 0; }
 }
-// ---- 关系摘要（§5 resident 块之一）：最近点滴 → 2-4 句关系近况，缓存 ----
-async function memRelRefresh(cfg){
-  try{
-    const entries = await memGetAll('entries');
-    const cutoff = Date.now() - 5 * 86400000; // 只看最近 5 天的回忆（打标变精后窗口放宽，否则常没料可写）
-    const recent = entries.filter(e=>e.active===1 && e.summary && new Date(e.created_at).getTime() >= cutoff)
-                          .sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 12);
-    if(!recent.length) return;
-    const bullet = recent.map(e=>'· '+e.summary).join('\n');
-    const r = await aiCall([{role:'system', content:'你是关系摘要器。用 2-3 句自然中文写一段「最近的我们」：像朋友在回忆用户和角色之间的共同经历与情绪温度。硬性要求：①只总结共同经历和关系氛围，不要复述任何一方的原话，不要写"她说/他说"式转述；②不要流水账式罗列做过的事；③实在没有值得说的就写一句"最近就是安稳的日常"，绝不硬编。只输出正文。'},{role:'user', content:'最近的回忆片段：\n'+bullet}], cfg, 1, {noTools:true});
-    if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) return;
-    const text = ((r.data.choices[0].message && r.data.choices[0].message.content) || '').trim();
-    if(!text) return;
-    localStorage.setItem(MEM_REL_KEY, JSON.stringify({text: text.slice(0, 300), ts: Date.now()}));
-  }catch(e){}
-}
-function memRelBlock(){
-  try{
-    const o = JSON.parse(localStorage.getItem(MEM_REL_KEY) || 'null');
-    if(o && o.text) return o.text;
-  }catch(e){}
-  return '';
-}
+// ---- 关系摘要：09-17 整块删除（用户拍板）----
+// 旧的 memRelRefresh() 每次打标（每 24 条消息）都额外调一次 AI 生成「最近的我们」2-3 句，
+// memRelBlock() 再把它作为 <关系摘要> 注入每轮对话。问题是：它和「近期回忆」（日记/周记/月记）
+// 讲的是同一件事，而后者更具体、更有画面、还带时间尺度；留着等于把情绪底色重复喂两遍，
+// 还诱导模型复述"我们最近怎么样"。故：不再生成、不再注入、函数删除。
+// MEM_REL_KEY（localStorage 'mhm_mem_rel'）保留常量，只为「清除数据/全量重打」时清掉老数据。
 // ---- 回忆日记分层（L1 日记 / L2 周记 / L3 月记）：时间多尺度压缩归档 ----
 // 对话窗口(最近 N 轮)之外的内容按 日→周→月 逐层压缩；每层生成时同步抽出「值得终生记住的大事/梗」
 // 写回 entries（携 event/keyword）供磁铁索引——时间线为主干、关键词为索引，解决"不提关键词就想不起来"。
@@ -11058,7 +11046,6 @@ async function memPickSave(){
     memExitPick();
     memRefreshStats().catch(()=>{});
     memMarkBubbles().catch(()=>{});
-    memRelRefresh(getAiCfg()).catch(()=>{});
     toast('已手动记下这条记忆，后续自动打标不会覆盖它');
   }catch(e){ console.warn('[mem] manual save', e); toast('保存失败'); }
 }
@@ -11257,7 +11244,6 @@ async function memItemSave(){
     }
     await memReplaceTags(id, tagList);
     closeMemEdit();
-    memRelRefresh(getAiCfg()).catch(()=>{});
     await memRefreshStats();
     memView();
     toast('已保存');
@@ -11315,7 +11301,6 @@ async function memDeleteEntry(id, keepScanned){
     const tags = await memGetAll('tags');
     const old = tags.filter(t => t && t.entry_id === id);
     for(const t of old){ await memDelete('tags', t.id).catch(()=>{}); }
-    memRelRefresh(getAiCfg()).catch(()=>{});
     await memRefreshStats();
     memView();
     toast(keepScanned ? '已删除这条记忆；这段对话保留“已扫过”状态，下次不会重扫' : '已删除这条记忆；下次打标时会自动重新提炼这段对话');
@@ -14256,16 +14241,18 @@ function appendAiBubbleText(d, text, seed){
 }
 const DEFAULT_VOICE_PROTO_TPL = '<音色协议>\n你扮演「身份」区块里设定的角色。回复时第一行必须用【{{ROLE_A}}】或【{{ROLE_B}}】标明当前由谁说话（先写【角色名】，换行后再说话）。用户点名谁就用谁；没点名时不预设固定轮换、不用机械交替，随机选一位开口即可，别让同一人连说太多轮（一般不超过两轮）。不要凭空设定哪个人在场或不在场：两人何时出现完全以对话里已经明确说过的内容为准，用户想找谁、有急事要把某个人喊回来，就直接让那个人接话；某人今天去了哪、办了什么事，只能转述对话里已经交代过的信息，不能自己编。这行【角色名】只是给系统切换音色的标注：绝对不要读出来，也不要解释它。\n</音色协议>';
 const DEFAULT_STICKER_PROTO_TPL = '<表情包协议>\n表情包：全看心情，绝大多数回复不带，不要为了展示或讨好硬加。气氛真到位时句末最多放一个，只输出半角方括号标签，如 [贴贴]、[累]、[晚安]，可选标签：{{STICKER_TAGS}}。不要解释这个标签，也不要换成图片链接或 Markdown 图片。\n</表情包协议>';
-const DEFAULT_OC_REL_RULES_TPL = '<关系现状规则>\n关系现状数据（每轮发送时自动生成，见消息里的<关系现状>）写的是你和另一个角色的关系状态、今天你们之间共同发生过的事——这是你们生活的背景事实，用来让对话氛围、语气、行为自然贴合当下关系，不是要念出来的脚本。\n- 完全代入：你同时扮演两个角色（回复按<音色协议>决定由谁开口）。开口后你就是那个人本人，用 ta 的语气、情绪、视角和用户相处，也以关系一方的身份自然地谈论、惦记、回应另一个角色；绝不跳出角色变成"助理/旁白/编剧"视角，不要说"作为角色""按设定来说"这类话。\n- 关系状态是你的情绪底色：热络就自然地亲近（惦记、分享、拌嘴），闹别扭就保持距离、话少一点，别硬演甜蜜，也别生硬提"我们现在的状态"。\n- 今日共同事件是你们真实发生过的事：可以自然提起、延续、回味，但只以<关系现状>与对话里明确交代过的事实为准，不编造对方的行程、去向、心情。\n- 用户问起你们俩的关系或对方在干嘛时，以开口角色的第一人称说心里话，不要像念报告一样转述。\n- <此刻>写的是你们「现在正在做什么」：平时是手头的事（别另编一件不同的事），特殊时是正在亲密、或刚被她的消息从睡里吵醒。它是**正在进行的事实**，接着它走——被撞见时不要跳戏、不要假装没发生、也不要切成「我们各自在忙」；她问起就自然说，不必全说。\n- 亲密场面里反应要有画面但别用力过猛：手还搭在对方身上就去摸手机、笑她挑这时候来消息、被呛一句再还嘴，都比「两人立刻正襟危坐」真实得多。\n</关系现状规则>';
+const DEFAULT_OC_REL_RULES_TPL = '<关系现状规则>\n关系现状数据（每轮发送时自动生成，见消息里的<关系现状>）写的是你和另一个角色的关系状态、今天你们之间共同发生过的事——这是你们生活的背景事实，用来让对话氛围、语气、行为自然贴合当下关系，不是要念出来的脚本。\n- 背景不是话题（09-17 加）：不要每轮都主动提起你们俩各自在忙什么、关系如何、今天共同发生过什么——这些只负责让语气和反应贴合当下。等话题自然落到那儿、或者用户问起时再说。\n- 完全代入：你同时扮演两个角色（回复按<音色协议>决定由谁开口）。开口后你就是那个人本人，用 ta 的语气、情绪、视角和用户相处，也以关系一方的身份自然地谈论、惦记、回应另一个角色；绝不跳出角色变成"助理/旁白/编剧"视角，不要说"作为角色""按设定来说"这类话。\n- 关系状态是你的情绪底色：热络就自然地亲近（惦记、分享、拌嘴），闹别扭就保持距离、话少一点，别硬演甜蜜，也别生硬提"我们现在的状态"。\n- 今日共同事件是你们真实发生过的事：可以自然提起、延续、回味，但只以<关系现状>与对话里明确交代过的事实为准，不编造对方的行程、去向、心情。\n- 用户问起你们俩的关系或对方在干嘛时，以开口角色的第一人称说心里话，不要像念报告一样转述。\n- <此刻>写的是你们「现在正在做什么」：平时是手头的事（别另编一件不同的事），特殊时是正在亲密、或刚被她的消息从睡里吵醒。它是**正在进行的事实**，接着它走——被撞见时不要跳戏、不要假装没发生、也不要切成「我们各自在忙」；她问起就自然说，不必全说。\n- 亲密场面里反应要有画面但别用力过猛：手还搭在对方身上就去摸手机、笑她挑这时候来消息、被呛一句再还嘴，都比「两人立刻正襟危坐」真实得多。\n</关系现状规则>';
 
-/* 关系现状规则自动升级（09-15）：新增 <此刻> 用法。必须放在这里而不是 getAiCfg 里——
-   getAiCfg 在页面早期就会跑，那时 DEFAULT_OC_REL_RULES_TPL 还在 const 的暂时性死区，引用会抛 ReferenceError。
-   判定：保存过默认模板（含「完全代入」）且没有 <此刻> 段的 → 换新默认；用户自定义过的不动。 */
+/* 关系现状规则自动升级：必须在常量定义之后（不能写进 getAiCfg —— 它在页面早期就会跑，
+   那时 DEFAULT_OC_REL_RULES_TPL 还在 const 的暂时性死区，引用会抛 ReferenceError）。
+   判定：保存过的版本里含「完全代入」＝当初就是默认模板（用户自定义过的不动），
+   再看缺哪一个后加的标志词，缺就整体换成新默认。
+   09-15 标志：<此刻>（新增此刻用法）→ 09-17 标志：背景不是话题（治"总在回复里提及关系现状/此刻"）。 */
 (function(){
   try{
     let cfg; try{ cfg = JSON.parse(localStorage.getItem('mhm_ai_cfg')) || {}; }catch(e){ return; }
     const cur = (cfg.relRulesTpl === undefined) ? null : String(cfg.relRulesTpl);
-    if(cur !== null && cur.indexOf('完全代入') >= 0 && cur.indexOf('<此刻>') < 0){
+    if(cur !== null && cur.indexOf('完全代入') >= 0 && (cur.indexOf('<此刻>') < 0 || cur.indexOf('背景不是话题') < 0)){
       cfg.relRulesTpl = DEFAULT_OC_REL_RULES_TPL;
       localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg));
     }
@@ -14916,7 +14903,7 @@ function ocNowCtx(){
     const line = f.roles.map(r=>(r.who + '在' + r.place + '「' + r.doing + '」')).join('；');
     const lateNote = godIsSleepyHour(new Date().getHours())
       ? '\n（这个点按你们作息本该睡了：她问起就如实说一句困了/正要躺下，照常陪聊，别挂在嘴上。）' : '';
-    return '<此刻>现在 ' + hm + ' 点多。' + line + '。她问起就照实说，别另编一件不同的事。' + lateNote + '</此刻>';
+    return '<此刻>现在 ' + hm + ' 点多。' + line + '。' + lateNote + '</此刻>';
   }catch(e){ return ''; }
 }
 // 对话注入段：关系 + 今天共同事件 + 此刻（09-17 压成三行以内——每轮都发，越短越省）
