@@ -744,14 +744,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   transition:transform .18s var(--ease),box-shadow .28s var(--ease);
 }
 .journal-module:active{transform:scale(.985);box-shadow:var(--shadow),var(--shadow-inset);}
-.journal-module::after{
-  content:"";position:absolute;top:-48%;left:-32%;width:56%;height:200%;
-  background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.48),transparent 62%);
-  transform:rotate(12deg) translateX(-150%);pointer-events:none;
-  animation:journalSheen 5.8s ease-in-out 1.2s infinite;
-}
-
-@keyframes journalSheen{0%,58%{transform:rotate(12deg) translateX(-160%);}88%,100%{transform:rotate(12deg) translateX(360%);}}
+/* 2026-09-20：模块级循环扫光已删除 —— 卡片改用 backdrop-filter 真玻璃后，一道持续移动的白色光条
+   会让多张玻璃卡的背板模糊被反复重算（主页常驻发热）。凝光改到「当前卡」内部：卡内元素变化不会
+   改变卡背后的内容，因此不触发模糊重算。 */
 @keyframes journalIn{from{opacity:0;transform:translateY(10px) scale(.985);}to{opacity:1;transform:none;}}
 .jm-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
 .jm-title{display:flex;align-items:center;gap:9px;min-width:0;}
@@ -769,20 +764,97 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   padding:6px 12px;box-shadow:var(--shadow-inset);transition:transform .18s var(--ease),background .18s;
 }
 .journal-module:active .jm-go{transform:translateX(2px);background:var(--green-soft);}
-.jm-excerpt{
-  margin:13px 0 0;padding:11px 13px;border-radius:var(--radius-sm);
-  background:var(--glass-strong);border:1px solid var(--glass-line);
-  border-left:3px solid var(--warm-deep);box-shadow:var(--shadow-inset);
+/* ---------- 主页回忆档案 · 3D 液态玻璃旋转木马（2026-09-20） ----------
+   ⚠️ 两条硬约束，改这个环之前先读：
+   ① backdrop-filter 只能挂在 .jm-card-in（叶子节点）上，绝不能挂在 .jm-ring（preserve-3d）
+      或它的任何祖先上 —— 那会让 Safari 强制 flatten 子树，3D 直接失效/渲染错乱。
+      同理 .jm-ring 及其祖先上不能出现 filter / opacity<1 / mask。
+   ② 拖动时由 JS 给 .jm-stage 加 .dragging，一次性摘掉所有卡的 backdrop-filter（真玻璃 → 近实心），
+      松手 180ms 后恢复。静止 = 完整液态玻璃，旋转 = 零模糊计算，质感与帧率两头都要。 */
+.jm-stage{
+  position:relative;height:160px;margin:11px -16px 0;
+  perspective:730px;perspective-origin:50% 44%;
+  touch-action:pan-y;cursor:grab;
+  user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;
 }
-.jm-excerpt .jm-kind{font-size:var(--fs-1);font-weight:800;color:var(--warm-deep);letter-spacing:.5px;display:flex;align-items:center;gap:8px;}
-.jm-excerpt .jm-kind::after{content:"";flex:1;height:1px;background:var(--line);}
-.jm-excerpt .jm-text{
-  font-size:var(--fs-3);line-height:1.65;color:var(--ink);margin-top:8px;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+.jm-stage.grabbing{cursor:grabbing;}
+.jm-ring{position:absolute;inset:0;transform-style:preserve-3d;}
+.jm-card{
+  position:absolute;left:50%;top:50%;width:212px;height:132px;margin:-66px 0 0 -106px;
+  transform-style:preserve-3d;
+  transition:opacity .34s var(--ease);
+}
+.jm-card-in{
+  position:absolute;inset:0;box-sizing:border-box;padding:11px 13px 10px;border-radius:var(--radius-sm);
+  overflow:hidden;display:flex;flex-direction:column;
+  background:linear-gradient(148deg,rgba(255,255,255,.78),rgba(255,255,255,.44) 56%,rgba(255,255,255,.64));
+  border:1px solid rgba(255,255,255,.72);
+  box-shadow:0 12px 28px rgba(92,115,89,.13),0 2px 6px rgba(92,115,89,.06),inset 0 1px 0 rgba(255,255,255,.92);
+  backdrop-filter:blur(var(--blur-l)) saturate(180%);-webkit-backdrop-filter:blur(var(--blur-l)) saturate(180%);
+  transform:scale(var(--jms,1));
+  transition:transform .38s var(--ease),box-shadow .38s var(--ease),border-color .3s;
+}
+/* 拖动降级：只换背景与模糊，其它属性不动，避免重排 */
+.jm-stage.dragging .jm-card-in{
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+  background:rgba(252,251,247,.94);
+  transition:none;
+}
+/* 左缘类型色条：top/bottom 取 20px ≥ 圆角 17px + 2px，不依赖 overflow:hidden 裁圆角 */
+.jm-card-in::before{content:"";position:absolute;left:0;top:20px;bottom:20px;width:3px;border-radius:0 3px 3px 0;background:var(--jmac,var(--green-deep));}
+/* 卡内凝光：仅当前卡在切到它时跑一次（卡内元素变化不改变卡背后的内容 → 不触发模糊重算） */
+.jm-card-in::after{
+  content:"";position:absolute;top:-60%;left:-40%;width:62%;height:220%;pointer-events:none;
+  background:linear-gradient(105deg,transparent 32%,rgba(255,255,255,.52),transparent 64%);
+  transform:rotate(12deg) translateX(-165%);
+}
+.jm-card.cur .jm-card-in::after{animation:jmSheen 1.05s var(--ease) .1s 1 both;}
+@keyframes jmSheen{from{transform:rotate(12deg) translateX(-165%);}to{transform:rotate(12deg) translateX(330%);}}
+.jm-card.cur .jm-card-in{
+  border-color:rgba(255,255,255,.92);
+  box-shadow:0 18px 38px rgba(92,115,89,.17),0 3px 8px rgba(92,115,89,.07),inset 0 1px 0 rgba(255,255,255,.96);
+}
+.jm-ch{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:0 0 auto;}
+.jm-pill{
+  font-size:var(--fs-1);font-weight:800;letter-spacing:.4px;padding:2.5px 9px;border-radius:var(--radius-pill);
+  color:#fff;box-shadow:0 3px 9px rgba(92,115,89,.18),var(--shadow-inset);white-space:nowrap;
+}
+.jm-pill.k-day{background:linear-gradient(135deg,#5b8f6b,#7fb28a);}
+.jm-pill.k-week{background:linear-gradient(135deg,#4f7fa3,#80a9c2);}
+.jm-pill.k-month{background:linear-gradient(135deg,#b48651,#d3a36b);}
+.jm-cd{font-size:var(--fs-1);font-weight:700;color:var(--ink-soft);font-variant-numeric:tabular-nums;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 0 rgba(255,255,255,.7);}
+/* 正文固定 3 行高：不能用 flex:1 撑开 —— flex item 的 display 会被 blockify，
+   而 -webkit-line-clamp 在高度富余时会失守（实测：没有 gems 的那张会多显示一行）。
+   固定高度 + overflow:hidden 兜底，行数就锁死了。 */
+.jm-cx{
+  flex:0 0 auto;height:60px;margin-top:8px;overflow:hidden;
+  font-size:var(--fs-2);line-height:1.66;color:var(--ink);
+  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;
   white-space:pre-wrap;word-break:break-word;
 }
-.jm-excerpt .jm-text.empty{color:var(--ink-soft);}
-.jm-excerpt .jm-date{font-size:var(--fs-1);color:var(--ink-faint);margin-top:6px;font-variant-numeric:tabular-nums;letter-spacing:.3px;}
+.jm-cx.empty{color:var(--ink-faint);}
+.jm-card.no-gem .jm-cx{height:85px;-webkit-line-clamp:4;}
+.jm-cg{
+  flex:0 0 auto;margin-top:auto;display:flex;align-items:center;gap:6px;padding:4.5px 8px;
+  border-radius:var(--radius-xs);background:rgba(240,196,79,.14);border:1px solid rgba(240,196,79,.3);
+  box-shadow:var(--shadow-inset);
+}
+.jm-cg i{flex:0 0 auto;width:5px;height:5px;border-radius:50%;background:#c9a13c;box-shadow:0 0 0 2px rgba(240,196,79,.22);}
+.jm-cg span{font-size:var(--fs-1);font-weight:700;color:#7a5c17;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.jm-dots{display:flex;align-items:center;justify-content:center;gap:6px;height:15px;margin-top:9px;}
+.jm-dot{
+  width:6px;height:6px;border-radius:var(--radius-pill);cursor:pointer;background:var(--green-mid);
+  box-shadow:var(--shadow-inset);transition:width .3s var(--ease),background .3s var(--ease),transform .3s var(--ease);
+}
+.jm-dot.on{width:15px;background:linear-gradient(90deg,var(--green-deep),var(--green));}
+.jm-empty{
+  position:absolute;left:18px;right:18px;top:16px;bottom:16px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:5px;text-align:center;
+  border:1px dashed var(--green-mid);border-radius:var(--radius-sm);background:var(--glass-strong);
+  color:var(--ink-faint);font-size:var(--fs-2);font-weight:700;line-height:1.6;padding:0 16px;
+}
+.jm-empty b{display:block;font-size:var(--fs-3);color:var(--ink-soft);font-weight:800;}
+
 .jm-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;}
 .jm-count{
   display:flex;align-items:baseline;justify-content:center;gap:5px;font-size:var(--fs-2);
@@ -1156,7 +1228,7 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 .mj-item-btn.del{background:rgba(217,138,138,.12);color:var(--danger);border-color:rgba(217,138,138,.26);}
 .mj-foot{flex:0 0 auto;padding:6px 4px 2px;text-align:center;font-size:var(--fs-1);color:var(--ink-faint);line-height:1.6;}
 @media (prefers-reduced-motion:reduce){
-  .journal-module,.journal-module::after,.jm-count b,.cal-journal,.mj-item,.mj-stat,.mj-page-mask{animation:none !important;transition:none !important;}
+  .journal-module,.jm-count b,.jm-card,.jm-card-in,.jm-dot,.jm-ring,.cal-journal,.mj-item,.mj-stat,.mj-page-mask{animation:none !important;transition:none !important;}
 }
 
 /* ---------- 记账卡 ---------- */
@@ -2168,20 +2240,19 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
     </div>
   </div>
 
-  <div class="journal-module" id="journalModule" onclick="memViewJournal()" role="button" aria-label="打开回忆档案">
-    <div class="jm-top">
+  <div class="journal-module" id="journalModule" aria-label="回忆档案">
+    <div class="jm-top" onclick="memViewJournal()" role="button" tabindex="0">
       <div class="jm-title">
         <span class="jm-ic"><svg class="ico" style="width:17px;height:17px;"><use href="#i-book"/></svg></span>
         <span><b>回忆档案</b><small>日记 · 周记 · 月记</small></span>
       </div>
       <span class="jm-go">翻看 ›</span>
     </div>
-    <div class="jm-excerpt">
-      <div class="jm-kind" id="journalExcerptKind">正在翻阅…</div>
-      <div class="jm-text" id="journalExcerptText">回忆会在这里慢慢长出来。</div>
-      <div class="jm-date" id="journalExcerptDate"></div>
+    <div class="jm-stage" id="jmStage" role="button" aria-label="回忆轮播：左右拖动翻看，点中间那张打开档案">
+      <div class="jm-ring" id="jmRing"></div>
     </div>
-    <div class="jm-counts">
+    <div class="jm-dots" id="jmDots"></div>
+    <div class="jm-counts" onclick="memViewJournal()" role="button" tabindex="0">
       <span class="jm-count"><b id="jcDay">0</b>日记</span>
       <span class="jm-count wk"><b id="jcWeek">0</b>周记</span>
       <span class="jm-count mo"><b id="jcMonth">0</b>月记</span>
@@ -10593,11 +10664,31 @@ function mjFilter(f){
   memRenderJournalList();
   if(navigator.vibrate){ try{ navigator.vibrate(8); }catch(e){} }
 }
+/* 主页回忆档案 · 3D 液态玻璃旋转木马（2026-09-20）
+   ⚠️ backdrop-filter 只挂在 .jm-card-in（叶子节点），绝不上移到 .jm-ring —— 见 CSS 区块顶部注释。
+   性能三条：① 环上最多 6 张；② 角距 ≥2 张的卡直接 visibility:hidden（退出合成）；
+   ③ 指针按下期间给 .jm-stage 加 .dragging，一次性摘掉全部模糊（CSS 定义），松手即恢复。
+   交互约定：位移 < 4px 算点击 —— 点中间那张进档案页，点两侧的卡先转到它；≥4px 算拖动，不触发跳转。 */
+const JM_MAXN = 6;        // 环容量：取最新 N 篇
+const JM_GAP  = 196;      // 相邻卡中心距（卡宽 212 → 轻微交叠约 16px，两侧各露出约 70px）
+let _jmBound = false;     // stage 事件只绑一次
+let _jmCards = [];        // 环上卡片元素
+let _jmCount = 0;         // 卡片数（≤ JM_MAXN）
+let _jmStep = 60;         // 每张卡占的角度（自适应：360 / 卡数）
+let _jmR = JM_GAP / 2;    // 环半径（自适应：按弦长反解，卡少时环自动收小）
+let _jmRot = 0;           // 环当前旋转角（度）
+let _jmIdx = 0;           // 正对的那张：跨重渲染保留，用户翻到哪儿就停在哪儿
+let _jmSig = '';          // 内容指纹：没变就不重建 DOM（否则每次切页都重跑模糊 + 丢状态）
+let _jmDrag = null;
+let _jmLastMoved = 0;     // 上一次拖动的位移，供随后的 click 判定用
+let _jmRaf = 0;
+
 async function memRenderJournalModule(){
   let rows = [];
   try{ rows = (await memGetAll('journal')) || []; }catch(e){ rows = []; }
+  const live = rows.filter(Boolean);
   const counts = { day:0, week:0, month:0 };
-  rows.filter(Boolean).forEach(j=>{ if(counts[j.type] != null) counts[j.type]++; });
+  live.forEach(j=>{ if(counts[j.type] != null) counts[j.type]++; });
   const bump = (id, v)=>{
     const el = document.getElementById(id);
     if(!el || el.textContent === String(v)) return;
@@ -10609,21 +10700,162 @@ async function memRenderJournalModule(){
   bump('jcDay', counts.day);
   bump('jcWeek', counts.week);
   bump('jcMonth', counts.month);
-  const latest = rows.filter(Boolean).sort((a,b)=>String(b.start || '').localeCompare(String(a.start || '')))[0];
-  const kindEl = document.getElementById('journalExcerptKind');
-  const textEl = document.getElementById('journalExcerptText');
-  const dateEl = document.getElementById('journalExcerptDate');
-  if(!latest){
-    if(kindEl) kindEl.textContent = '还没有回忆';
-    if(textEl){ textEl.textContent = '和我多聊几句，日记会在一天结束时悄悄长出来。'; textEl.classList.add('empty'); }
-    if(dateEl) dateEl.textContent = '';
+
+  const ring = document.getElementById('jmRing');
+  const dotBox = document.getElementById('jmDots');
+  if(!ring) return;
+  jmBind();
+
+  const list = live.slice()
+    .sort((a,b)=>String(b.start || '').localeCompare(String(a.start || '')))
+    .slice(0, JM_MAXN);
+
+  if(!list.length){
+    if(!ring.querySelector('.jm-empty')){
+      ring.innerHTML = '<div class="jm-empty"><b>还没有回忆</b>和我多聊几句，日记会在一天结束时悄悄长出来</div>';
+      if(dotBox) dotBox.innerHTML = '';
+    }
+    _jmCards = []; _jmCount = 0; _jmIdx = 0; _jmRot = 0; _jmSig = '';
     return;
   }
-  const m = _JOURNAL_META[latest.type] || { label:'回忆', icon:'📄' };
-  const range = (latest.start && latest.end && latest.end !== latest.start) ? (latest.start + ' ~ ' + latest.end) : (latest.start || latest.end || '');
-  if(kindEl) kindEl.textContent = m.icon + ' ' + m.label;
-  if(textEl){ textEl.textContent = latest.content || ''; textEl.classList.remove('empty'); }
-  if(dateEl) dateEl.textContent = range;
+
+  const sig = list.map(j=>[j.id, j.type, j.start, j.end, String((j.content || '').length),
+    (Array.isArray(j.gems) && j.gems[0] ? String(j.gems[0].event || '') : '')].join('\u0001')).join('\u0002');
+  if(sig !== _jmSig || _jmCount !== list.length || !ring.querySelector('.jm-card')){
+    _jmSig = sig;
+    jmBuild(ring, list);
+  }
+  if(dotBox && dotBox.childElementCount !== _jmCount) jmBuildDots(dotBox);
+  if(_jmIdx >= _jmCount) _jmIdx = 0;
+  _jmRot = -_jmIdx * _jmStep;
+  jmLayout(true);
+  jmPaint(true);
+}
+
+// 建环：卡数决定每张占的角度与环半径，保证相邻卡中心距恒为 JM_GAP（卡少时环自动收小，不会散开）
+function jmBuild(ring, list){
+  _jmCount = list.length;
+  _jmStep = _jmCount > 1 ? 360 / _jmCount : 0;
+  _jmR = _jmCount > 1 ? (JM_GAP / (2 * Math.sin(Math.PI / _jmCount))) : 0;
+  _jmCards = [];
+  ring.innerHTML = '';
+  const frag = document.createDocumentFragment();
+  list.forEach((j,i)=>{
+    const m = _JOURNAL_META[j.type] || { label:'回忆', icon:'', cls:'' };
+    const range = (j.start && j.end && j.end !== j.start) ? (j.start + ' ~ ' + j.end) : (j.start || j.end || '');
+    const gem = (Array.isArray(j.gems) && j.gems[0] && j.gems[0].event) ? j.gems[0].event : '';
+    const card = document.createElement('div');
+    card.className = gem ? 'jm-card' : 'jm-card no-gem';   // 没有 gems 的卡用 4 行正文填满，避免底部空一块
+    card.dataset.i = String(i);
+    card.style.transform = 'rotateY(' + (i * _jmStep).toFixed(3) + 'deg) translateZ(' + _jmR.toFixed(2) + 'px)';
+    const inner = document.createElement('div');
+    inner.className = 'jm-card-in';
+    inner.style.setProperty('--jmac', j.type === 'week' ? 'var(--cool)' : (j.type === 'month' ? 'var(--warm-deep)' : 'var(--green-deep)'));
+    let h = '<div class="jm-ch"><span class="jm-pill ' + escHtml(m.cls || '') + '">' + escHtml(m.icon + ' ' + m.label) + '</span>' +
+            '<span class="jm-cd">' + escHtml(range) + '</span></div>' +
+            '<div class="jm-cx">' + escHtml(j.content || '') + '</div>';
+    if(gem) h += '<div class="jm-cg"><i></i><span>' + escHtml(gem) + '</span></div>';
+    inner.innerHTML = h;
+    card.appendChild(inner);
+    frag.appendChild(card);
+    _jmCards.push(card);
+  });
+  ring.appendChild(frag);
+}
+function jmBuildDots(dotBox){
+  dotBox.innerHTML = _jmCards.map((c,i)=>'<span class="jm-dot" data-i="'+i+'"></span>').join('');
+}
+function jmLayout(animate){
+  const ring = document.getElementById('jmRing');
+  if(!ring) return;
+  ring.style.transition = animate ? 'transform .5s var(--ease)' : 'none';
+  ring.style.transform = 'translateZ(-' + _jmR.toFixed(2) + 'px) rotateY(' + _jmRot.toFixed(3) + 'deg)';
+}
+// 可见度一律按「角度差」算，不能按张数：卡少时 step 会变大（2 张 = 180°），按张数算会把
+// 正背后那张当成「相邻卡」以 0.68 亮度显示出来 —— 它超过 90° 是镜像的，会盖在正卡上。
+const JM_VIS_DEG = 92;    // 超过这个角度差一律不显示（>90° 即背面，文字镜像）
+function jmPaint(final){
+  if(!_jmCount) return;
+  const curF = _jmStep ? (-_jmRot / _jmStep) : 0;
+  const near = ((Math.round(curF) % _jmCount) + _jmCount) % _jmCount;
+  for(let i=0;i<_jmCount;i++){
+    const el = _jmCards[i];
+    if(!el) continue;
+    const raw = Math.abs(i - curF);
+    const d = Math.min(raw, _jmCount - raw);      // 环上最短距离（单位：张）
+    const deg = d * _jmStep;                      // 换算成真实角度差（单张时恒 0）
+    const op = deg >= JM_VIS_DEG ? 0 : (1 - Math.pow(deg / JM_VIS_DEG, 2.2) * 0.92);
+    el.style.opacity = op.toFixed(3);
+    el.style.visibility = op < 0.02 ? 'hidden' : 'visible';
+    const inner = el.firstChild;
+    if(inner) inner.style.setProperty('--jms', (1 + Math.max(0, 1 - deg / JM_VIS_DEG) * 0.05).toFixed(4));
+  }
+  if(final){
+    for(let i=0;i<_jmCount;i++){ if(_jmCards[i]) _jmCards[i].classList.toggle('cur', i === _jmIdx); }
+  }
+  const dotBox = document.getElementById('jmDots');
+  if(dotBox){
+    const on = final ? _jmIdx : near;
+    Array.prototype.forEach.call(dotBox.children, (d,i)=>d.classList.toggle('on', i === on));
+  }
+}
+function jmSettle(){
+  _jmIdx = ((Math.round(-_jmRot / _jmStep) % _jmCount) + _jmCount) % _jmCount;
+  _jmRot = -Math.round(-_jmRot / _jmStep) * _jmStep;   // 保留连续旋转量，吸附到最近一格
+  jmLayout(true);
+  jmPaint(true);
+}
+function jmBind(){
+  if(_jmBound) return;
+  const stage = document.getElementById('jmStage');
+  const dotBox = document.getElementById('jmDots');
+  if(!stage) return;
+  _jmBound = true;
+  stage.addEventListener('pointerdown', function(e){
+    if(_jmCount < 2) return;   // 只有 1 篇时环无可转，别让它原地自转
+    _jmDrag = { x:e.clientX, rot:_jmRot, moved:0 };
+    stage.classList.add('dragging','grabbing');
+    try{ stage.setPointerCapture(e.pointerId); }catch(err){}
+  });
+  stage.addEventListener('pointermove', function(e){
+    if(!_jmDrag) return;
+    const dx = e.clientX - _jmDrag.x;
+    if(Math.abs(dx) > _jmDrag.moved) _jmDrag.moved = Math.abs(dx);
+    if(_jmDrag.moved < 4) return;                 // 死区：手抖不算拖动
+    _jmRot = _jmDrag.rot + dx * (360 / (2 * Math.PI * Math.max(_jmR, 40)));
+    if(_jmRaf) return;
+    _jmRaf = requestAnimationFrame(function(){ _jmRaf = 0; jmLayout(false); jmPaint(false); });
+  });
+  function up(){
+    if(!_jmDrag) return;
+    _jmLastMoved = _jmDrag.moved;
+    const moved = _jmDrag.moved;
+    _jmDrag = null;
+    stage.classList.remove('dragging','grabbing');
+    if(moved < 4) return;                         // 没真拖动 → 交给 click 处理
+    jmSettle();
+  }
+  stage.addEventListener('pointerup', up);
+  stage.addEventListener('pointercancel', up);
+  stage.addEventListener('click', function(e){
+    if(_jmLastMoved >= 4){ e.stopPropagation(); return; }   // 刚拖过，别顺手打开档案页
+    const card = e.target && e.target.closest ? e.target.closest('.jm-card') : null;
+    const i = card ? parseInt(card.dataset.i, 10) : NaN;
+    if(!isNaN(i) && i !== _jmIdx){                // 点侧卡：先转到它，不跳页
+      _jmIdx = i; _jmRot = -i * _jmStep; jmLayout(true); jmPaint(true);
+      if(navigator.vibrate){ try{ navigator.vibrate(8); }catch(err){} }
+      return;
+    }
+    memViewJournal();
+  });
+  if(dotBox) dotBox.addEventListener('click', function(e){
+    const d = e.target && e.target.closest ? e.target.closest('.jm-dot') : null;
+    if(!d) return;
+    const i = parseInt(d.dataset.i, 10);
+    if(isNaN(i) || i === _jmIdx) return;
+    _jmIdx = i; _jmRot = -i * _jmStep; jmLayout(true); jmPaint(true);
+    if(navigator.vibrate){ try{ navigator.vibrate(8); }catch(err){} }
+  });
 }
 function refreshCalJournalSlot(){
   try{ if(curTab === 'cal' && calSel) renderCalJournal(calSel); }catch(e){}
