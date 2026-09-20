@@ -776,14 +776,20 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   perspective:730px;perspective-origin:50% 44%;
   touch-action:pan-y;cursor:grab;
   user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;
+  /* 环专用缓动：--ease 是 cubic-bezier(.16,1,.3,1)，尾部极缓、停在最后一格时慢磨。
+     这条更接近 iOS 系统曲线（前段快出、后段匀速收住），视觉上更"跟手、干脆"。 */
+  --ease-jm:cubic-bezier(.32,.72,0,1);
 }
 .jm-stage.grabbing{cursor:grabbing;}
 .jm-ring{position:absolute;inset:0;transform-style:preserve-3d;}
 .jm-card{
   position:absolute;left:50%;top:50%;width:212px;height:132px;margin:-66px 0 0 -106px;
   transform-style:preserve-3d;
-  transition:opacity .34s var(--ease);
+  transition:opacity .3s var(--ease-jm);
 }
+/* ⚠️ 拖动中必须连卡自身的过渡一起关掉：只关 .jm-card-in 不够 —— 每帧写入的 opacity 会被
+   这条 .3s 过渡平滑化，侧卡亮度滞后于旋转约 0.3s，看起来就是"拖影 / 亮度跟不上"。 */
+.jm-stage.dragging .jm-card{transition:none;}
 .jm-card-in{
   position:absolute;inset:0;box-sizing:border-box;padding:11px 13px 10px;border-radius:var(--radius-sm);
   overflow:hidden;display:flex;flex-direction:column;
@@ -792,7 +798,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   box-shadow:0 12px 28px rgba(92,115,89,.13),0 2px 6px rgba(92,115,89,.06),inset 0 1px 0 rgba(255,255,255,.92);
   backdrop-filter:blur(var(--blur-l)) saturate(180%);-webkit-backdrop-filter:blur(var(--blur-l)) saturate(180%);
   transform:scale(var(--jms,1));
-  transition:transform .38s var(--ease),box-shadow .38s var(--ease),border-color .3s;
+  /* 只过渡 transform / border-color：**不要过渡 box-shadow** —— 阴影插值每帧都要重绘一大片，
+     是当前卡片上最贵的一项；去掉后"当前卡更亮一圈"是瞬时切换，在 opacity 变化面前看不出来。 */
+  transition:transform .34s var(--ease-jm),border-color .28s;
 }
 /* 拖动降级：只换背景与模糊，其它属性不动，避免重排 */
 .jm-stage.dragging .jm-card-in{
@@ -855,18 +863,8 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 }
 .jm-empty b{display:block;font-size:var(--fs-3);color:var(--ink-soft);font-weight:800;}
 
-.jm-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px;}
-.jm-count{
-  display:flex;align-items:baseline;justify-content:center;gap:5px;font-size:var(--fs-2);
-  color:var(--ink-soft);font-weight:700;padding:7px 4px;border-radius:var(--radius-xs);
-  background:var(--green-soft);border:1px solid var(--green-mid);box-shadow:var(--shadow-inset);
-}
-.jm-count b{font-size:var(--fs-4);color:var(--green-deep);font-variant-numeric:tabular-nums;animation:jmCountIn .42s var(--ease) both;}
-.jm-count.wk{background:rgba(120,165,190,.12);border-color:rgba(120,165,190,.26);}
-.jm-count.wk b{color:var(--cool);}
-.jm-count.mo{background:var(--warm-soft);border-color:rgba(224,170,112,.30);}
-.jm-count.mo b{color:var(--warm-deep);}
-@keyframes jmCountIn{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:none;}}
+/* 2026-09-21：主页的三计数卡（日记/周记/月记）已删除 —— 同样的数字在档案页顶部有更完整的
+   .mj-stat（带「每天一篇 / 每周一结 / 每月回顾」说明），主页留着只是重复占地方。 */
 
 /* ===== 角色生活 · 主页卡片变体 + 全屏动态流（谁的生活） ===== */
 .oc-feed-module{background:linear-gradient(150deg,rgba(150,170,200,.18) 0%,var(--warm-soft) 55%,var(--glass-strong) 100%);}
@@ -1228,7 +1226,7 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 .mj-item-btn.del{background:rgba(217,138,138,.12);color:var(--danger);border-color:rgba(217,138,138,.26);}
 .mj-foot{flex:0 0 auto;padding:6px 4px 2px;text-align:center;font-size:var(--fs-1);color:var(--ink-faint);line-height:1.6;}
 @media (prefers-reduced-motion:reduce){
-  .journal-module,.jm-count b,.jm-card,.jm-card-in,.jm-dot,.jm-ring,.cal-journal,.mj-item,.mj-stat,.mj-page-mask{animation:none !important;transition:none !important;}
+  .journal-module,.jm-card,.jm-card-in,.jm-dot,.jm-ring,.cal-journal,.mj-item,.mj-stat,.mj-page-mask{animation:none !important;transition:none !important;}
 }
 
 /* ---------- 记账卡 ---------- */
@@ -2252,11 +2250,6 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
       <div class="jm-ring" id="jmRing"></div>
     </div>
     <div class="jm-dots" id="jmDots"></div>
-    <div class="jm-counts" onclick="memViewJournal()" role="button" tabindex="0">
-      <span class="jm-count"><b id="jcDay">0</b>日记</span>
-      <span class="jm-count wk"><b id="jcWeek">0</b>周记</span>
-      <span class="jm-count mo"><b id="jcMonth">0</b>月记</span>
-    </div>
   </div>
 
   <div class="next-card" id="nextCard"></div>
@@ -10679,28 +10672,17 @@ let _jmR = JM_GAP / 2;    // 环半径（自适应：按弦长反解，卡少时
 let _jmRot = 0;           // 环当前旋转角（度）
 let _jmIdx = 0;           // 正对的那张：跨重渲染保留，用户翻到哪儿就停在哪儿
 let _jmSig = '';          // 内容指纹：没变就不重建 DOM（否则每次切页都重跑模糊 + 丢状态）
+let _jmInners = [];       // 与 _jmCards 一一对应的玻璃层（拖动中每帧要用）
 let _jmDrag = null;
 let _jmLastMoved = 0;     // 上一次拖动的位移，供随后的 click 判定用
-let _jmRaf = 0;
+let _jmGlassT = 0;        // 吸附动画结束后才恢复玻璃的定时器（动画期间保持降级）
 
 async function memRenderJournalModule(){
   let rows = [];
   try{ rows = (await memGetAll('journal')) || []; }catch(e){ rows = []; }
   const live = rows.filter(Boolean);
-  const counts = { day:0, week:0, month:0 };
-  live.forEach(j=>{ if(counts[j.type] != null) counts[j.type]++; });
-  const bump = (id, v)=>{
-    const el = document.getElementById(id);
-    if(!el || el.textContent === String(v)) return;
-    el.textContent = String(v);
-    el.style.animation = 'none';
-    void el.offsetWidth;
-    el.style.animation = '';
-  };
-  bump('jcDay', counts.day);
-  bump('jcWeek', counts.week);
-  bump('jcMonth', counts.month);
-
+  // 2026-09-21：主页不再渲染「日记/周记/月记」三计数（数字在档案页顶部有更完整的 `.mj-stat`），
+  // 这里只管环本身，不再做任何 DOM 写入之外的记账。
   const ring = document.getElementById('jmRing');
   const dotBox = document.getElementById('jmDots');
   if(!ring) return;
@@ -10738,6 +10720,7 @@ function jmBuild(ring, list){
   _jmStep = _jmCount > 1 ? 360 / _jmCount : 0;
   _jmR = _jmCount > 1 ? (JM_GAP / (2 * Math.sin(Math.PI / _jmCount))) : 0;
   _jmCards = [];
+  _jmInners = [];     // 玻璃层单独存一份，拖动中每帧用，省掉 firstChild 查询
   ring.innerHTML = '';
   const frag = document.createDocumentFragment();
   list.forEach((j,i)=>{
@@ -10759,17 +10742,37 @@ function jmBuild(ring, list){
     card.appendChild(inner);
     frag.appendChild(card);
     _jmCards.push(card);
+    _jmInners.push(inner);
   });
   ring.appendChild(frag);
 }
 function jmBuildDots(dotBox){
   dotBox.innerHTML = _jmCards.map((c,i)=>'<span class="jm-dot" data-i="'+i+'"></span>').join('');
 }
-function jmLayout(animate){
+function _jmDegPerPx(){ return 360 / (2 * Math.PI * Math.max(_jmR, 40)); }
+// 吸附时长按「要跨几格」微调并封顶：跨得多给久一点，但甩一下也不会飞太久
+function jmLayout(animate, steps){
   const ring = document.getElementById('jmRing');
   if(!ring) return;
-  ring.style.transition = animate ? 'transform .5s var(--ease)' : 'none';
+  if(animate){
+    const k = Math.min(4, Math.max(1, steps || 1));
+    ring.style.transition = 'transform ' + (0.32 + k * 0.045).toFixed(3) + 's var(--ease-jm)';
+  } else {
+    ring.style.transition = 'none';
+  }
   ring.style.transform = 'translateZ(-' + _jmR.toFixed(2) + 'px) rotateY(' + _jmRot.toFixed(3) + 'deg)';
+}
+// 环当前的真实旋转角。吸附动画还没跑完时用户又按下去，要从"眼睛看到的位置"接着拖，
+// 否则会从上一次的终点跳一下。旋转部分保留在 m11/m13（前面的 translateZ 只影响 m4x）。
+function jmCurrentRot(){
+  const ring = document.getElementById('jmRing');
+  if(!ring) return _jmRot;
+  try{
+    const t = getComputedStyle(ring).transform;
+    if(!t || t === 'none') return _jmRot;
+    const m = new DOMMatrix(t);
+    return Math.atan2(m.m13, m.m11) * 180 / Math.PI;
+  }catch(e){ return _jmRot; }
 }
 // 可见度一律按「角度差」算，不能按张数：卡少时 step 会变大（2 张 = 180°），按张数算会把
 // 正背后那张当成「相邻卡」以 0.68 亮度显示出来 —— 它超过 90° 是镜像的，会盖在正卡上。
@@ -10785,9 +10788,11 @@ function jmPaint(final){
     const d = Math.min(raw, _jmCount - raw);      // 环上最短距离（单位：张）
     const deg = d * _jmStep;                      // 换算成真实角度差（单张时恒 0）
     const op = deg >= JM_VIS_DEG ? 0 : (1 - Math.pow(deg / JM_VIS_DEG, 2.2) * 0.92);
-    el.style.opacity = op.toFixed(3);
-    el.style.visibility = op < 0.02 ? 'hidden' : 'visible';
-    const inner = el.firstChild;
+    const opS = op.toFixed(3);
+    if(el.style.opacity !== opS) el.style.opacity = opS;       // 值没变就不写
+    const vis = op < 0.02 ? 'hidden' : 'visible';
+    if(el.style.visibility !== vis) el.style.visibility = vis; // 拖动时大部分卡都停在两端，能省掉多数写入
+    const inner = _jmInners[i];
     if(inner) inner.style.setProperty('--jms', (1 + Math.max(0, 1 - deg / JM_VIS_DEG) * 0.05).toFixed(4));
   }
   if(final){
@@ -10799,10 +10804,13 @@ function jmPaint(final){
     Array.prototype.forEach.call(dotBox.children, (d,i)=>d.classList.toggle('on', i === on));
   }
 }
-function jmSettle(){
-  _jmIdx = ((Math.round(-_jmRot / _jmStep) % _jmCount) + _jmCount) % _jmCount;
-  _jmRot = -Math.round(-_jmRot / _jmStep) * _jmStep;   // 保留连续旋转量，吸附到最近一格
-  jmLayout(true);
+function jmSettle(boostDeg){
+  if(boostDeg) _jmRot += boostDeg;
+  const from = _jmStep ? (-_jmRot / _jmStep) : 0;
+  const to = Math.round(from);
+  _jmIdx = ((to % _jmCount) + _jmCount) % _jmCount;
+  _jmRot = -to * _jmStep;                     // 保留连续旋转量，吸附到最近一格
+  jmLayout(true, Math.ceil(Math.abs(to - from)) || 1);
   jmPaint(true);
 }
 function jmBind(){
@@ -10813,7 +10821,8 @@ function jmBind(){
   _jmBound = true;
   stage.addEventListener('pointerdown', function(e){
     if(_jmCount < 2) return;   // 只有 1 篇时环无可转，别让它原地自转
-    _jmDrag = { x:e.clientX, rot:_jmRot, moved:0 };
+    if(_jmGlassT){ clearTimeout(_jmGlassT); _jmGlassT = 0; _jmRot = jmCurrentRot(); }
+    _jmDrag = { x:e.clientX, rot:_jmRot, moved:0, v:0, t:(e.timeStamp || performance.now()), lx:e.clientX };
     stage.classList.add('dragging','grabbing');
     try{ stage.setPointerCapture(e.pointerId); }catch(err){}
   });
@@ -10822,18 +10831,31 @@ function jmBind(){
     const dx = e.clientX - _jmDrag.x;
     if(Math.abs(dx) > _jmDrag.moved) _jmDrag.moved = Math.abs(dx);
     if(_jmDrag.moved < 4) return;                 // 死区：手抖不算拖动
-    _jmRot = _jmDrag.rot + dx * (360 / (2 * Math.PI * Math.max(_jmR, 40)));
-    if(_jmRaf) return;
-    _jmRaf = requestAnimationFrame(function(){ _jmRaf = 0; jmLayout(false); jmPaint(false); });
+    _jmRot = _jmDrag.rot + dx * _jmDegPerPx();
+    const now = e.timeStamp || performance.now();
+    const inst = (e.clientX - _jmDrag.lx) / Math.max(8, now - _jmDrag.t);   // px/ms
+    _jmDrag.v = inst * 0.6 + _jmDrag.v * 0.4;    // 平滑一下，避开最后一帧的抖动
+    _jmDrag.t = now; _jmDrag.lx = e.clientX;
+    jmLayout(false); jmPaint(false);              // 直接应用，不套 rAF —— 套了会多一帧延迟
   });
   function up(){
     if(!_jmDrag) return;
     _jmLastMoved = _jmDrag.moved;
     const moved = _jmDrag.moved;
+    const v = _jmDrag.v;
     _jmDrag = null;
-    stage.classList.remove('dragging','grabbing');
-    if(moved < 4) return;                         // 没真拖动 → 交给 click 处理
-    jmSettle();
+    if(moved < 4){ stage.classList.remove('dragging','grabbing'); return; } // 没真拖动 → 交给 click
+    // 惯性：按最后速度外推约 120ms，甩得快就滑得远（封顶 ±260px，防止一下飞过头）
+    let px = v * 120;
+    if(px > 260) px = 260; else if(px < -260) px = -260;
+    jmSettle(px * _jmDegPerPx());
+    // 松手后先不恢复玻璃：让整段吸附动画在"零模糊"状态下跑完（纯合成，最丝滑），
+    // 动画结束再一次性恢复 —— 恢复发生在静止时，注意力已经不在运动上了。
+    if(_jmGlassT) clearTimeout(_jmGlassT);
+    _jmGlassT = setTimeout(function(){
+      _jmGlassT = 0;
+      stage.classList.remove('dragging','grabbing');
+    }, 420);
   }
   stage.addEventListener('pointerup', up);
   stage.addEventListener('pointercancel', up);
