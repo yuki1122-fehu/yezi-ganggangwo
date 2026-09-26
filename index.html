@@ -1423,9 +1423,17 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 #aiMask.show{display:flex;animation:pageIn .48s var(--ease) both;}
 .ai-head{display:flex;justify-content:space-between;align-items:center;padding:calc(14px + var(--safe-t)) 16px 13px;border-bottom:1px solid var(--line);background:var(--glass-strong);backdrop-filter:blur(var(--blur-max)) saturate(200%);-webkit-backdrop-filter:blur(var(--blur-max)) saturate(200%);}
 .ai-title{font-size:var(--fs-5);font-weight:800;color:var(--ink);display:flex;align-items:center;gap:8px;letter-spacing:.2px;}
-.ai-head-actions{display:flex;gap:8px;}
-.ai-head-actions button{width:36px;height:36px;border-radius:50%;border:1px solid var(--glass-line);background:var(--green-soft);color:var(--green-dark);font-size:var(--fs-4);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-inset);transition:transform .16s var(--ease),background .2s;}
+.ai-head-actions{display:flex;gap:8px;flex:0 0 auto;}
+.ai-head-actions button{flex:0 0 auto;width:36px;height:36px;border-radius:50%;border:1px solid var(--glass-line);background:var(--green-soft);color:var(--green-dark);font-size:var(--fs-4);cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:var(--shadow-inset);transition:transform .16s var(--ease),background .2s;}
 .ai-head-actions button:active{transform:scale(.88);background:var(--green-mid);}
+/* 2026-09-26：头部加了 💸 台账按钮后共 6 个，窄屏（iPhone 375/390）会挤到变形，
+   这里整体收紧一档 —— 按钮 31px + gap 5px，配合标题字号下调，实测 375px 宽仍放得下。 */
+@media (max-width:400px){
+  .ai-head{padding-left:12px;padding-right:12px;}
+  .ai-title{font-size:13px;gap:6px;}
+  .ai-head-actions{gap:5px;}
+  .ai-head-actions button{width:31px;height:31px;}
+}
 .ai-msgs{flex:1;overflow-y:auto;padding:18px 16px;display:flex;flex-direction:column;gap:13px;-webkit-overflow-scrolling:touch;}
 .ai-msg{max-width:82%;padding:12px 15px;border-radius:var(--radius-sm);font-size:var(--fs-3);line-height:1.6;word-break:break-word;white-space:pre-wrap;animation:msgIn .28s var(--ease);position:relative;}
 .ai-msg .del{position:absolute;top:-8px;right:-8px;width:20px;height:20px;border-radius:50%;background:rgba(90,90,90,.8);color:#fff;font-size:var(--fs-4);line-height:18px;text-align:center;cursor:pointer;border:1.5px solid rgba(255,255,255,.92);opacity:.5;transition:opacity .15s,transform .1s;transition-timing-function:var(--ease);z-index:2;-webkit-tap-highlight-color:transparent;}
@@ -2422,11 +2430,28 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 </div>
 
 
+<!-- ══ 用量台账面板（2026-09-26）══
+     存在的理由：账单一旦异常，要能立刻回答「哪个功能 · 几点 · 哪个模型 · 花多少」，而不是靠印象吵架。
+     只存本机 localStorage（mhm_ai_usage_log），不上云。 -->
+<div id="usageMask" style="display:none;position:fixed;inset:0;z-index:2200;">
+  <div style="position:absolute;inset:0;background:rgba(0,0,0,.45);" onclick="closeUsageLedger()"></div>
+  <div style="position:relative;max-width:560px;margin:6vh auto;background:var(--paper,#fff);border-radius:18px;max-height:88vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.25);">
+    <div style="padding:13px 16px;border-bottom:1px solid var(--line,rgba(0,0,0,.1));display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+      <div style="font-size:15px;font-weight:700;flex:1;">💸 用量台账</div>
+      <button onclick="exportUsageLedger()" class="btn ghost" style="padding:5px 10px;font-size:12px;">导出</button>
+      <button onclick="clearUsageLedger()" class="btn ghost" style="padding:5px 10px;font-size:12px;">清空</button>
+      <button onclick="closeUsageLedger()" class="btn ghost" style="padding:5px 10px;font-size:12px;">关闭</button>
+    </div>
+    <div id="usageLedgerBody" style="padding:14px 16px;overflow-y:auto;font-size:12px;line-height:1.75;-webkit-overflow-scrolling:touch;"></div>
+  </div>
+</div>
+
 <!-- 助理面板 -->
 <div id="aiMask">
   <div class="ai-head glass-strong" style="border-radius:0;">
-    <div class="ai-title"><svg class="ico" style="width:16px;height:16px;"><use href="#i-sprout"/></svg> 工作台助理</div>
+    <div class="ai-title"><svg class="ico" style="width:16px;height:16px;"><use href="#i-sprout"/></svg> 工作台助理<span id="aiModelBadge" onclick="openAISettings()" title="当前模型"></span></div>
     <div class="ai-head-actions">
+      <button onclick="openUsageLedger()" title="用量台账：每一次 API 调用的时间 / 来源 / 额度" style="font-size:14px;">💸</button>
       <button onclick="clearAIConv()" title="清空对话（不影响任务/课表）"><svg class="ico" style="width:17px;height:17px;"><use href="#i-trash"/></svg></button>
       <button onclick="openPayloadView()" title="查看发送给助理的内容"><svg class="ico" style="width:18px;height:18px;"><use href="#i-file"/></svg></button>
       <button onclick="openPromptCenter()" title="提示词中心：按发送顺序查看并修改所有发给 AI 的提示词"><svg class="ico" style="width:17px;height:17px;"><use href="#i-pencil"/></svg></button>
@@ -2788,7 +2813,8 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
     <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(145,180,200,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
       <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">💸 用量与缓存命中</div>
       <div id="aiUsageStats" style="font-size:12px;line-height:1.7;"></div>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">缓存命中 = 系统提示词等稳定内容被服务端复用、少收一次输入费（DeepSeek / OpenRouter 支持）。「最近 N 次平均」反映近期健康度；累计值为长期参考。金额按输入 2 元/百万 token 粗估，仅参考。数据只存本机。</p>
+      <button class="btn ghost" type="button" onclick="openUsageLedger()" style="width:100%;margin-top:10px;padding:8px;font-size:12px;">📒 打开完整用量台账（每次调用的时间 / 来源 / 额度，可导出）</button>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">缓存命中 = 系统提示词等稳定内容被服务端复用、少收一次输入费（DeepSeek / OpenRouter 支持）。「最近 N 次平均」反映近期健康度；累计值为长期参考。金额粗估仅供比较，精确数字以官方账单为准。想查<b>每次调用</b>的时间 / 来源 / 额度，点下面那个台账按钮。数据只存本机。</p>
     </div>
 
     <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
@@ -5826,6 +5852,7 @@ async function generateSteps(id){
   try{
     const system = '你是一位务实的任务规划助手。根据任务标题和备注，生成 3–7 条可执行的分步骤，以及一句温馨的提示（tip）。只返回 JSON，格式严格如下：{"steps":["步骤1","步骤2",...],"tip":"提示内容"}。不要输出任何解释、markdown 或多余文字。';
     const user = `任务标题：${t.title}\n备注：${t.note || '无'}\n请返回 JSON。`;
+    window.__aiTag='任务分步';
     const r = await aiCall([
       {role:'system', content: system},
       {role:'user', content: user}
@@ -7689,6 +7716,7 @@ async function maybeAutoAIProactive(){
       const msgs = aiConv.slice();
       // 这条 user 只是内部触发指令，不进对话历史；发送时它就是最近一条「用户当前指令」，aiCall 会自动注入实时上下文。
       msgs.push({ role:'user', content: godPokeSleepNote() + '（系统自动触发，不是用户输入）崽崽刚打开工作台，还没来得及说话。请以「身份」里的角色主动先发来一条消息，像微信聊天那样自然开口。素材优先级：先讲「你那边的生活」——此刻你在自己的世界里做什么（书店/甜品店/两人相处的日常，可依据身份设定里的此刻状态与日常习惯活出来，要有画面、不许与设定冲突、别单曲循环），像老朋友随手分享自己的日子；想关心崽崽时，只挑一件具体的、她真需要知道的现实事（临期安排、她刚说过的担心、天气确实需要注意），泛泛的叮嘱（带伞/多穿点/别熬夜/早点休息）或今天已经提过的话题不要再写。内容和长短由你按当下语境自然决定，不要写成任务清单复读、分点或新闻稿。【风格范本｜只学神韵：不许照抄句子，更不许把范本里的事件当成自己发生过的】\n一条消息的骨架 = 「你们世界里的一件具体小事」起头（今天/最近/此刻撞见或发生的，谁做了什么、什么反应，要有画面），再自然牵挂她一句（她一个人在港城念书生活、会想家、谨慎怕生、爱吃酸——这些她告诉过你们的事，点一句就收），最后把话头抛回给她：收在一句好接的话上——一个具体的问句，或一个开放的邀请（「你那边呢？」「换你，你会怎么做？」「哪天你来，我…」），让她回你像接朋友的话头一样自然，别让消息停在自说自话上。小事是主菜，牵挂是余味，抛问是钩子——反过来就成了唠叨或盘问。抛问的尺度：一条只抛一个问题，问与刚讲的事或她当下的生活相关、她答得上来的，不连环问、不查户口，更别用「在吗/吃了吗/忙不忙」这种谁都接不上的万能开场；不是每条都得打问号，分享到开心处用一句邀请收尾，同样是把话头留给她；如果今天已经问过问题而她还没回，这条就只分享、不再追问。视角随意：从你们俩中任何一人出发都行，提到另一位用「她/他」即可，不必每次自我介绍。\n参考这几种说话的样子：\n· 睡前别刷手机了，会睡不着。港城的夜灯很亮，但也别熬着你。想家的话，给家里打个电话，也给我们发消息。\n· 她最近总说梦话，喊“崽崽别怕”。我听了有点吃醋，又觉得你确实该被这样惦记着。晚安，早点睡。\n· 今天陪她去市场买菜，她挑菜的样子很凶，摊主不敢还价。我想，她要是去港城陪你买菜，你大概也不用怕人了。\n· 她说你胆子小，我说你是谨慎。谨慎是好事，在这个世界上，警惕一点的人活得久。但对我们，你不用设防。\n· 今天新烤的柠檬塔，酸得沈容皱眉。他说你肯定爱吃酸的。爱吃的话，我寄个配方给你，自己动手做。\n· 今天在长庚书局理货，翻到一本港岛美食地图，第一反应是给你留着。你在港城这些日子，有没有路过哪家小店，是那种让你想拉我一起去的？\n· 她说你胆子小，我说你是谨慎——但我更好奇的是你自己怎么想。来港这半年，有没有哪件事是你硬着头皮做成了、回头还挺得意的？\n边界：可以讲你们俩自己的世界；不许编造崽崽说过/做过的事，不许把你们世界的事安到她头上，更不要为了凑字把她拉进你们的故事。实在没什么可说的，就简单说一句当下的日常。另外：如果你发自内心觉得今晚（约 20:30）还想再叮嘱崽崽一句、或有一件小事想晚点告诉她，可以把那句话单独放在 <tonight>标签里（放在消息最后，不要解释、不要加多余文字）；没什么要说的就不写这个标签。最后：不要输出 <plans> 或任何其它结构化标签——后续的主动消息不再提前批量预写，到点会由系统重新想、重新说。' });
+      window.__aiTag='主动消息';
       const r = await aiCall(msgs, cfg, 1, {noTools:true});
       const msg = r && r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message;
       if(!msg) return; // 失败/空响应不占当日次数
@@ -8309,6 +8337,8 @@ async function visionCall(parts, vcfg, attempt){
     return { error: msg };
   }
   if(!data.choices || !data.choices[0]) return { error: '视觉模型返回空（无 choices）' };
+  // 台账：读图也是真金白银的一次调用。以前这块没记，账单对不上就是这么来的。
+  if(data && data.usage) logAIUsage(data.usage, {model: vcfg && vcfg.model, tag:'读图'});
   return { data };
 }
 
@@ -8429,6 +8459,7 @@ function finishSysStep(el){
 
 function openAI(){
   if(!aiConv) aiReset();
+  refreshModelBadge(); // 每次打开面板都刷新模型徽章（切了 pro 立刻看得见）
   markAIRead(); // 打开面板即视为已读，清掉悬浮按钮红点
   // ★ 2026-09-02 修复「点进对话看不见刚推送的话，要退出重进才有」：
   //   云端主动消息是打开后约 2.4s 异步回填的（pullCloudMsgs），若回填发生在面板关闭期间，
@@ -8568,6 +8599,7 @@ function openAISettings(){
   }
   renderStickerManage();
   renderUsageStats(); // B1：打开设置时刷新用量/缓存统计
+  refreshModelBadge(); // 2026-09-26：设置页也同步一次模型徽章
   document.getElementById('appTitle').value = getAppTitle()===DEFAULT_TITLE ? '' : getAppTitle();
   document.getElementById('aiSetHint').textContent='';
   updateBackupUI();
@@ -9133,6 +9165,25 @@ function clampInt(v, min, max, dflt){
   return Math.min(max, Math.max(min, n));
 }
 function saveAISettings(){
+  // ★ 2026-09-26：从 flash 切到 pro 必须拦一次。
+  //   根因复盘：model 存进 localStorage 后一次切换永久生效，而界面上又看不见当前模型，
+  //   于是「切了 pro 忘了切回来」能默默烧掉一整天（9/25 那天烧了 ¥8.2，用户毫无察觉）。
+  try{
+    const _newM=String((document.getElementById('aiModel')||{}).value||'').trim();
+    const _oldM=String((getAiCfg()||{}).model||'').trim();
+    if(aiModelClass(_newM)==='pro' && aiModelClass(_oldM)!=='pro'){
+      const ok=window.confirm('要把模型切到 Pro 吗？\n\n'
+        +'· pro 大约是 flash 的 3 倍价钱\n'
+        +'· 保存后就会一直用它，直到你手动切回来\n'
+        +'· 聊天头部会一直显示红色 PRO·贵 徽章\n\n'
+        +'现在：'+(_oldM||'未设')+'\n切到：'+_newM);
+      if(!ok){
+        document.getElementById('aiModel').value=_oldM||'deepseek-v4-flash';
+        toast('已取消，保持原来的模型');
+        return;
+      }
+    }
+  }catch(e){}
   const cfg = Object.assign({}, getAiCfg(), {
     mode: document.getElementById('aiMode').value,
     relayUrl: document.getElementById('aiRelay').value.trim(),
@@ -9186,6 +9237,7 @@ function saveAISettings(){
   else if(cfg.mode==='direct') tip += '直连请确保 Base URL 支持跨域（DeepSeek / OpenRouter 均自带 CORS）。';
   if(/reasoner|o1|o3|thinking/i.test(cfg.model)) tip += '⚠️ 当前模型不支持工具调用：助理只能纯聊天，无法自动建任务/记账/改课表，建议换 deepseek-v4-flash。';
   document.getElementById('aiSetHint').textContent=tip;
+  refreshModelBadge(); // 模型徽章立刻跟上：切了 pro 必须马上在头部看见
   setTimeout(closeAISettings, 1400);
   toast('助理配置已保存');
 }
@@ -11812,6 +11864,8 @@ async function aiRun(){
 async function aiCall(messages, cfg, attempt, opts){
   attempt = attempt || 1;
   opts = opts || {};
+  // 台账来源：只在首次推断并存进 opts，重试沿用 —— 否则 window.__aiTag 被清掉后会归错类
+  if(!opts.__tag){ opts.__tag = aiTagInfer(messages); }
   let url, headers = {};
   if(cfg.mode==='relay'){
     url = (cfg.relayUrl||'').replace(/\/+$/,'') + '/v1/chat/completions';
@@ -11932,7 +11986,7 @@ async function aiCall(messages, cfg, attempt, opts){
     if(attempt>=2) msg = '（已重试 '+attempt+' 次）'+msg;
     return {error: msg};
   }
-  if(data && data.usage) logAIUsage(data.usage); // B1：记录本轮 token/缓存命中（供设置页统计）
+  if(data && data.usage) logAIUsage(data.usage, {model: cfg && cfg.model, tag: (opts && opts.__tag) || aiTagInfer(messages)}); // 台账：来源自动推断
   // ★ 2026-09-17：记下这一次响应的体检数据（诊断面板直读）。空回复判定原因全靠它：
   //   finish_reason=length → 被输出上限截断；reasoning 有值而 content 空 → 模型只想没答。
   try{
@@ -11950,10 +12004,56 @@ async function aiCall(messages, cfg, attempt, opts){
   return {data: data};
 }
 
-// ── B1 缓存命中观测（Cove 7/8 节：用日志观察真实命中，别靠感觉）──
-// 记录每次请求的 usage（DeepSeek/OpenRouter 会返回 cache 字段），累计存本机，设置页可查看。
+// ── 用量台账（2026-09-26 全面化）──
+// 每次 API 调用都落一条：时间 / 来源 / 模型 / 输入(命中+未命中) / 输出 / 粗估花费。
+// 存在的意义：账单一旦异常，能立刻回答「哪个功能 · 几点 · 哪个模型 · 花了多少」，不用猜。
+// 只存本机 localStorage，不上云。
 const AI_USAGE_KEY='mhm_ai_usage_log';
-function logAIUsage(usage){
+const AI_USAGE_MAX=600;   // 台账最多留 600 条（约 3~7 天），超出丢最旧的，防止撑爆 localStorage
+
+// 来源自动推断：靠 system prompt 的特征词判定，零侵入覆盖全部调用点（对话/记忆/日记/旁白/陪伴/读图）。
+// 业务入口若想精确指定，只需在调用前写 window.__aiTag='主动消息'，用完即清。
+const AI_TAG_RULES=[
+  ['记忆打标', /记忆整理器|记忆整理/],
+  ['回忆日记', /回忆日记写手|回忆日记/],
+  ['回忆压缩', /回忆档案整理员/],
+  ['AI旁白',   /他们此刻的世界|世界旁白/],
+  ['主动消息', /主动消息|一句牵挂/],
+  ['陪伴观察', /你正在看着|陪伴观察/],
+  ['读图',     /图片|图像|视觉|describe|看图/],
+];
+function aiTagInfer(messages){
+  try{
+    if(window.__aiTag){ const _t=String(window.__aiTag); window.__aiTag=null; return _t; }
+    const arr=Array.isArray(messages)?messages:[];
+    let sys='';
+    for(const m of arr){ if(m && m.role==='system' && typeof m.content==='string') sys+=m.content; }
+    if(!sys.trim()){ // 没有 system（如 ping）：取第一条 user 内容的前 400 字
+      for(const m of arr){ if(m && typeof m.content==='string'){ sys=m.content.slice(0,400); break; } }
+    }
+    if(!sys.trim()) return '对话';
+    if(/^\s*ping\s*$/i.test(sys)) return '连通测试';
+    for(const pair of AI_TAG_RULES){ if(pair[1].test(sys)) return pair[0]; }
+    return '对话';
+  }catch(e){ return '对话'; }
+}
+// 模型名归一：deepseek-flash / deepseek-v4-flash / deepseek-chat 都归到 flash 档，方便按档看花费
+function aiModelClass(m){
+  const s=String(m||'').toLowerCase();
+  if(s.indexOf('pro')>=0 || s.indexOf('reasoner')>=0) return 'pro';
+  if(s.indexOf('free')>=0) return 'free';
+  if(!s) return 'flash';
+  return 'flash';
+}
+// 粗估单价（元 / 百万 token）。2026-09-26 用她自己的后台账单反推校准过：
+// 逐日比对 28 天，倍差中位数 ≈1.0（9/24 flash 0.98×、9/25 pro 0.96×），个别低量日 0.65~2.0×。
+// 够用来判断「哪天、哪个功能花得多」，不做精确对账 —— 精确数字以官方账单为准。
+const AI_PRICE={ flash:{in:0.35,out:8}, pro:{in:2.5,out:30}, free:{in:0,out:0} };
+function aiCostEst(hit,miss,comp,model){
+  const p=AI_PRICE[aiModelClass(model)]||AI_PRICE.flash;
+  return (((Number(hit)||0)+(Number(miss)||0))/1e6*p.in)+((Number(comp)||0)/1e6*p.out);
+}
+function logAIUsage(usage, meta){
   try{
     if(!usage || typeof usage!=='object') return;
     const hit=Number(usage.prompt_cache_hit_tokens||usage.cache_read_input_tokens||0)||0;
@@ -11961,14 +12061,21 @@ function logAIUsage(usage){
     const prompt=Number(usage.prompt_tokens||0)||0;
     const comp=Number(usage.completion_tokens||0)||0;
     if(!prompt && !comp && !hit) return;
+    meta = meta || {};
+    const model=String(meta.model||'')||'(未设)';
+    const tag=String(meta.tag||'对话');
     let log={total:{calls:0,prompt:0,comp:0,hit:0,miss:0},recent:[]};
     try{ const raw=localStorage.getItem(AI_USAGE_KEY); if(raw) log=JSON.parse(raw); }catch(e){}
     if(!log.total) log.total={calls:0,prompt:0,comp:0,hit:0,miss:0};
     if(!Array.isArray(log.recent)) log.recent=[];
     log.total.calls++; log.total.prompt+=prompt; log.total.comp+=comp; log.total.hit+=hit; log.total.miss+=miss;
-    log.recent.unshift({t:Date.now(),prompt:prompt,comp:comp,hit:hit,miss:miss});
-    if(log.recent.length>30) log.recent.length=30;
-    try{ localStorage.setItem(AI_USAGE_KEY, JSON.stringify(log)); }catch(e){}
+    // 新格式：带 model / tag / cost，供台账面板按来源与模型分账
+    log.recent.unshift({t:Date.now(),prompt:prompt,comp:comp,hit:hit,miss:miss,model:model,tag:tag,cost:aiCostEst(hit,miss,comp,model)});
+    if(log.recent.length>AI_USAGE_MAX) log.recent.length=AI_USAGE_MAX;
+    try{ localStorage.setItem(AI_USAGE_KEY, JSON.stringify(log)); }catch(e){
+      // 写满时砍掉一半旧的再存一次，宁可丢历史也不能把整条台账弄丢
+      try{ log.recent.length=Math.floor(log.recent.length/2); localStorage.setItem(AI_USAGE_KEY, JSON.stringify(log)); }catch(e2){}
+    }
   }catch(e){}
 }
 function aiUsageStats(){
@@ -11991,7 +12098,7 @@ function renderUsageStats(){
   for(const r of rec){ rh+=Number(r.hit)||0; rm+=Number(r.miss)||0; }
   const rRate=(rh+rm)>0?Math.round(rh/(rh+rm)*100):null;
   const hitRate=(t.hit+t.miss)>0?Math.round(t.hit/(t.hit+t.miss)*100):0;
-  const money=t.prompt?(t.prompt/1000000*2).toFixed(2):'0'; // 粗估：按输入 2 元/百万 token
+  const money=t.hit?(t.hit/1000000*0.35).toFixed(2):'0'; // 粗估：命中的这部分若按全价计费需要多少钱（与台账同一套单价）
   let html='<div>请求 <b>'+t.calls+'</b> 次 · 输入 <b>'+fmtTokens(t.prompt)+'</b> · 输出 <b>'+fmtTokens(t.comp)+'</b></div>';
   if(rRate!=null){
     html+='<div>最近 <b>'+rec.length+'</b> 次平均缓存命中 <b style="color:var(--green-dark);">'+rRate+'%</b>（'+fmtTokens(rh)+' 复用 / 未命中 '+fmtTokens(rm)+'）</div>';
@@ -12016,6 +12123,142 @@ function fmtTokens(n){
   return String(n);
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   用量台账面板（2026-09-26）
+   每一次 API 调用都落一条 {时间, 来源, 模型, 输入命中/未命中, 输出, 粗估花费}。
+   出了账单问题，先看这里：哪个功能、几点、用的哪个模型，一目了然。
+   ══════════════════════════════════════════════════════════════════ */
+function refreshModelBadge(){
+  try{
+    const el=document.getElementById('aiModelBadge'); if(!el) return;
+    const m=String((getAiCfg()||{}).model||'').trim()||'deepseek-v4-flash';
+    const cls=aiModelClass(m);
+    const narrow=(window.innerWidth||999)<400; // 窄屏用短标签，给 6 个头部按钮腾地方
+    const label = cls==='pro' ? (narrow?'PRO':'PRO·贵') : (cls==='free' ? 'FREE' : 'FLASH');
+    const col   = cls==='pro' ? '#c0392b' : (cls==='free' ? '#27ae60' : 'var(--ink-soft,#888)');
+    const bg    = cls==='pro' ? 'rgba(192,57,43,.15)' : (cls==='free' ? 'rgba(39,174,96,.14)' : 'rgba(120,120,120,.12)');
+    el.textContent=' '+label;
+    el.setAttribute('data-model',m);
+    el.style.cssText='margin-left:7px;font-size:10px;font-weight:700;letter-spacing:.4px;padding:2px 6px;border-radius:6px;vertical-align:middle;cursor:pointer;color:'+col+';background:'+bg+';border:1px solid '+col+'40;';
+    el.title='当前模型：'+m+'（点这里去设置里改）';
+  }catch(e){}
+}
+function openUsageLedger(){
+  renderUsageLedger();
+  const m=document.getElementById('usageMask'); if(m) m.style.display='block';
+}
+function closeUsageLedger(){
+  const m=document.getElementById('usageMask'); if(m) m.style.display='none';
+}
+function usageDayKey(ts){
+  const d=new Date(ts);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function renderUsageLedger(){
+  const el=document.getElementById('usageLedgerBody'); if(!el) return;
+  const log=aiUsageStats();
+  const rec=(log && Array.isArray(log.recent))?log.recent:[];
+  if(!rec.length){
+    el.innerHTML='<div style="color:var(--ink-soft);font-size:12px;">还没有任何记录。发一条消息、或等一次后台主动消息，这里就会有第一条。</div>';
+    return;
+  }
+  const today=usageDayKey(Date.now());
+  const costOf=function(r){ return Number(r.cost)||aiCostEst(Number(r.hit)||0,Number(r.miss)||0,Number(r.comp)||0,r.model); };
+  let todayCalls=0,todayCost=0,todayIn=0,todayOut=0;
+  const byTag={}, byDay={};
+  for(const r of rec){
+    const c=costOf(r);
+    const d=usageDayKey(r.t);
+    byDay[d]=byDay[d]||{calls:0,cost:0,in:0,out:0};
+    byDay[d].calls++; byDay[d].cost+=c; byDay[d].in+=Number(r.prompt)||0; byDay[d].out+=Number(r.comp)||0;
+    if(d===today){
+      todayCalls++; todayCost+=c; todayIn+=Number(r.prompt)||0; todayOut+=Number(r.comp)||0;
+      const tg=String(r.tag||'对话');
+      byTag[tg]=byTag[tg]||{calls:0,cost:0,in:0,out:0};
+      byTag[tg].calls++; byTag[tg].cost+=c; byTag[tg].in+=Number(r.prompt)||0; byTag[tg].out+=Number(r.comp)||0;
+    }
+  }
+  let h='';
+  h+='<div style="font-size:11px;color:var(--ink-soft);margin-bottom:10px;line-height:1.6;">本机台账共 <b>'+rec.length+'</b> 条（上限 '+AI_USAGE_MAX+' 条，超出丢最旧）。金额按 flash 输入 ¥0.35/百万、输出 ¥8/百万，pro 输入 ¥2.5/百万、输出 ¥30/百万 <b>粗估</b>（已用你自己的后台账单校准过，倍差中位数 ≈1.0）—— 判断「哪天花得多」够用，精确数字以官方账单为准。</div>';
+  h+='<div style="padding:10px 12px;border-radius:12px;background:linear-gradient(135deg,rgba(145,180,200,.14),rgba(165,192,162,.08));border:1px solid var(--green-mid,rgba(120,160,140,.4));margin-bottom:12px;">'
+    +'<div style="font-weight:700;font-size:13px;margin-bottom:4px;">今天（'+today+'）</div>'
+    +'<div>调用 <b>'+todayCalls+'</b> 次 · 粗估 <b style="color:#c0392b;">¥'+todayCost.toFixed(3)+'</b></div>'
+    +'<div style="font-size:11px;color:var(--ink-soft);">输入 '+fmtTokens(todayIn)+' · 输出 '+fmtTokens(todayOut)+'</div></div>';
+  const tags=Object.keys(byTag).sort(function(a,b){ return byTag[b].cost-byTag[a].cost; });
+  if(tags.length){
+    h+='<div style="font-weight:700;font-size:13px;margin:14px 0 4px;">今天 · 按来源</div>';
+    h+='<div style="font-size:11px;color:var(--ink-soft);margin-bottom:5px;">来源由系统提示词自动判定，覆盖：对话 / 记忆打标 / 日记 / AI 旁白 / 主动消息 / 陪伴 / 读图</div>';
+    h+=tags.map(function(tg){
+      const v=byTag[tg];
+      return '<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line,rgba(0,0,0,.08));">'
+        +'<span style="flex:1;font-weight:600;">'+tg+'</span>'
+        +'<span style="width:50px;text-align:right;">'+v.calls+' 次</span>'
+        +'<span style="width:64px;text-align:right;color:#c0392b;">¥'+v.cost.toFixed(3)+'</span>'
+        +'<span style="width:96px;text-align:right;color:var(--ink-soft);font-size:11px;">in '+fmtTokens(v.in)+' / out '+fmtTokens(v.out)+'</span></div>';
+    }).join('');
+  }
+  const days=Object.keys(byDay).sort().reverse().slice(0,8);
+  h+='<div style="font-weight:700;font-size:13px;margin:16px 0 6px;">按日（最近 '+days.length+' 天）</div>';
+  h+=days.map(function(d){
+    const v=byDay[d];
+    return '<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line,rgba(0,0,0,.08));">'
+      +'<span style="flex:1;'+(d===today?'font-weight:700;':'')+'">'+d+(d===today?'（今）':'')+'</span>'
+      +'<span style="width:50px;text-align:right;">'+v.calls+' 次</span>'
+      +'<span style="width:64px;text-align:right;color:#c0392b;">¥'+v.cost.toFixed(3)+'</span>'
+      +'<span style="width:96px;text-align:right;color:var(--ink-soft);font-size:11px;">in '+fmtTokens(v.in)+' / out '+fmtTokens(v.out)+'</span></div>';
+  }).join('');
+  h+='<div style="font-weight:700;font-size:13px;margin:16px 0 6px;">明细（最近 60 条）</div>';
+  h+=rec.slice(0,60).map(function(r){
+    const d=new Date(r.t);
+    const hm=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+    const dd=String(d.getMonth()+1).padStart(2,'0')+'/'+String(d.getDate()).padStart(2,'0');
+    const cls=aiModelClass(r.model);
+    const mcol=cls==='pro'?'#c0392b':(cls==='free'?'#27ae60':'var(--ink-soft,#888)');
+    const hit=Number(r.hit)||0, miss=Number(r.miss)||0;
+    const pct=(hit+miss)>0?Math.round(hit/(hit+miss)*100):null;
+    return '<div style="padding:5px 0;border-bottom:1px dashed var(--line,rgba(0,0,0,.08));">'
+      +'<div style="display:flex;gap:7px;align-items:baseline;">'
+      +'<span style="color:var(--ink-soft);font-size:11px;">'+dd+' '+hm+'</span>'
+      +'<span style="font-weight:600;">'+String(r.tag||'对话')+'</span>'
+      +'<span style="color:'+mcol+';font-size:10px;font-weight:700;">'+String(r.model||'').replace(/^deepseek-/,'')+'</span>'
+      +'<span style="margin-left:auto;color:#c0392b;font-size:11px;">¥'+costOf(r).toFixed(4)+'</span></div>'
+      +'<div style="font-size:11px;color:var(--ink-soft);">输入 '+fmtTokens(miss)
+      +(pct!=null?('（命中 '+pct+'%，复用 '+fmtTokens(hit)+'）'):'')
+      +' · 输出 '+fmtTokens(Number(r.comp)||0)+'</div></div>';
+  }).join('');
+  el.innerHTML=h;
+}
+function clearUsageLedger(){
+  if(!window.confirm('清空本机用量台账？\n\n只清统计记录，不影响对话 / 记忆 / 设置。\n建议先点「导出」留一份。')) return;
+  try{ localStorage.removeItem(AI_USAGE_KEY); }catch(e){}
+  renderUsageLedger();
+  try{ renderUsageStats(); }catch(e){}
+  toast('台账已清空');
+}
+function exportUsageLedger(){
+  try{
+    const log=aiUsageStats();
+    const rec=(log && Array.isArray(log.recent))?log.recent:[];
+    if(!rec.length){ toast('没有可导出的记录'); return; }
+    const esc=function(s){ return '"'+String(s==null?'':s).replace(/"/g,'""')+'"'; };
+    const rows=rec.slice().reverse().map(function(r){
+      const d=new Date(r.t);
+      const ts=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
+        +' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0')+':'+String(d.getSeconds()).padStart(2,'0');
+      const c=Number(r.cost)||aiCostEst(Number(r.hit)||0,Number(r.miss)||0,Number(r.comp)||0,r.model);
+      return [esc(ts),esc(r.tag||'对话'),esc(r.model||''),Number(r.miss)||0,Number(r.hit)||0,Number(r.comp)||0,c.toFixed(4)].join(',');
+    });
+    const csv='\ufeff'+'时间,来源,模型,输入(未命中),输入(命中缓存),输出,粗估花费(元)\n'+rows.join('\n');
+    const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='港港窝用量台账_'+usageDayKey(Date.now())+'.csv';
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    toast('已导出 '+rec.length+' 条');
+  }catch(e){ toast('导出失败：'+String(e).slice(0,40)); }
+}
+
 // ── 流式生成（SSE）：供陪伴「首句优先」使用（Cove：不要等完整答案，首句先出声）──
 // OpenAI 兼容 chat/completions stream:true，OpenRouter / DeepSeek / 中转均支持。
 // 用法：streamAICallText(messages, cfg, opts, onDelta)
@@ -12023,6 +12266,7 @@ function fmtTokens(n){
 //   返回 {ok:true, text, usage?} 或 {error, part?}（part=中断前已生成的部分文本，可用于继续/兜底）
 async function streamAICallText(messages, cfg, opts, onDelta){
   opts = opts || {};
+  if(!opts.__tag){ opts.__tag = aiTagInfer(messages); } // 台账来源，同上
   let url, headers = {};
   if(cfg.mode==='relay'){
     url = (cfg.relayUrl||'').replace(/\/+$/,'') + '/v1/chat/completions';
@@ -12076,7 +12320,7 @@ async function streamAICallText(messages, cfg, opts, onDelta){
     if(data === '[DONE]') return true;
     let j;
     try{ j = JSON.parse(data); }catch(e){ return false; }
-    if(j && j.usage){ usage = j.usage; logAIUsage(j.usage); } // B1：流式请求同样记录缓存命中
+    if(j && j.usage){ usage = j.usage; logAIUsage(j.usage, {model: cfg && cfg.model, tag: (opts && opts.__tag) || aiTagInfer(messages)}); } // 台账：流式同样记
     const delta = j && j.choices && j.choices[0] && j.choices[0].delta;
     const piece = (delta && typeof delta.content === 'string') ? delta.content : '';
     if(piece){ text += piece; try{ if(onDelta) onDelta(piece, text); }catch(e){} }
@@ -13813,6 +14057,7 @@ function pomoEggGenerate(opts){
     { role:'user', content:'帮我生成一条' + themeDesc + '彩蛋吧！' }
   ];
   let settled = false;
+  window.__aiTag='番茄彩蛋';
   aiCall(messages, cfg).then(r=>{
     if(settled) return; settled = true;
     if(r && r.error){ finish(pomoEggFallback(theme)); return; }
@@ -14196,6 +14441,7 @@ function ttsSpeakAI(ctxText, fallback){
       { role:'user', content:'给我这句吧。' }
     ];
     let settled = false;
+    window.__aiTag='语音播报';
     aiCall(messages, cfg).then(r=>{
       if(settled) return; settled = true;
       if(mySeq !== ttsAiSeq) return; // 已被更新的播报覆盖
@@ -16970,6 +17216,7 @@ body.comp-live::after{animation-play-state:paused;}
         }
       };
       // A1：流式生成，边收边切边播；失败且有部分文本则继续用，完全没有才回退非流式
+      window.__aiTag='陪伴发言';
       const r=await streamAICallText(messages,getAiCfg(),{noTools:true,timeoutMs:30000},(piece)=>{
         if(myEpoch!==epoch) return;
         if(lat.t1===null && piece.trim()) lat.t1=Date.now();
@@ -16980,6 +17227,7 @@ body.comp-live::after{animation-play-state:paused;}
       const text=(r&&r.ok)?(r.text||''):((r&&r.part)?r.part:'');
       if(r && r.error && !(text && text.trim())){
         // 流式完全不可用 → 回退非流式 aiCall（老路径，双保险）
+        window.__aiTag='陪伴发言';
         const r2=await aiCall(messages,getAiCfg(),1,{noTools:true});
         if(r2.error){ showBubble('（刚才那句没说成，网络或模型出了点问题）'); post({type:'TURN_DONE',turnId:tid,epoch:myEpoch}); return; }
         if(myEpoch!==epoch) return;
