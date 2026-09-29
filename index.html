@@ -7742,7 +7742,12 @@ async function maybeAutoAIProactive(){
       msg.id = msg.id || 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
       aiConv.push(msg);
       saveConv();
-      const vr = aiResolveVoice(content);
+      /* ★ 2026-09-29 修「通知里漏出 <tonight>…</tonight>」：
+         上面 7728 行只把剥掉标签的那份写进了 msg.content（存档用），显示这一路却还在用
+         未剥标签的原始 content —— 于是「休息吧……<tonight>今晚…</tonight>」整段漏进聊天气泡，
+         连朗读和记忆笔记也是带标签的脏文本。统一以 msg.content 为准（sendable = 唯一显示源）。 */
+      const sendable = String(msg.content || '');
+      const vr = aiResolveVoice(sendable);
       addAIMsg('ai', vr.clean, msg.id);
       // 预约今晚推送（用户开了后台推送才生效）
       if(tonightText && !cloudCtxOn()){ // 云端生效时改由云端统一安排主动分享，避免 20:30 再补一条
@@ -7754,7 +7759,7 @@ async function maybeAutoAIProactive(){
           else setPushHint('想收「今晚再叮嘱一句」？先在 AI 设置里打开「后台消息推送」');
         });
       }
-      memNoteAssistant(aiStickerPlain(content), msg.id); // 记忆里剥掉表情包标签、不朗读
+      memNoteAssistant(aiStickerPlain(sendable), msg.id); // 记忆里剥掉表情包标签、不朗读（同 sendable，别再退回带 <tonight> 的 content）
       if(mask && mask.classList.contains('show')) markAIRead(); else markAIUnread();
       rec = rec || {date:ds, count:0};
       rec.date = ds;
@@ -7888,7 +7893,8 @@ const CLOUD_CTX_OK_KEY = 'mhm_cloud_ctx_ok'; // 云端语境同步成功时间�
 function cloudRecentText(){
   try{
     if(!Array.isArray(aiConv) || aiConv.length<=1) return '';
-    const tail = aiConv.slice(-8); // 最近 8 条（含 user + assistant），控制云端上下文体积
+    const tail = aiConv.slice(-12); // 最近 12 条（含 user + assistant）——09-29 由 8 提到 12：
+    // 8 条时，她的「我吃过饭了」很容易被后面的对话挤出窗口，云端就当成没发生过又问一遍吃饭。
     return tail.map(m=>{
       let c = '';
       if(typeof m.content === 'string') c = m.content;
