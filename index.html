@@ -2831,7 +2831,15 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 <div class="mask" id="memViewMask" style="z-index:92;">
   <div class="sheet glass-strong">
     <h3>最近记忆（20 条）</h3>
-    <div id="memList" style="max-height:55vh;overflow:auto;font-size:13px;line-height:1.6;"></div>
+    <div id="memList" style="max-height:42vh;overflow:auto;font-size:13px;line-height:1.6;"></div>
+    <div style="margin-top:12px;border-top:1px solid var(--ink-faint);padding-top:10px;">
+      <div style="font-size:12px;color:var(--ink-soft);margin-bottom:6px;">🔍 试试召回：打一句你可能会说的话，看它此刻会想起哪几条</div>
+      <div style="display:flex;gap:8px;">
+        <input type="text" id="memProbeInput" placeholder="例如：榴莲 / 上次那家店" style="flex:1;font-size:13px;" onkeydown="if(event.key==='Enter')memProbe()">
+        <button class="btn ghost" type="button" onclick="memProbe()" style="flex:0 0 auto;font-size:12px;">试一下</button>
+      </div>
+      <div id="memProbeOut" style="margin-top:8px;font-size:12px;line-height:1.6;"></div>
+    </div>
     <div class="row" style="margin-top:12px;">
       <button class="btn ghost" onclick="closeMemView()">关闭</button>
     </div>
@@ -8754,7 +8762,9 @@ async function collectDiag(){
     const health = await Promise.race([
       (async()=>{
         const e = await memGetAll('entries'), t = await memGetAll('tags'), m = await memGetAll('messages');
-        return 'entries='+(e?e.length:0)+' tags='+(t?t.length:0)+' messages='+(m?m.length:0)+' (可用)';
+        const live = (e||[]).filter(x=>x && x.active === 1).length;
+        const faded = (e||[]).length - live;
+        return 'entries='+(e?e.length:0)+'(在册 '+live+' · 淡出 '+faded+') tags='+(t?t.length:0)+' messages='+(m?m.length:0)+' (可用)';
       })(),
       new Promise(res=>setTimeout(()=>res('读取超时/可能卡死(被其他连接阻塞)'), 2500))
     ]);
@@ -8950,7 +8960,7 @@ function renderPromptCenter(){
     '<此刻> {{他们此刻在做什么（含"正在亲密"/"刚被吵醒"）}} </此刻>',
     '<动作回执> {{最近失败动作回执（有时无）}} </动作回执>',
     '<近期回忆> {{日记/周记/月记摘要}} </近期回忆>',
-    '<磁铁记忆> {{本地磁铁记忆召回（聊到关键词时出现）}} </磁铁记忆>'
+    '<磁铁记忆> {{本地磁铁记忆召回：命中摘要 + 当时原话（聊到关键词时出现）}} </磁铁记忆>'
   ].join('\n');
   const sc = [];
   sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">1</span><span>系统提示词模板</span></div>'
@@ -10070,6 +10080,14 @@ const MEM_KEEP_SCANNED_MAX = 50;
 const MEM_PRUNE_DAYS = 30;    // 无 event 且超过此时长的旧流水账：打标时自然淘汰（不登记重打墓碑）
 const MEM_BUDGET = 1200;     // 召回注入字符预算：记忆是配菜不是主食
 const MEM_RECALL_K = 8;
+/* ---- 原话回溯（09-30 加，借鉴 Stone Memory「摘要能走回原话」）----
+   source_mids 是这条记忆的原料气泡 mid 列表，messages 里有全量正文，两边一挂就能把「当时那句话」取回来。
+   ⚠️ 原话块是每轮必变的 miss 段，越长前缀缓存命中越低 ⇒ 必须有硬预算，宁可少不可超。 */
+const MEM_QUOTE_BUDGET = 120;     // 原话总字符预算（软顶，超了即停）
+const MEM_QUOTE_PER = 2;          // 每条记忆最多回看几句
+const MEM_QUOTE_MAX = 6;          // 整块最多回看几句
+const MEM_QUOTE_LINE = 46;        // 单句超过即截断，防一句话吃光整个预算
+const MEM_QUOTE_FRESH_MS = 90000; // 90 秒内刚说过的话不算「回忆」，防 AI 把用户这句话原样复读
 const DEFAULT_MEM_IDENTITY = '你是叶子：25 岁中医执业医师，现居香港，正在读浸会大学中医健康管理硕士，日常维护「港港窝」这个小家。\n我是你的 AI 伙伴：既是工具助手，也是朋友+合作者。\n关系基调：轻松、可以互相吐槽也能互相托底；记得彼此的小事，像真朋友一样相处。';
 
 let _memDB = null;
@@ -10346,18 +10364,34 @@ async function memSaveEntryAndTags(msgId, t, eid, mids){
   (t.topic||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'topic', tag:k.trim(), weight:1.1}); });
   for(const tag of tags){ await memPut('tags', tag).catch(()=>{}); }
 }
-// 自然淘汰：无 event 的旧流水账（超过 MEM_PRUNE_DAYS）不参与召回且直接删除；最近的无 event 条目仍允许存在，但召回会过滤
+// 自然淘汰：无 event 的旧流水账（超过 MEM_PRUNE_DAYS）不再参与召回。
+// ⚠️ 09-30 改软删（原实现是 memDelete 真删）：真删一旦误判就永久少一段回忆，与「关键数据必须跨层留副本」的铁律相悖。
+// 现在只把 active 置 0 —— 语义对齐 Stone Memory 的 hidden：召回 / 列表 / 统计全部按 active===1 过滤，对使用者等于消失，
+// 但摘要与原料 mid 都还在库里，随时能「♻️ 恢复淡出」。tags 不再删，恢复时无需重建。
 async function memPruneNoEvent(){
   try{
     const all = await memGetAll('entries');
     const now = Date.now();
     const stale = all.filter(e=> e && e.active === 1 && !e.event && e.created_at && (now - new Date(e.created_at).getTime()) > MEM_PRUNE_DAYS * 86400000);
-    if(!stale.length) return;
-    const ids = new Set(stale.map(e=>e.id));
-    for(const e of stale){ await memDelete('entries', e.id); }
-    const tags = await memGetAll('tags');
-    for(const tg of tags){ if(tg && ids.has(tg.entry_id)) await memDelete('tags', tg.id); }
-  }catch(e){ console.warn('[mem] prune', e); }
+    if(!stale.length) return 0;
+    const at = new Date().toISOString();
+    for(const e of stale){ await memPut('entries', Object.assign({}, e, { active: 0, faded_at: at, faded_reason: 'no-event-30d' })).catch(()=>{}); }
+    return stale.length;
+  }catch(e){ console.warn('[mem] prune', e); return 0; }
+}
+// 恢复淡出：把 active=0 的条目放回召回池（用户手动兜底，避免「淡出后永远捞不回来」）
+async function memRestorePruned(){
+  try{
+    const all = await memGetAll('entries');
+    const faded = all.filter(e=> e && e.active === 0);
+    if(!faded.length) return 0;
+    for(const e of faded){
+      const n = Object.assign({}, e, { active: 1 });
+      delete n.faded_at; delete n.faded_reason;
+      await memPut('entries', n).catch(()=>{});
+    }
+    return faded.length;
+  }catch(e){ console.warn('[mem] restore', e); return 0; }
 }
 // 一次性迁移：拆掉「日记 gems → 记忆库」的桥（2026-08-29）后，清掉历史遗留的 gem 条目。
 // 判据很干净：gem 写入时 source_msg_id 被写死为 0；打标路径（= 批首消息 id）与手动路径（= rows[0].id）都 > 0。
@@ -10989,7 +11023,9 @@ function memJournalDelete(id){
   ]);
 }
 function closeJournalEdit(){ closeMask(document.getElementById('memJournalEditMask')); }
-// ---- 磁铁召回（§3）：触发词命中 → 标签权重 × 时近衰减 → 字符预算裁剪 ----
+// ---- 磁铁召回（§3）：触发词命中 → 标签权重 × 时近衰减 → 排序取前 k → 回看原话 ----
+// 返回结构化结果（摘要 / 命中标签 / 得分 / 原话）；字符预算统一由 memFormatMagnetBlock 裁。
+// 09-30 起不再在这里直接拼字符串——召回预览面板需要看到「为什么命中、得分多少、带回了哪句原话」。
 function memExtractTriggers(userText, tags){
   const set = new Set();
   const seen = new Set();
@@ -11002,40 +11038,102 @@ function memExtractTriggers(userText, tags){
   q.forEach(s=>{ const t = s.slice(1, -1); if(t) set.add(t); });
   return Array.from(set).slice(0, 12);
 }
-async function memMagnetRecall(userText, k, budget){
+async function memMagnetRecall(userText, k){
   k = k || MEM_RECALL_K;
-  budget = budget || MEM_BUDGET;
   if(!userText) return [];
   try{
     const tags = await memGetAll('tags');
     const entries = await memGetAll('entries');
-    const active = entries.filter(e=>e.active === 1 && e.event && e.summary); // 无 event 的旧流水账不进磁铁召回
+    const active = entries.filter(e=>e.active === 1 && e.event && e.summary); // 无 event 的旧流水账 / 已淡出的都不进召回
     if(!tags.length || !active.length) return [];
     const idMap = {}; active.forEach(e=>idMap[e.id] = e);
-    const triggers = memExtractTriggers(userText, tags);
+    // 只在「活着的条目」的标签里找触发词：淡出条目的标签若也参与，会把 triggers 的 12 个名额占满，挤掉真正该命中的
+    const liveTags = tags.filter(tg=> tg && idMap[tg.entry_id]);
+    const triggers = memExtractTriggers(userText, liveTags);
     if(!triggers.length) return [];
     const trigSet = new Set(triggers);
     const now = Date.now();
     const scores = {};
-    for(const tg of tags){
-      if(!tg || !trigSet.has(tg.tag)) continue;
-      const e = idMap[tg.entry_id]; if(!e) continue;
+    for(const tg of liveTags){
+      if(!trigSet.has(tg.tag)) continue;
+      const e = idMap[tg.entry_id];
       const ageDays = Math.max(0, (now - new Date(e.created_at).getTime()) / 86400000);
       const decay = Math.exp(-ageDays / 30);
       const boost = MEM_REL_BOOST[tg.tag] || 1;
-      const s = scores[e.id] || {score: 0, e};
+      const s = scores[e.id] || {score: 0, e, hits: []};
       s.score += (tg.weight || 1) * decay * boost;
+      if(s.hits.indexOf(tg.tag) < 0) s.hits.push(tg.tag);
       scores[e.id] = s;
     }
     const list = Object.values(scores).sort((a,b)=>b.score-a.score).slice(0, k);
-    const picked = []; let used = 0;
-    for(const item of list){
-      const line = '· ' + (item.e.summary || '');
-      if(used + line.length > budget) break;
-      picked.push(line); used += line.length;
-    }
-    return picked;
+    if(!list.length) return [];
+    // 原话回溯：只给真正命中的记忆去捞原文；没命中的一条 messages 都不碰
+    const msgs = await memGetAll('messages');
+    return list.map(item=>({
+      id: item.e.id,
+      event: item.e.event || '',
+      status: item.e.status || 'done',
+      summary: item.e.summary || '',
+      score: Math.round(item.score * 1000) / 1000,
+      hits: item.hits,
+      quotes: memQuotesOf(item.e, msgs)
+    }));
   }catch(e){ console.warn('[mem] recall', e); return []; }
+}
+// 从原料气泡里回看原话（Stone Memory 的「摘要能走回原话」）：
+// source_mids 本身就是对话顺序（batch 已按 id 升序），取前两句、尽量一问一答；
+// 90 秒内刚说过的跳过，避免 AI 把用户此刻这句话当成「回忆」原样复读。取不到就降级为纯摘要。
+function memQuotesOf(entry, allMsgs){
+  try{
+    const mids = Array.isArray(entry && entry.source_mids) ? entry.source_mids.map(String) : [];
+    if(!mids.length || !allMsgs || !allMsgs.length) return [];
+    const byMid = new Map();
+    for(const m of allMsgs){ if(m && m.mid && m.content) byMid.set(String(m.mid), m); }
+    const fresh = Date.now() - MEM_QUOTE_FRESH_MS;
+    const rows = [];
+    for(const mid of mids){
+      const m = byMid.get(mid);
+      if(!m) continue;
+      if(new Date(m.created_at || 0).getTime() > fresh) continue;
+      rows.push(m);
+    }
+    if(!rows.length) return [];
+    const clip = t=>{ t = String(t).replace(/\s+/g, ' ').trim(); return (!t || t.length <= MEM_QUOTE_LINE) ? t : (t.slice(0, MEM_QUOTE_LINE) + '…'); };
+    const out = [];
+    for(const m of rows){
+      if(out.length >= MEM_QUOTE_PER) break;
+      const role = (m.role === 'user') ? 'user' : 'ai';
+      if(out.length === 1 && out[0].role === role) continue; // 尽量一问一答，读起来才像回忆
+      const t = clip(m.content);
+      if(t) out.push({ role, text: t });
+    }
+    if(!out.length){ // 全是同一方（例如只圈了一个人说的话）：至少留一句
+      const t = clip(rows[0].content);
+      if(t) out.push({ role: (rows[0].role === 'user') ? 'user' : 'ai', text: t });
+    }
+    return out;
+  }catch(e){ return []; }
+}
+// 组装注入块：摘要必留、原话让位 —— 先铺完全部摘要，再在剩余预算里塞原话（≤6 句 / ≤120 字），谁超谁停。
+function memFormatMagnetBlock(list, totalBudget){
+  totalBudget = totalBudget || MEM_BUDGET;
+  const lines = [];
+  let used = 0, usedQ = 0, quoteCount = 0, keptCount = 0;
+  // used 精确等于最终 join('\n') 出来的字符数（每多一行多一个换行）：预览面板报的数字才和真正注入的长度一致
+  const push = t=>{ used += t.length + (lines.length ? 1 : 0); lines.push(t); };
+  for(const it of list){
+    let head = '· ' + (it.summary || '');
+    if(head.length > 80) head = head.slice(0, 80) + '…';
+    if(used + head.length + (lines.length ? 1 : 0) > totalBudget) break;
+    push(head); keptCount++;
+    for(const q of (it.quotes || [])){
+      if(quoteCount >= MEM_QUOTE_MAX || usedQ + q.text.length > MEM_QUOTE_BUDGET) break;
+      const line = '  ' + (q.role === 'user' ? '你' : '我') + '：' + q.text;
+      if(used + line.length + 1 > totalBudget) break;
+      push(line); usedQ += q.text.length; quoteCount++;
+    }
+  }
+  return { lines, used, usedQuotes: usedQ, quoteCount, keptCount };
 }
 // ---- 诚实回路（§5.3）：动作失败回灌下一轮，60min TTL，成功即消 ----
 function memFeedbackTail(){
@@ -11095,9 +11193,10 @@ async function memInjectMagnet(userText){
     if(!rec || !rec.length) return; // 空块整块消失，不留占位
     // 不再 append 到 aiConv[0].content（会使 system 每轮不同、打穿 prefix cache），
     // 改存模块变量，由 injectTimeAnchor 随发送副本并入末尾 user 消息，消费即清。
-    // 限条限长：召回块是每轮必变的 miss 部分，越大越拉低缓存命中率；5 条 × 80 字足够给 AI 提示，不用全量。
-    const cap = rec.slice(0,5).map(x=>{ const t=String(x||''); return t.length>80 ? t.slice(0,80)+'…' : t; });
-    AI_MAGNET_BLOCK = '<磁铁记忆>\n' + cap.join('\n') + '\n</磁铁记忆>';
+    // 限条限长：召回块是每轮必变的 miss 部分，越大越拉低缓存命中率；摘要 ≤1200 字 + 原话 ≤120 字 / 6 句硬顶。
+    const built = memFormatMagnetBlock(rec);
+    if(!built.lines.length) return;
+    AI_MAGNET_BLOCK = '<磁铁记忆>\n' + built.lines.join('\n') + '\n</磁铁记忆>';
   }catch(e){}
 }
 // ---- 设置页 UI ----
@@ -11113,19 +11212,34 @@ async function memRefreshStats(){
     const entries = await memGetAll('entries');
     const tags = await memGetAll('tags');
     const msgs = await memGetAll('messages');
-    el.textContent = '对话 ' + msgs.length + ' 条 · 记忆 ' + entries.length + ' 条 · 标签 ' + tags.length + ' 个';
+    const live = entries.filter(e=>e && e.active === 1).length;
+    const faded = entries.length - live;
+    el.textContent = '对话 ' + msgs.length + ' 条 · 记忆 ' + live + ' 条' + (faded ? '（淡出 ' + faded + '）' : '') + ' · 标签 ' + tags.length + ' 个';
   }catch(e){ el.textContent = ''; }
 }
 async function memView(){
   const box = document.getElementById('memList');
   if(!box) return;
   openMask(document.getElementById('memViewMask'));
+  const probeOut = document.getElementById('memProbeOut');
+  if(probeOut) probeOut.innerHTML = ''; // 清掉上次的试召回结果，免得被误读成「现在的记忆」
   box.innerHTML = '<div class="hint" style="font-size:12px;">读取中…</div>';
   try{
     const entries = await memGetAll('entries');
     const tags = await memGetAll('tags');
-    const sorted = entries.filter(e=>e.active === 1).sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 20);
-    if(!sorted.length){ box.innerHTML = '<div class="hint" style="font-size:12px;">还没有记忆。多和助理聊聊，它会自动把重要点滴沉淀成记忆。</div>'; return; }
+    const live = entries.filter(e=> e && e.active === 1);
+    const sorted = live.slice().sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at))).slice(0, 20);
+    const faded = entries.filter(e=> e && e.active === 0).length;
+    // 淡出行（09-30）：软删后要有一条可见的回头路，否则「能捞回来」只是句空话
+    const fadedRow = faded ? (
+      '<div style="margin-top:10px;padding:9px 10px;border:1px dashed var(--ink-faint);border-radius:10px;font-size:11px;color:var(--ink-soft);line-height:1.6;">'
+      + '已淡出 ' + faded + ' 条：30 天没被提到、又没有事件名的旧流水账。它们不再参与召回，但<b>没有被删掉</b>。'
+      + '<div style="margin-top:6px;"><button class="btn ghost" type="button" onclick="memRestoreFaded()" style="font-size:11px;padding:3px 10px;">♻️ 全部恢复</button></div>'
+      + '</div>') : '';
+    if(!sorted.length){
+      box.innerHTML = '<div class="hint" style="font-size:12px;">还没有记忆。多和助理聊聊，它会自动把重要点滴沉淀成记忆。</div>' + fadedRow;
+      return;
+    }
     let html = '';
     for(const e of sorted){
       const tgs = tags.filter(t=>t.entry_id === e.id).map(t=>t.tag).join(' / ');
@@ -11141,8 +11255,51 @@ async function memView(){
         '</div>' +
         '</div>';
     }
-    box.innerHTML = html;
+    box.innerHTML = html + fadedRow;
   }catch(e){ box.innerHTML = '<div class="hint">读取失败</div>'; }
+}
+async function memRestoreFaded(){
+  const n = await memRestorePruned();
+  if(!n){ toast('没有需要恢复的条目'); return; }
+  await memRefreshStats();
+  memView();
+  toast('已恢复 ' + n + ' 条淡出记忆，重新参与召回');
+}
+// ---- 召回预览（§3.6，09-30 加）：打一句话，看它此刻会想起什么 ----
+// 借鉴 Stone Memory 的「记住了什么、为什么保留、下次会注入什么，都可以查看」。
+// 既是调权重的仪表盘，也是「AI 为什么没想起这事」的解释器：命中标签、得分、带回的原话、占了多少预算，一次看全。
+async function memProbe(){
+  const out = document.getElementById('memProbeOut');
+  const inp = document.getElementById('memProbeInput');
+  if(!out || !inp) return;
+  const q = String(inp.value || '').trim();
+  if(!q){ out.innerHTML = '<span style="color:var(--ink-soft);">先在上面打一句话。</span>'; return; }
+  out.innerHTML = '<span style="color:var(--ink-soft);">召回中…</span>';
+  try{
+    const hits = await memMagnetRecall(q, 12);
+    if(!hits.length){
+      out.innerHTML = '<span style="color:var(--ink-soft);">没有命中 —— 这句话进 AI 时不会带上回忆。'
+        + '常见原因：触发词不在任何标签里（打标时挑的 keyword 太偏），或者那条记忆已经淡出。</span>';
+      return;
+    }
+    const built = memFormatMagnetBlock(hits);
+    let html = '';
+    hits.forEach((h, i)=>{
+      const inBlock = i < built.keptCount;
+      html += '<div style="padding:6px 0;border-bottom:1px solid var(--ink-faint);' + (inBlock ? '' : 'opacity:.42;') + '">'
+        + '<div>' + (i + 1) + '. ' + escHtml(h.summary || '（无摘要）') + (inBlock ? '' : ' · 超预算未注入') + '</div>'
+        + (h.event ? '<div style="font-size:11px;color:var(--green-dark);">◇ ' + escHtml(h.event) + ' · ' + escHtml(h.status) + '</div>' : '')
+        + '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">命中 ' + escHtml((h.hits || []).join(' / '))
+          + ' · 得分 ' + h.score + ' · ' + ((h.quotes && h.quotes.length) ? ('原话 ' + h.quotes.length + ' 句') : '无可回看原话') + '</div>'
+        + '</div>';
+    });
+    const pct = Math.min(100, Math.round(built.used / MEM_BUDGET * 100));
+    html += '<div style="margin-top:8px;font-size:10px;color:var(--ink-soft);">注入 ' + built.used + ' / ' + MEM_BUDGET + ' 字（' + pct + '%）· 原话 ' + built.quoteCount + ' 句 / ' + built.usedQuotes + ' 字</div>';
+    html += '<details style="margin-top:6px;"><summary style="font-size:11px;color:var(--ink-soft);cursor:pointer;">看这一轮会注入的块</summary>'
+      + '<pre style="white-space:pre-wrap;word-break:break-word;font-size:10px;line-height:1.5;margin:6px 0 0;padding:8px;background:rgba(0,0,0,.045);border-radius:8px;color:var(--ink-soft);">'
+      + escHtml('<磁铁记忆>\n' + built.lines.join('\n') + '\n</磁铁记忆>') + '</pre></details>';
+    out.innerHTML = html;
+  }catch(e){ out.innerHTML = '<span style="color:var(--ink-soft);">召回失败。</span>'; }
 }
 function closeMemView(){ closeMask(document.getElementById('memViewMask')); }
 async function memTagNow(){
@@ -11549,7 +11706,8 @@ async function memItemSave(){
     const entries = await memGetAll('entries');
     const e = entries.find(x => x && x.id === id);
     if(e){
-      const upd = { id:id, source_msg_id: e.source_msg_id, summary: summary, event: e.event || '', status: e.status || 'done', detail: e.detail || '', active: 1, created_at: e.created_at };
+      // active 必须沿用原值（09-30 起 active=0 表示「已淡出」）：若这里硬写 1，编辑一次就把淡出条目悄悄复活了
+      const upd = { id:id, source_msg_id: e.source_msg_id, summary: summary, event: e.event || '', status: e.status || 'done', detail: e.detail || '', active: (typeof e.active === 'number' ? e.active : 1), created_at: e.created_at };
       if(e.manual === 1 || Array.isArray(e.source_mids)){ upd.manual = e.manual === 1 ? 1 : e.manual; upd.source_mids = Array.isArray(e.source_mids) ? e.source_mids : []; }
       await memPut('entries', upd).catch(()=>{});
     }
