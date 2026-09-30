@@ -2778,6 +2778,7 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
         </p>
         <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
+          <button class="btn ghost" type="button" onclick="memProbeOpen()" style="flex:0 0 auto;" title="打一句你可能会说的话，看它此刻会想起哪几条记忆（调权重 / 排查「AI 为什么没想起」）">🔍 试试召回</button>
           <button class="btn ghost" type="button" onclick="memTagNow()" style="flex:0 0 auto;">⚡ 立即打标</button>
           <button class="btn ghost" type="button" onclick="memRescueNow()" style="flex:0 0 auto;" title="把聊天界面最近 40 轮对话回灌进记忆库（清空记忆后的补丁：不重新聊天也能重新打标）">♻️ 恢复对话记录</button>
           <button class="btn ghost" type="button" onclick="memRebuildConvNow()" style="flex:0 0 auto;" title="对话记录消失/被清空时的救火键：记忆库里有对话的全文镜像，用它把聊天记录整条重建回来（按消息 id 幂等合并，不会重复）">🧩 从记忆库重建对话</button>
@@ -2831,15 +2832,17 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 <div class="mask" id="memViewMask" style="z-index:92;">
   <div class="sheet glass-strong">
     <h3>最近记忆（20 条）</h3>
-    <div id="memList" style="max-height:42vh;overflow:auto;font-size:13px;line-height:1.6;"></div>
-    <div style="margin-top:12px;border-top:1px solid var(--ink-faint);padding-top:10px;">
-      <div style="font-size:12px;color:var(--ink-soft);margin-bottom:6px;">🔍 试试召回：打一句你可能会说的话，看它此刻会想起哪几条</div>
+    <!-- ⚠️ 「试试召回」必须在列表【上方】（09-30 修）：原先放在 42vh 滚动列表下面，
+         手机上要么被推出视口、要么形成嵌套滚动，用户根本滚不到 —— 新功能等于不存在。 -->
+    <div style="margin:0 0 12px;padding:11px 13px;border-radius:14px;background:rgba(145,180,200,.12);border:1px solid var(--green-mid);">
+      <div style="font-size:12px;color:var(--ink-soft);margin-bottom:7px;line-height:1.5;">🔍 试试召回：打一句你可能会说的话，看它此刻会想起哪几条</div>
       <div style="display:flex;gap:8px;">
         <input type="text" id="memProbeInput" placeholder="例如：榴莲 / 上次那家店" style="flex:1;font-size:13px;" onkeydown="if(event.key==='Enter')memProbe()">
         <button class="btn ghost" type="button" onclick="memProbe()" style="flex:0 0 auto;font-size:12px;">试一下</button>
       </div>
       <div id="memProbeOut" style="margin-top:8px;font-size:12px;line-height:1.6;"></div>
     </div>
+    <div id="memList" style="max-height:40vh;overflow:auto;font-size:13px;line-height:1.6;"></div>
     <div class="row" style="margin-top:12px;">
       <button class="btn ghost" onclick="closeMemView()">关闭</button>
     </div>
@@ -10088,6 +10091,13 @@ const MEM_QUOTE_PER = 2;          // 每条记忆最多回看几句
 const MEM_QUOTE_MAX = 6;          // 整块最多回看几句
 const MEM_QUOTE_LINE = 46;        // 单句超过即截断，防一句话吃光整个预算
 const MEM_QUOTE_FRESH_MS = 90000; // 90 秒内刚说过的话不算「回忆」，防 AI 把用户这句话原样复读
+/* ---- active 字段迁移（09-30 加）----
+   09-30 起 entries.active 从「永远写 1 的摆设」升级为真正的软删位（0 = 已淡出）。
+   所有读取路径都按 `active === 1` 过滤 ⇒ 若早期版本写下的条目根本没这个字段（undefined），
+   会被判成「既不在册、也不是淡出」而凭空消失：不召回、不进列表、不计统计、连淡出都轮不到它。
+   这一趟只补 undefined，**绝不动 active === 0**（否则会把已淡出的条目全部复活）。
+   有 localStorage 标记短路；标记丢了也只是重跑一次，幂等无害（active 已是 1 会 continue）。 */
+const MEM_ACTIVE_MIGRATE_KEY = 'mem_active_migrated_v1';
 const DEFAULT_MEM_IDENTITY = '你是叶子：25 岁中医执业医师，现居香港，正在读浸会大学中医健康管理硕士，日常维护「港港窝」这个小家。\n我是你的 AI 伙伴：既是工具助手，也是朋友+合作者。\n关系基调：轻松、可以互相吐槽也能互相托底；记得彼此的小事，像真朋友一样相处。';
 
 let _memDB = null;
@@ -10109,7 +10119,7 @@ function memOpenDB(){
         if(!db.objectStoreNames.contains('journal')) db.createObjectStore('journal', {keyPath:'id', autoIncrement:true}); // v2：回忆日记分层（day/week/month）
         if(!db.objectStoreNames.contains('oc_posts')) db.createObjectStore('oc_posts', {keyPath:'id', autoIncrement:true}); // v3：角色朋友圈/日记（零落/沈容自写）
       };
-      req.onsuccess = ()=>resolve(req.result);
+      req.onsuccess = ()=>{ const db = req.result; resolve(db); setTimeout(()=>{ memMigrateActive().catch(()=>{}); }, 0); };
       req.onerror = ()=>{ resolve(null); };
     }catch(e){ resolve(null); }
   });
@@ -10363,6 +10373,24 @@ async function memSaveEntryAndTags(msgId, t, eid, mids){
   (t.emotion||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'emotion', tag:k.trim(), weight:1.3}); });
   (t.topic||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'topic', tag:k.trim(), weight:1.1}); });
   for(const tag of tags){ await memPut('tags', tag).catch(()=>{}); }
+}
+// 一次性迁移：给缺 active 字段的旧条目补回 1（详见 MEM_ACTIVE_MIGRATE_KEY 处的说明）。
+// ⚠️ 只补 undefined / null，绝不动 active===0 —— 那会把用户已淡出的条目全部复活。
+// ⚠️ 必须在 memOpenDB 成功后触发：一切记忆读写都经过 memOpenDB，所以无论用户先点开哪个界面，迁移都已跑过。
+async function memMigrateActive(){
+  try{
+    if(localStorage.getItem(MEM_ACTIVE_MIGRATE_KEY) === '1') return 0;
+    const all = await memGetAll('entries');
+    let n = 0;
+    for(const e of all){
+      if(!e || e.active === 0 || e.active === 1) continue;   // 已淡出 / 已在册：不碰
+      await memPut('entries', Object.assign({}, e, { active: 1, active_migrated_at: new Date().toISOString() })).catch(()=>{});
+      n++;
+    }
+    localStorage.setItem(MEM_ACTIVE_MIGRATE_KEY, '1');
+    if(n) console.info('[mem] 已为 ' + n + ' 条旧记忆补上 active 字段');
+    return n;
+  }catch(e){ console.warn('[mem] migrate active', e); return 0; }
 }
 // 自然淘汰：无 event 的旧流水账（超过 MEM_PRUNE_DAYS）不再参与召回。
 // ⚠️ 09-30 改软删（原实现是 memDelete 真删）：真删一旦误判就永久少一段回忆，与「关键数据必须跨层留副本」的铁律相悖。
@@ -11302,6 +11330,16 @@ async function memProbe(){
   }catch(e){ out.innerHTML = '<span style="color:var(--ink-soft);">召回失败。</span>'; }
 }
 function closeMemView(){ closeMask(document.getElementById('memViewMask')); }
+// 「试试召回」直达入口（09-30 加）：设置页一步打开弹窗并聚焦输入框。
+// 教训：光把新面板塞进「查看记忆」弹窗是不够的——用户不知道要点那个按钮，功能就等于不存在。
+function memProbeOpen(){
+  Promise.resolve(memView()).then(()=>{
+    const el = document.getElementById('memProbeInput');
+    if(!el) return;
+    try{ el.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){}
+    setTimeout(()=>{ try{ el.focus(); }catch(e){} }, 120);
+  }).catch(()=>{});
+}
 async function memTagNow(){
   const hint = document.getElementById('memTagHint');
   if(hint) hint.textContent = '正在后台打标…';
