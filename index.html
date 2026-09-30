@@ -10085,12 +10085,17 @@ const MEM_BUDGET = 1200;     // 召回注入字符预算：记忆是配菜不是
 const MEM_RECALL_K = 8;
 /* ---- 原话回溯（09-30 加，借鉴 Stone Memory「摘要能走回原话」）----
    source_mids 是这条记忆的原料气泡 mid 列表，messages 里有全量正文，两边一挂就能把「当时那句话」取回来。
-   ⚠️ 原话块是每轮必变的 miss 段，越长前缀缓存命中越低 ⇒ 必须有硬预算，宁可少不可超。 */
+   ⚠️ 原话块是每轮必变的 miss 段，越长前缀缓存命中越低 ⇒ 必须有硬预算，宁可少不可超。
+   ⚠️⚠️ source_mids 是【整批】气泡（打标一次最多 40 条），同一批产出的所有记忆共用同一份
+   ⇒ 绝不能"按顺序取前两句"（09-30 用户实测：取到的永远是批次开头，跟这条记忆毫无关系）。
+   必须按相关性挑句，见 memQuotesOf。 */
 const MEM_QUOTE_BUDGET = 120;     // 原话总字符预算（软顶，超了即停）
 const MEM_QUOTE_PER = 2;          // 每条记忆最多回看几句
 const MEM_QUOTE_MAX = 6;          // 整块最多回看几句
 const MEM_QUOTE_LINE = 46;        // 单句超过即截断，防一句话吃光整个预算
 const MEM_QUOTE_FRESH_MS = 90000; // 90 秒内刚说过的话不算「回忆」，防 AI 把用户这句话原样复读
+const MEM_QUOTE_MIN_SCORE = 2;    // 相关度低于此分就不带原话 —— 挑不出相关的，宁可只给摘要（错的引用比没有引用更有害）
+const MEM_QUOTE_TERM_HIT = 3;     // 记忆自身的词（event / 标签）原样出现在这句里 = 强信号
 /* ---- active 字段迁移（09-30 加）----
    09-30 起 entries.active 从「永远写 1 的摆设」升级为真正的软删位（0 = 已淡出）。
    所有读取路径都按 `active === 1` 过滤 ⇒ 若早期版本写下的条目根本没这个字段（undefined），
@@ -11097,6 +11102,9 @@ async function memMagnetRecall(userText, k){
     if(!list.length) return [];
     // 原话回溯：只给真正命中的记忆去捞原文；没命中的一条 messages 都不碰
     const msgs = await memGetAll('messages');
+    // 挑原话时要「这条记忆自己的词」：命中标签 + 这条记忆的全部标签（都描述它，都能当取材线索）
+    const tagMap = {};
+    for(const tg of liveTags){ (tagMap[tg.entry_id] = tagMap[tg.entry_id] || []).push(tg.tag); }
     return list.map(item=>({
       id: item.e.id,
       event: item.e.event || '',
@@ -11104,14 +11112,17 @@ async function memMagnetRecall(userText, k){
       summary: item.e.summary || '',
       score: Math.round(item.score * 1000) / 1000,
       hits: item.hits,
-      quotes: memQuotesOf(item.e, msgs)
+      quotes: memQuotesOf(item.e, msgs, item.hits.concat(tagMap[item.e.id] || []))
     }));
   }catch(e){ console.warn('[mem] recall', e); return []; }
 }
-// 从原料气泡里回看原话（Stone Memory 的「摘要能走回原话」）：
-// source_mids 本身就是对话顺序（batch 已按 id 升序），取前两句、尽量一问一答；
-// 90 秒内刚说过的跳过，避免 AI 把用户此刻这句话当成「回忆」原样复读。取不到就降级为纯摘要。
-function memQuotesOf(entry, allMsgs){
+// 从原料气泡里回看原话（Stone Memory 的「摘要能走回原话」）。
+// ⚠️ source_mids 是【整批】气泡（打标一次最多 40 条），同一批产出的每条记忆共用同一份
+// ⇒ 「按顺序取前两句」永远取到批次开头，跟本条记忆无关（09-30 用户实测踩到，摘要讲诈骗、原话是别的话题）。
+// 正确做法：拿这条记忆的 event / 标签 / 摘要，跟批内每条气泡算相关度，挑最相关的那句 + 与它配对的另一角色那句。
+// 相关度 = ①记忆自身的词（event / 标签）原样出现 = 强信号；②与 event+摘要共有的二字词 = 弱信号。
+// 弱信号按「批内出现频率」过滤：整批都有的二字词（什么 / 一个 / 就是…）不携带信息，自动淘汰，不用维护停用词表。
+function memQuotesOf(entry, allMsgs, focus){
   try{
     const mids = Array.isArray(entry && entry.source_mids) ? entry.source_mids.map(String) : [];
     if(!mids.length || !allMsgs || !allMsgs.length) return [];
@@ -11126,18 +11137,64 @@ function memQuotesOf(entry, allMsgs){
       rows.push(m);
     }
     if(!rows.length) return [];
-    const clip = t=>{ t = String(t).replace(/\s+/g, ' ').trim(); return (!t || t.length <= MEM_QUOTE_LINE) ? t : (t.slice(0, MEM_QUOTE_LINE) + '…'); };
-    const out = [];
-    for(const m of rows){
-      if(out.length >= MEM_QUOTE_PER) break;
-      const role = (m.role === 'user') ? 'user' : 'ai';
-      if(out.length === 1 && out[0].role === role) continue; // 尽量一问一答，读起来才像回忆
-      const t = clip(m.content);
-      if(t) out.push({ role, text: t });
+    const texts = rows.map(m=>String(m.content || ''));
+    const grams = t=>{
+      const s = t.replace(/\s+/g, ''); const set = new Set();
+      for(let i = 0; i + 1 < s.length; i++) set.add(s.slice(i, i + 2));
+      return set;
+    };
+    const df = new Map();
+    const rowGrams = texts.map(t=>{
+      const g = grams(t);
+      for(const x of g) df.set(x, (df.get(x) || 0) + 1);
+      return g;
+    });
+    const cap = Math.max(1, Math.ceil(rows.length * 0.5));   // 过半气泡都出现的二字词丢掉
+    const focusArr = (Array.isArray(focus) ? focus : []).map(x=>String(x || '').trim()).filter(x=>x.length >= 2);
+    const signal = grams((entry.event || '') + ' ' + (entry.summary || '') + ' ' + focusArr.join(' '));
+    const scores = texts.map((t, i)=>{
+      let s = 0;
+      for(const f of focusArr){ if(t.indexOf(f) >= 0) s += MEM_QUOTE_TERM_HIT; }
+      for(const g of rowGrams[i]){ if(signal.has(g) && df.get(g) <= cap) s += 1; }
+      return s;
+    });
+    let best = -1, bestScore = 0;
+    for(let i = 0; i < scores.length; i++){ if(scores[i] > bestScore){ bestScore = scores[i]; best = i; } }
+    if(best < 0 || bestScore < MEM_QUOTE_MIN_SCORE) return [];   // 挑不出相关的：宁可只给摘要
+    const clip = t=>{
+      t = String(t).replace(/\s+/g, ' ').trim();
+      if(!t || t.length <= MEM_QUOTE_LINE) return t;
+      const head = t.slice(0, MEM_QUOTE_LINE);
+      let cut = -1;
+      for(const p of ['。', '！', '？', '…']){ const k = head.lastIndexOf(p); if(k > cut) cut = k; }
+      return (cut >= 12) ? head.slice(0, cut + 1) : (head + '…');   // 能断在句末就断句，别切在半句话中间
+    };
+    const roleOf = m => (m.role === 'user') ? 'user' : 'ai';
+    // 配一句给最相关那句做对手戏：在最近两轮里挑「另一角色 + 相关度最高」的，
+    // 不能只取紧邻——紧邻那句可能只是无关的寒暄，拼在一起读起来像 AI 记岔了。
+    const opp = (roleOf(rows[best]) === 'user') ? 'ai' : 'user';
+    const near = [];
+    for(const d of [-1, 1, -2, 2]){
+      const j = best + d;
+      if(j < 0 || j >= rows.length) continue;
+      if(roleOf(rows[j]) !== opp) continue;
+      near.push({ j: j, d: Math.abs(d) });
     }
-    if(!out.length){ // 全是同一方（例如只圈了一个人说的话）：至少留一句
-      const t = clip(rows[0].content);
-      if(t) out.push({ role: (rows[0].role === 'user') ? 'user' : 'ai', text: t });
+    near.sort((a, b)=> (scores[b.j] - scores[a.j]) || (a.d - b.d));
+    let partner = near.length ? near[0].j : -1;
+    if(partner < 0){   // 前后没有另一角色（例如只圈了同一个人说的话）：只在「它也相关」时才拿来凑上下文
+      for(const d of [-1, 1]){
+        const j = best + d;
+        if(j >= 0 && j < rows.length && scores[j] >= MEM_QUOTE_MIN_SCORE){ partner = j; break; }
+      }
+    }
+    const pick = (partner >= 0) ? [partner, best] : [best];
+    pick.sort((a, b)=>a - b);   // 按对话顺序输出
+    const out = [];
+    for(const i of pick){
+      if(out.length >= MEM_QUOTE_PER) break;
+      const t = clip(texts[i]);
+      if(t) out.push({ role: roleOf(rows[i]), text: t, score: scores[i] });
     }
     return out;
   }catch(e){ return []; }
@@ -11318,7 +11375,11 @@ async function memProbe(){
         + '<div>' + (i + 1) + '. ' + escHtml(h.summary || '（无摘要）') + (inBlock ? '' : ' · 超预算未注入') + '</div>'
         + (h.event ? '<div style="font-size:11px;color:var(--green-dark);">◇ ' + escHtml(h.event) + ' · ' + escHtml(h.status) + '</div>' : '')
         + '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">命中 ' + escHtml((h.hits || []).join(' / '))
-          + ' · 得分 ' + h.score + ' · ' + ((h.quotes && h.quotes.length) ? ('原话 ' + h.quotes.length + ' 句') : '无可回看原话') + '</div>'
+          + ' · 得分 ' + h.score + ' · '
+          + ((h.quotes && h.quotes.length)
+              ? ('原话 ' + h.quotes.length + ' 句（相关度 ' + h.quotes.map(q=>q.score).join('/') + '）')
+              : '无可回看原话（这批气泡里没挑出相关的）')
+          + '</div>'
         + '</div>';
     });
     const pct = Math.min(100, Math.round(built.used / MEM_BUDGET * 100));
