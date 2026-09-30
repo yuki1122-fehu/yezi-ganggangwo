@@ -11345,7 +11345,9 @@ async function memMarkBubbles(){
       // 黄框语义（2026-08-29 改）=「这段已经记下来了」，不再只是「AI 扫过」：
       // 是某条记忆的原料对话 ∪ 水位线以下扫过 ∪ 手动圈选。
       // 只按水位线判定会漏三种情况：①日记 gems 产出的记忆（已拆桥）②事件跨批合并的最新进展（还没攒够 24 条没触发打标）
-      // ③清空记忆后重打时还没轮到的批次。现在只要记忆库里有它，对话就一定有框。
+      // ③清空记忆后重打时还没轮到的批次。
+      // ⚠️ 2026-09-30 起 active !== 1（已淡出）的条目不参与上面的 entryMids，所以「记下来了」的星会消失——
+      // 这是刻意的：淡出等于「不再被想起」，若还标着「记下来了」，用户会以为 AI 忘了。气泡上最多只留水位线那层黄框。
       const scanned = entryMids.has(mid) || (typeof dbId === 'number' && (keepDbIds.has(dbId) || dbId <= wmv));
       el.classList.toggle('mem-scanned', scanned);
       const isOrigin = (dbId != null && entBySrc.has(Number(dbId))); // 记忆的起点气泡：星更亮
