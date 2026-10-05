@@ -1216,6 +1216,23 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 .mj-gem-ev{font-size:var(--fs-2);font-weight:800;color:#7a5c17;line-height:1.45;word-break:break-word;}
 .mj-gem-sm{font-size:var(--fs-2);line-height:1.65;color:var(--ink);word-break:break-word;}
 .mj-gem-kw{font-size:var(--fs-1);color:var(--ink-soft);word-break:break-word;}
+/* gems 编辑区（2026-10-05 方案A：把控制权还给用户）——事件名/一句话/关键词全可改，可删可升级为真记忆 */
+.jg-edit-list{display:flex;flex-direction:column;gap:10px;margin-top:8px;}
+.jg-item{border:1px solid var(--green-mid);border-radius:var(--radius-xs);background:rgba(255,255,255,.5);padding:10px 11px;}
+.jg-item:first-child{border-top:1px solid var(--green-mid);}
+.jg-item-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;}
+.jg-item-hd b{font-size:var(--fs-2);font-weight:800;color:var(--green-dark);}
+.jg-item-hd .jg-idx{font-size:var(--fs-1);color:var(--ink-soft);font-weight:700;}
+.jg-lbl{display:block;font-size:11px;color:var(--ink-soft);margin:6px 0 3px;font-weight:600;}
+.jg-inp{width:100%;font-size:13px;line-height:1.5;padding:7px 9px;border:1px solid var(--ink-faint);border-radius:9px;background:rgba(255,255,255,.72);font-family:inherit;box-sizing:border-box;}
+textarea.jg-inp{min-height:52px;resize:vertical;}
+.jg-item-ft{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap;}
+.jg-btn{font-size:11px;font-weight:700;padding:6px 11px;border-radius:9px;border:1px solid var(--green-mid);background:rgba(255,255,255,.7);color:var(--green-dark);cursor:pointer;font-family:inherit;line-height:1.4;}
+.jg-btn.danger{border-color:rgba(200,90,80,.4);color:#b5564c;}
+.jg-btn.primary{background:var(--green-mid);color:#fff;border-color:transparent;}
+.jg-btn:disabled{opacity:.5;cursor:default;}
+.jg-hint{font-size:11px;line-height:1.6;color:var(--ink-soft);margin-top:8px;padding:8px 10px;background:rgba(240,196,79,.1);border:1px solid rgba(240,196,79,.28);border-radius:var(--radius-xs);}
+.jg-empty{font-size:12px;color:var(--ink-soft);padding:10px;text-align:center;}
 .mj-item-actions{display:flex;gap:8px;margin-top:11px;padding-top:10px;border-top:1px dashed var(--line);}
 .mj-item-btn{
   flex:0 0 auto;font-size:var(--fs-2);font-weight:800;padding:6px 13px;border-radius:var(--radius-pill);cursor:pointer;
@@ -1272,7 +1289,7 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
 .exp-full-toggle{display:flex;align-items:center;justify-content:center;gap:5px;margin-top:12px;padding:8px;font-size:var(--fs-2);font-weight:800;color:var(--green-dark);cursor:pointer;border:1px dashed var(--green-mid);border-radius:var(--radius-xs);transition:background .15s,transform .15s;transition-timing-function:var(--ease);}
 .exp-full-toggle:active{background:var(--green-soft);transform:scale(.98);}
 .exp-full-wrap{margin-top:14px;border-top:1px dashed var(--green-mid);padding-top:13px;max-height:62vh;overflow:auto;-webkit-overflow-scrolling:touch;padding-right:2px;}
-.exp-full-summary{display:flex;align-items:center;gap:9px;padding:9px 13px;margin-bottom:13px;background:var(--green-soft);border:1px solid var(--green-mid);border-radius:var(--radius-sm);font-size:var(--fs-2);font-weight:700;color:var(--green-dark);letter-spacing:.3px;}
+.exp-full-summary{display:flex;align-items:center;flex-wrap:wrap;gap:9px;padding:9px 13px;margin-bottom:13px;background:var(--green-soft);border:1px solid var(--green-mid);border-radius:var(--radius-sm);font-size:var(--fs-2);font-weight:700;color:var(--green-dark);letter-spacing:.3px;line-height:1.7;}
 .exp-full-summary b{font-size:var(--fs-3);font-variant-numeric:tabular-nums;}
 .exp-full-summary .sep{width:1px;height:13px;background:var(--green-mid);flex:0 0 auto;}
 .exp-day{background:var(--glass);border:1px solid var(--glass-line);border-radius:var(--radius-sm);padding:11px 13px 9px;margin-bottom:11px;box-shadow:var(--shadow-xs);animation:expDayIn .34s var(--ease) both;}
@@ -2881,6 +2898,14 @@ button>.ico,.role-ic>.ico,.comp-pill>.ico{vertical-align:middle;}
   <div class="sheet glass-strong">
     <h3 id="memJournalEditTitle">编辑回忆</h3>
     <textarea id="memJournalEditText" style="width:100%;min-height:150px;resize:vertical;font-size:13px;line-height:1.7;margin-top:8px;padding:10px 12px;border:1px solid var(--ink-faint);border-radius:10px;background:rgba(255,255,255,.6);font-family:inherit;box-sizing:border-box;white-space:pre-wrap;"></textarea>
+    <!-- ✨ 这天记住了：编辑区（2026-10-05 方案A）。原来 gems 只在归档页展示、既不能改也不能删，
+         AI 判错了只能干看着。gems 仍不进磁铁召回（拆桥见 memPurgeGemEntries），
+         但看得上的可以一键「升级为记忆」，从此能被关键词激活。 -->
+    <div id="jgEditWrap" style="display:none;">
+      <div class="jg-lbl" style="margin-top:16px;font-size:var(--fs-2);font-weight:800;color:#8a6a1e;">✨ 这天记住了</div>
+      <div class="jg-hint">AI 从这篇日记里挑出的高光，<b>只在这一页展示，不会自动被「说到就想起」</b>（下方关键词仅作存档）。判错了直接改或删；觉得值得真的记住，点「升级为记忆」，它就会进记忆库、以后说到相关词会被唤起。</div>
+      <div class="jg-edit-list" id="jgEditList"></div>
+    </div>
     <div class="row" style="margin-top:12px;gap:8px;">
       <button class="btn ghost" onclick="closeJournalEdit()">取消</button>
       <button class="btn primary" onclick="memJournalSave()">保存</button>
@@ -6292,6 +6317,26 @@ function monthKey(d){
 function expensesOfMonth(mk){
   return EXPENSES.items.filter(e=>monthKey(e.date)===mk);
 }
+/* 日均的分母 = 日历天数（含一整天没花钱的日子），不是「有记账的天数」
+   2026-10-05 修：原先用 dayGroups.length 做分母，导致「三天里有一天没花钱」算成 400÷2，日均虚高一倍。
+   例：10/1 花 200、10/3 花 200、10/2 没花 → 共 3 天 → 日均 133.33，不是 200。 */
+function calendarDays(from, to){
+  const a = new Date(String(from)+'T00:00:00'), b = new Date(String(to)+'T00:00:00');
+  if(isNaN(a.getTime()) || isNaN(b.getTime())) return 0;
+  // 跨夏令时可能差 23/25 小时，round 抹掉
+  return Math.max(1, Math.round((b - a)/86400000) + 1);
+}
+/* 某个月的统计区间与日均分母
+   本月 = 1 号→今天（未来不参与）；历史月 = 整月（28/29/30/31，new Date(y,m,0) 天然处理闰年）
+   口径（2026-10-05 用户拍板）：分母恒为整月天数，不从「第一笔记账日」起算 —— 整月平摊，
+   跨月看趋势时口径一致。 */
+function monthDayRange(mk){
+  const y = parseInt(mk.slice(0,4),10), m = parseInt(mk.slice(5,7),10);
+  const last = new Date(y, m, 0).getDate(); // m 是 1-based，new Date(y,m,0) 即当月最后一天
+  const isNow = (mk === monthKey());
+  const end = isNow ? Math.min(last, new Date().getDate()) : last;
+  return { from: mk+'-01', to: mk+'-'+String(end).padStart(2,'0'), days: end, monthDays: last, isNow };
+}
 function fmtHKD(n){
   return 'HK$ '+(Math.round(n*100)/100).toLocaleString();
 }
@@ -6328,7 +6373,10 @@ function renderExpenseCard(){
   const byDate = {};
   recent.forEach(e=>{ const d = e.date||'未知'; (byDate[d]=byDate[d]||[]).push(e); });
   const dayGroups = Object.entries(byDate).sort((a,b)=>b[0].localeCompare(a[0]));
-  const avg = dayGroups.length ? Math.round(total/dayGroups.length*100)/100 : 0;
+  // 日均分母 = 日历天数（本月 1 号→今天；历史月整月），空白天也算一天
+  const mr = monthDayRange(mk);
+  const spanDays = dayGroups.length ? mr.days : 0;
+  const avg = spanDays ? Math.round(total/spanDays*100)/100 : 0;
   const fullHtml = dayGroups.length ? dayGroups.map(([date,list],gi)=>{
     const dayTotal = list.reduce((s,e)=>s+(+e.amount||0),0);
     const dp = fmtDayParts(date);
@@ -6353,7 +6401,7 @@ function renderExpenseCard(){
       </div>`).join('')}
     </div>`;
   }).join('') : `<div class="exp-full-empty">${isNow?'本月':mk} 还没有记账 🌿</div>`;
-  const summaryHtml = dayGroups.length ? `<div class="exp-full-summary">${mk} · <b>${items.length} 笔</b><span class="sep"></span>日均 <b>${fmtHKD(avg)}</b><span class="sep"></span>共 <b>${dayGroups.length} 天</b></div>` : '';
+  const summaryHtml = dayGroups.length ? `<div class="exp-full-summary" title="日均按日历天数算：${mr.from.slice(5)} 到 ${mr.to.slice(5)}${mr.isNow?'（未来不参与）':'（整月）'}，中间没花钱的日子也算一天">${mk} · <b>${items.length} 笔</b><span class="sep"></span>日均 <b>${fmtHKD(avg)}</b><span class="sep"></span>${mr.from.slice(5)}–${mr.to.slice(5)} 共 <b>${spanDays}</b> 天<span class="sep"></span><b>${dayGroups.length}</b> 天有支出</div>` : '';
   return `<div class="expense-card glass">
     <div class="exp-head">
       <div class="exp-title">
@@ -6538,7 +6586,8 @@ function buildBillCanvas(items, from, to){
   const byDate = {};
   items.forEach(e=>{ const d=e.date||'未知'; (byDate[d]=byDate[d]||[]).push(e); });
   const days = Object.entries(byDate).sort((a,b)=>a[0].localeCompare(b[0]));
-  const dayCount = days.length;
+  // 日均分母同样是日历天数（所选区间内的空白天也算一天），不是有支出的天数
+  const dayCount = Math.max(calendarDays(from, to), days.length);
   const avg = dayCount ? Math.round(total/dayCount*100)/100 : 0;
   const W = 1080, P = 84, CW = W - 2*P, R = 30;
   const catH = 116 + cats.length*66;
@@ -6582,7 +6631,7 @@ function buildBillCanvas(items, from, to){
   const m0=from.slice(0,4),m1=from.slice(5,7),m2=to.slice(5,7);
   const rangeLabel = m1===m2 ? (m0+' 年 '+parseInt(m1,10)+' 月') : (from+' ~ '+to);
   font(54,'800'); ctx.fillStyle=C.ink; ctx.textAlign='left'; ctx.fillText(rangeLabel, P, 122);
-  font(22,'500'); ctx.fillStyle=C.faint; ctx.fillText((from===to?from:from+' — '+to)+' · 共 '+dayCount+' 天', P, 160);
+  font(22,'500'); ctx.fillStyle=C.faint; ctx.fillText((from===to?from:from+' — '+to)+' · 共 '+dayCount+' 天（'+days.length+' 天有支出）', P, 160);
   // 总支出玻璃卡
   let y=188;
   glass(P,y,CW,210,R);
@@ -6976,7 +7025,7 @@ const AI_TOOLS = [
   }},
   { type:'function', function:{
     name:'get_expenses',
-    description:'查询记账：本月/指定月份花了多少、预算剩余、分类统计、最近几笔。用户问"这个月花了多少""钱花哪了""记账汇总"时调用。',
+    description:'查询记账：本月/指定月份花了多少、预算剩余、分类统计、最近几笔。用户问"这个月花了多少""钱花哪了""记账汇总""日均花多少"时调用。返回值里的 daily_avg 是日均花费，分母为日历天数（没花钱的日子也算一天），回答日均时直接用它，不要自己用"有支出的天数"去除。',
     parameters:{ type:'object', properties:{
       month:{type:'string', description:'月份 YYYY-MM，默认本月'},
       limit:{type:'integer', description:'返回最近几笔明细，默认 5'}
@@ -10591,16 +10640,49 @@ async function memJournalMaintain(cfg){
     const days = js.filter(j=>j.type === 'day').sort((a,b)=>String(a.start).localeCompare(String(b.start)));
     const weeks = js.filter(j=>j.type === 'week').sort((a,b)=>String(a.start).localeCompare(String(b.start)));
     const months = js.filter(j=>j.type === 'month').sort((a,b)=>String(a.start).localeCompare(String(b.start)));
-    // L1 日记：最后归档日 < 昨天 → 补记「昨天」（覆盖 最后归档次日 ~ 昨天 的全部对话）
-    if(!days.length || days[days.length-1].end < yesterday){
-      const after = days.length ? days[days.length-1].end : '';
-      await memJournalDay(cfg, after, yesterday);
+    // 2026-10-05 存量归一化（一次性，无标记、幂等）：把 start/end 越界的周记/月记夹回它自己的自然月。
+    // 旧版本按「起点所在月」归桶，跨月周的周记会整条落进起点月，于是 8/31~9/6 那条周记的日期区间
+    // 跨到了九月；8 月月记因此 end=09-01。这些越界记录会让新的幂等判断误以为相邻月份已生成过。
+    // 这里只收窄日期边界、不动内容与条数，也不删除任何用户数据。
+    for(const j of [...weeks, ...months]){
+      const isWeek = j.type === 'week';
+      const s = String(j.start || ''), e = String(j.end || '');
+      if(s.length !== 10 || e.length !== 10) continue;
+      // 周记的合法区间是它所属自然周；月记的合法区间是该自然月
+      const lo = isWeek ? _memWeekStart(s) : (s.slice(0,7) + '-01');
+      const hi = isWeek ? _memDateShift(lo, 6) : (s.slice(0,7) + '-' + _memPad2(new Date(+s.slice(0,4), +s.slice(5,7), 0).getDate()));
+      const ns = s < lo ? lo : s;
+      const ne = e > hi ? hi : e;
+      if(ns !== s || ne !== e){
+        j.start = ns; j.end = ne < ns ? ns : ne;
+        await memPut('journal', { id:j.id, type:j.type, start:j.start, end:j.end, content:j.content, gems:j.gems, created_at:j.created_at }).catch(()=>{});
+      }
+    }
+    // L1 日记：一天一条（2026-10-05 重写）
+    // 原逻辑把「上次归档日 ~ 昨天」整段打包成**一条**日记：空档 33 天就生成一条横跨 33 天的假日记。
+    // 后果比"日记太长"严重——周记/月记都靠 start/end 定位记录，start 落在 9/2 而 end 在 10/4，
+    // 九月会被算成"起点在这里"却 end 越界，整月归属彻底错位，还顺带把 L1 的推进指针卡在 10/4。
+    // 改为：只给「真的有对话的日子」补，一日一条；没聊天的日子不硬造空日记。
+    const lastDayEnd = days.length ? String(days[days.length-1].end || '') : '';
+    if(!days.length || lastDayEnd < yesterday){
+      const msgs = await memGetAll('messages');
+      const spoken = new Set();
+      for(const m of (msgs||[])){ if(m && m.content) spoken.add(_memLocalDate(m.created_at)); }
+      const backlog = [...spoken].filter(d => d && (!lastDayEnd || d > lastDayEnd) && d <= yesterday).sort();
+      for(const D of backlog.slice(0,3)){ // 每轮最多补 3 天，界住 API 调用量
+        await memJournalDay(cfg, _memDateShift(D,-1), D); // 区间=[D,D] ⇒ 落库 start=end=D
+        days.push({ type:'day', start:D, end:D });
+        js.push({ type:'day', start:D, end:D }); // 同轮内让 L2/L3 立刻看得见
+      }
     }
     // L2 周记：按自然周归档（周一~周日，2026-09-08 改，替代旧「攒满 7 篇日记」计数制）
     // 某自然周已结束（周日 < 今天）、该周有日记、且尚未有覆盖该周的周记 → 合并该周全部日记为一条
-    const lastWeekEnd = weeks.length ? weeks[weeks.length-1].end : '';
+    // 2026-10-05：候选日记不再用 `d.start > lastWeekEnd` 游标过滤（游标假设周记 end 恰好是周日，
+    // 但周记 end 实际是「该周最后一篇日记的日期」——周一有日记、周二没聊天的周，end 就落在周一，
+    // 于是周二~周日的日记会被这个游标静默丢掉，且再也补不回来）。改为全量入桶，
+    // 真正的幂等由下面的 `weeks.some(w=>_memWeekStart(w.start)===ws)` 逐周负责。
     const byWeek = {};
-    for(const d of js.filter(j=> j.type === 'day' && (!lastWeekEnd || j.start > lastWeekEnd))){
+    for(const d of js.filter(j=> j.type === 'day')){
       const ws = _memWeekStart(d.start);
       if(ws) (byWeek[ws] = byWeek[ws] || []).push(d);
     }
@@ -10609,27 +10691,63 @@ async function memJournalMaintain(cfg){
       if(we >= today) continue; // 该自然周还没过完，不动
       if(weeks.some(w=> _memWeekStart(w.start) === ws)) continue; // 幂等保护：该周已有周记
       const grp = byWeek[ws].sort((a,b)=>String(a.start).localeCompare(String(b.start)));
-      await memJournalMake(cfg, 'week', grp);
-      weeks.push({ type:'week', start: grp[0].start, end: grp[grp.length-1].end }); // 同轮内立即可见（供 L3 用）
+      // 生成失败（AI 出错/返回空）时 memJournalMake 返回 null —— 此时不能推进 weeks，
+      // 否则本月记会把"这周已归档"当真，等于静默吞掉一周日记
+      const saved = await memJournalMake(cfg, 'week', grp);
+      if(!saved) continue;
+      weeks.push(saved); // 同轮内立即可见（供 L3 用），用落库那份保证 start/end 一致
     }
     weeks.sort((a,b)=>String(a.start).localeCompare(String(b.start)));
     // L3 月记：按自然月归档（2026-09-08 改，替代旧「攒满 4 篇周记」计数制）
-    // 某自然月已结束、该月有归属的周记（按周记起点所在月归属，跨月周整条归起点月）→ 合并为一条月记
-    const lastMonthEnd = months.length ? months[months.length-1].end : '';
-    const byMonth = {};
-    for(const w of weeks.filter(j=> (!lastMonthEnd || j.start > lastMonthEnd))){
-      const mk = String(w.start || '').slice(0, 7);
-      if(mk.length === 7) (byMonth[mk] = byMonth[mk] || []).push(w);
+    // 某自然月已结束、该月有归属的周记 → 合并为一条月记
+    //
+    // 2026-10-05 修：原来按「周记起点所在月」归桶（w.start.slice(0,7)），跨月周整条归起点月。
+    // 症状：8/26~9/1 的日记只生成 2 条周记，其中 8/31~9/6 起点在 8 月 ⇒ 9/1 整天被吞进八月，
+    // 九月一条周记都没有 ⇒ 九月永远不生成月记（叶子 10/5 报）。
+    // 现在：把周记按它实际覆盖的每一天展开，跨月周的每一段归各自所在的月（8/31 归八月、9/1~9/6 归九月）。
+    //
+    // 另一处同时修：原过滤是 `w.start > lastMonthEnd`（lastMonthEnd = 最后一条月记的 end）。
+    // 这是个游标假设「月记不重叠」，但跨月周的周记 start 可能早于该游标 ⇒ 整批周记被丢弃。
+    // 症状：一旦存在 8 月月记(end=09-01)，九月一条周记都攒不出来。改成按「已生成的月份集合」逐月判断。
+    const doneMonths = new Set(months.map(m=>String(m.start||'').slice(0,7)).filter(x=>x.length===7));
+    const byMonth = {};   // mk -> 周记数组（同一条周记可出现在两个月的桶里）
+    for(const w of weeks){
+      const ws = _memWeekStart(w.start);
+      // 该周覆盖的全部日期，逐日归月；周记的 end 是「该周最后一篇日记的日期」，可能比周日早
+      const spanEnd = (w.end && w.end > _memDateShift(ws,6)) ? w.end : _memDateShift(ws, 6);
+      for(let d=ws; d<=spanEnd; d=_memDateShift(d,1)){
+        const mk = String(d).slice(0, 7);
+        if(mk.length !== 7) continue;
+        if(!byMonth[mk]) byMonth[mk] = [];
+        if(!byMonth[mk].includes(w)) byMonth[mk].push(w);
+      }
     }
     for(const mk of Object.keys(byMonth).sort()){
       const np = mk.split('-');
       const nextMonth = (np[1] === '12' ? (+np[0]+1) + '-01' : np[0] + '-' + _memPad2(+np[1]+1)) + '-01';
       if(today < nextMonth) continue; // 该自然月还没过完
-      // 幂等保护：该月已有月记（覆盖起点月或终点月任一，防止旧月记 end 落在月中的历史数据造成重复）
-      if(months.some(m=> String(m.start || '').slice(0, 7) === mk || String(m.end || '').slice(0, 7) === mk)) continue;
-      const grp = byMonth[mk].sort((a,b)=>String(a.start).localeCompare(String(b.start)));
-      await memJournalMake(cfg, 'month', grp);
-      months.push({ type:'month', start: grp[0].start, end: grp[grp.length-1].end });
+      // 幂等保护：只看「月记的起点月」。
+      // 原守卫是 start月===mk || end月===mk，而跨月周生成的月记 start 落在 8 月、end 落在 9 月，
+      // 于是这条 8 月月记会把 9 月也一起挡掉 —— 九月即使有周记也生成不出来。start 月唯一即可。
+      if(doneMonths.has(mk)) continue;
+      const grp = byMonth[mk].slice().sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+      if(!grp.length) continue;
+      // 落库的 start/end 必须严格落在本月边界内。
+      // 跨月周的周记 start 可能在上月（如 8/31~9/6 这条周记进了九月的桶），所以两侧都要夹：
+      //   start 夹到 mk-01 ⇒ 归属月 == start 月，幂等判断才自洽（否则下一轮又认不出这是九月月记）
+      //   end   夹到月末   ⇒ 不越界污染下一个月
+      const mFirst = mk + '-01';
+      const mLast = mk + '-' + _memPad2(new Date(+np[0], +np[1], 0).getDate());
+      const grpStart = String(grp[0].start) < mFirst ? mFirst : String(grp[0].start);
+      const grpEnd = String(grp[grp.length-1].end) > mLast ? mLast : String(grp[grp.length-1].end);
+      const span = { start: grpStart, end: grpEnd < grpStart ? grpStart : grpEnd };
+      const saved = await memJournalMake(cfg, 'month', grp, span);
+      // memJournalMake 在 AI 失败/返回空时会静默 return（落库没成功）⇒ 不能推进内存态，
+      // 否则 doneMonths 误标"已生成"，这一页的月记就永久丢了（下一轮会被幂等跳过）。
+      if(!saved) continue;
+      // 以落库那份为准推进内存态（memJournalMake 内部才知道最终写进去的 start/end）
+      months.push(saved);
+      doneMonths.add(mk); // 同轮内多个月份时也能正确幂等
     }
   }catch(e){ console.warn('[mem] journal', e); }
 }
@@ -10665,7 +10783,10 @@ async function memJournalDay(cfg, afterDate, endDate){
     }
   }catch(e){ console.warn('[mem] journal day', e); }
 }
-async function memJournalMake(cfg, type, items){
+async function memJournalMake(cfg, type, items, span){
+  // 返回值契约（2026-10-05）：成功=落库那行记录（调用方靠它推进内存态，保证 start/end 与 IDB 一致）；
+  // 失败（AI 报错 / JSON 解析失败 / 内容为空 / 抛异常）= undefined，调用方据此**不推进**内存态，
+  // 否则会把这周/这月误记成"已归档"而永久静默丢失。改这个函数时务必保留所有失败路径的无返回值语义。
   try{
     const isWeek = type === 'week';
     const label = isWeek ? '一周回忆' : '一月回忆';
@@ -10681,7 +10802,14 @@ async function memJournalMake(cfg, type, items){
     const t = JSON.parse(j);
     const content = String(t.content || '').trim();
     if(!content) return;
-    await memPut('journal', { type: isWeek ? 'week' : 'month', start: items[0].start, end: items[items.length-1].end, content: content.slice(0, 900), created_at: new Date().toISOString() });
+    // span：调用方算好的 start/end 覆盖值（2026-10-05）。
+    // 必须在这里生效而不是只在调用方夹一次 —— 本函数自己 memPut 落库，调用方夹好的值传不进 IDB，
+    // 结果月记 start 仍是跨月周的上月日期（如 08-31），归属月与幂等判断再次不一致。
+    const st = (span && span.start) || items[0].start;
+    const en = (span && span.end) || items[items.length-1].end;
+    const row = { type: isWeek ? 'week' : 'month', start: st, end: en, content: content.slice(0, 900), created_at: new Date().toISOString() };
+    await memPut('journal', row);
+    return row; // 调用方用返回值的 start/end 推进内存态，避免两处各算一遍
   }catch(e){ console.warn('[mem] journal merge', e); }
 }
 // 刷新「近期回忆」注入块（buildLiveContext 是同步的，这里异步预取后交给它拼）
@@ -10731,10 +10859,13 @@ function journalGemsHtml(j){
     '<div class="mj-gem">' +
       '<span class="mj-gem-ev">✦ ' + escHtml(g.event) + '</span>' +
       (g.summary ? '<span class="mj-gem-sm">' + escHtml(g.summary) + '</span>' : '') +
-      (Array.isArray(g.keyword) && g.keyword.length ? '<span class="mj-gem-kw"># ' + escHtml(g.keyword.join(' / ')) + '</span>' : '') +
+      (Array.isArray(g.keyword) && g.keyword.length ? '<span class="mj-gem-kw"># ' + escHtml(g.keyword.join(' / ')) + '<span style="opacity:.7;">（仅存档）</span></span>' : '') +
     '</div>'
   ).join('');
-  return '<div class="mj-gems"><div class="mj-gems-head">✨ 这天记住了</div>' + items + '</div>';
+  // 标题旁挂一句说明 + 指向编辑：原来只有一句「✨ 这天记住了」，用户既不知道它能不能被激活，
+  // 也不知道判错了可以去改（2026-10-05 方案A：把控制权还给用户）
+  return '<div class="mj-gems"><div class="mj-gems-head">✨ 这天记住了'
+    + '<span style="font-weight:600;opacity:.75;letter-spacing:0;">（AI 挑的高光，点本篇「编辑」可改 / 删 / 升级为记忆）</span></div>' + items + '</div>';
 }
 function memRenderJournalList(){
   const list = document.getElementById('mjList');
@@ -11009,16 +11140,100 @@ function refreshCalJournalSlot(){
 }
 // 日记/周记/月记：手动编辑 / 删除（AI 写的回忆不满意可直接改或清掉）
 let _journalEditId = null;
+let _journalEditDay = '';   // 正在编辑的那篇的 start（升级为记忆时溯源当天消息用）
+/* ✨「这天记住了」(gems) 的编辑态（2026-10-05 方案A）
+   - gems 仍只存在 journal 行里，**不进磁铁召回**（2026-08-29 拆桥，理由见 memPurgeGemEntries）
+   - 但用户可以改 / 删 /「升级为记忆」。升级走 memManualSave，与长按气泡手动记同一条路 ⇒ 真能被关键词激活
+   - 每次点「编辑」都从库里重读，不跨弹窗残留（避免改了又取消、缓存却是脏的） */
+let _jgEdit = null;   // [{event, summary, keyword:[], _upgraded:false}]
+function jgNorm(g){
+  return {
+    event:   String((g && g.event) || '').trim().slice(0, 40),
+    summary: String((g && g.summary) || '').trim().slice(0, 80),
+    keyword: (Array.isArray(g && g.keyword) ? g.keyword : []).map(k=>String(k).trim()).filter(Boolean).slice(0, 3),
+    _upgraded: !!(g && g._upgraded)   // 已升级过的这轮不再重复写库
+  };
+}
+function jgRenderEdit(){
+  const wrap = document.getElementById('jgEditWrap');
+  const list = document.getElementById('jgEditList');
+  if(!wrap || !list) return;
+  if(!_jgEdit){ wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  if(!_jgEdit.length){
+    list.innerHTML = '<div class="jg-empty">这天 AI 没挑出高光（或已被你删完）。想自己记一条，点下面「＋ 手动加一条」。</div>'
+      + '<div class="jg-item-ft"><button class="jg-btn" onclick="jgAddRow()">＋ 手动加一条</button></div>';
+    return;
+  }
+  list.innerHTML = _jgEdit.map((g,i)=>`
+    <div class="jg-item">
+      <div class="jg-item-hd"><span class="jg-idx">高光 ${i+1}</span>${g._upgraded?'<span style="font-size:11px;color:var(--green-dark);font-weight:700;">✓ 已升级为记忆</span>':''}</div>
+      <label class="jg-lbl">事件名（能单独命名一个事件或梗）</label>
+      <input class="jg-inp" value="${escHtml(g.event)}" placeholder="例如：金凤真假店风波" oninput="jgSet(${i},'event',this.value)">
+      <label class="jg-lbl">一句话（说清这一件事）</label>
+      <textarea class="jg-inp" placeholder="这件事是什么、怎么解决的" oninput="jgSet(${i},'summary',this.value)">${escHtml(g.summary)}</textarea>
+      <label class="jg-lbl">关键词（逗号分隔，仅作存档；<b>升级为记忆后才会用于召回</b>）</label>
+      <input class="jg-inp" value="${escHtml(g.keyword.join('，'))}" placeholder="例如：真假店，维权" oninput="jgSetKw(${i},this.value)">
+      <div class="jg-item-ft">
+        <button class="jg-btn primary" ${g._upgraded?'disabled':''} onclick="jgUpgrade(${i})">${g._upgraded?'已升级':'升级为记忆'}</button>
+        <button class="jg-btn danger" onclick="jgDelRow(${i})">删除这条</button>
+      </div>
+    </div>`).join('')
+    + '<div class="jg-item-ft"><button class="jg-btn" onclick="jgAddRow()">＋ 手动加一条</button></div>';
+}
+function jgSet(i, k, v){ if(_jgEdit && _jgEdit[i]) _jgEdit[i][k] = v; }
+function jgSetKw(i, v){
+  if(!_jgEdit || !_jgEdit[i]) return;
+  _jgEdit[i].keyword = String(v||'').split(/[,，]/).map(s=>s.trim()).filter(Boolean).slice(0, 3);
+}
+function jgDelRow(i){ if(_jgEdit) _jgEdit.splice(i,1); jgRenderEdit(); }
+function jgAddRow(){ if(!_jgEdit) _jgEdit = []; _jgEdit.push(jgNorm({event:'',summary:'',keyword:[]})); jgRenderEdit(); }
+// 「升级为记忆」：把这条 gem 写进 entries + tags，从此能被磁铁召回（复刻长按气泡手动记的同一条路）
+async function jgUpgrade(i){
+  const g = _jgEdit && _jgEdit[i];
+  if(!g || g._upgraded) return;
+  const ev = String(g.event||'').trim();
+  const sm = String(g.summary||'').trim();
+  if(!ev && !sm){ toast('先写事件名或一句话'); return; }
+  try{
+    // 溯源：gem 自己没有消息 id，必须回找当天的对话当原料。
+    // source_mids 存的是 mid（不是 db 的自增 id）—— memMarkBubbles/memQuotesOf 都按 mid 建索引，
+    // 传错成数字 id 会让黄框框不到、气泡也不亮（memManualSave 只把 rows[0].id 当 source_msg_id 兜底）。
+    let rows = [], mids = [];
+    try{
+      const msgs = await memGetAll('messages');
+      const day = String(_journalEditDay || '');
+      rows = msgs.filter(m=>m && m.content && _memLocalDate(m.created_at) === day).sort((a,b)=>a.id-b.id).slice(0, 40);
+      mids = rows.map(m=>m.mid).filter(x=>x != null);
+    }catch(e){}
+    const ok = await memManualSave(rows, { event: ev, summary: sm, status: 'done', keyword: g.keyword || [], emotion: [], topic: [], source_mids: mids });
+    if(!ok){ toast('升级失败，请重试'); return; }
+    g._upgraded = true;
+    jgRenderEdit();
+    memRefreshStats().catch(()=>{});
+    memMarkBubbles().catch(()=>{});
+    toast('已升级为记忆，以后说到相关词会被唤起');
+  }catch(e){ console.warn('[mem] gem upgrade', e); toast('升级失败'); }
+}
 async function memJournalEdit(id){
   try{
     const js = await memGetAll('journal');
     const j = js.find(x=>x && x.id === id);
     if(!j){ toast('找不到这条回忆'); return; }
     _journalEditId = id;
+    _journalEditDay = j.start || '';   // 「升级为记忆」时用它找当天的原料消息做溯源
     const title = document.getElementById('memJournalEditTitle');
     const ta = document.getElementById('memJournalEditText');
     if(title) title.textContent = (j.type === 'day' ? '📓 日记' : (j.type === 'week' ? '🗓 周记' : '📆 月记')) + ' · ' + (j.start || '') + (j.end && j.end !== j.start ? ' ~ ' + j.end : '');
     if(ta) ta.value = j.content || '';
+    // gems 编辑态：每次进弹窗都从库里重读（不跨弹窗残留）
+    // 周记/月记不产生 gems（memJournalMake 不写这个字段），所以编辑区只对日记显示
+    if(j.type === 'day'){
+      _jgEdit = (Array.isArray(j.gems) ? j.gems : []).filter(g=>g && g.event).map(jgNorm);
+    }else{
+      _jgEdit = null;
+    }
+    jgRenderEdit();
     openMask(document.getElementById('memJournalEditMask'));
   }catch(e){ toast('读取失败'); }
 }
@@ -11031,10 +11246,16 @@ async function memJournalSave(){
     const js = await memGetAll('journal');
     const j = js.find(x=>x && x.id === _journalEditId);
     if(j){
-      await memPut('journal', Object.assign({}, j, { content: content }));
+      // gems 也要落库：原来这里只改 content，gems 原样带回 ⇒ AI 判错的高光用户完全无法干预（2026-10-05 修）
+      // 过滤掉空的：事件名和一句话都空的行直接丢弃，不占位
+      const upd = Object.assign({}, j, { content: content });
+      if(Array.isArray(_jgEdit)){
+        upd.gems = _jgEdit.map(g=>({ event:g.event, summary:g.summary, keyword:(g.keyword||[]).slice(0,3) }))
+                      .filter(g=> g.event || g.summary);
+      }
+      await memPut('journal', upd);
     }
-    _journalEditId = null;
-    closeJournalEdit();
+    closeJournalEdit(); // 内部会清 _journalEditId / _jgEdit / _journalEditDay
     await memViewJournal(); // 重新渲染全屏列表
     await memRenderJournalModule().catch(()=>{});
     refreshCalJournalSlot();
@@ -11055,7 +11276,12 @@ function memJournalDelete(id){
     }}
   ]);
 }
-function closeJournalEdit(){ closeMask(document.getElementById('memJournalEditMask')); }
+function closeJournalEdit(){
+  // 一并清掉 gems 编辑态：点「取消」后残留的半成品不该留在内存里等下次误用
+  // （memJournalEdit 每次都会重读，这里是防御性清理）
+  _journalEditId = null; _jgEdit = null; _journalEditDay = '';
+  closeMask(document.getElementById('memJournalEditMask'));
+}
 // ---- 磁铁召回（§3）：触发词命中 → 标签权重 × 时近衰减 → 排序取前 k → 回看原话 ----
 // 返回结构化结果（摘要 / 命中标签 / 得分 / 原话）；字符预算统一由 memFormatMagnetBlock 裁。
 // 09-30 起不再在这里直接拼字符串——召回预览面板需要看到「为什么命中、得分多少、带回了哪句原话」。
@@ -12995,7 +13221,13 @@ function aiGetExpenses(a){
   const top = Object.entries(byCat).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([c,v])=>({cat:c, amount: Math.round(v*100)/100}));
   const limit = Math.min(Math.max(parseInt(a.limit)||5,1),10);
   const recent = items.slice().sort((x,y)=>(y.date||'').localeCompare(x.date||'')).slice(0,limit).map(e=>({id:e.id, date:e.date, cat:e.cat, amount:e.amount, note:e.note||''}));
-  return {ok:true, month:mk, total: Math.round(total*100)/100, budget, remaining: Math.round(remain*100)/100, over: remain<0, top_categories:top, recent};
+  // 日均：分母是日历天数（本月 1 号→今天；历史月整月），不是有记账的天数
+  const mr = monthDayRange(mk);
+  const spanDays = items.length ? mr.days : 0;
+  const activeDays = new Set(items.map(e=>e.date).filter(Boolean)).size;
+  return {ok:true, month:mk, total: Math.round(total*100)/100, budget, remaining: Math.round(remain*100)/100, over: remain<0, top_categories:top, recent,
+          daily_avg: spanDays ? Math.round(total/spanDays*100)/100 : 0,
+          avg_basis: '日历天数（本月按 1 号至今天，历史月按整月）', avg_from: mr.from, avg_to: mr.to, span_days: spanDays, days_with_expense: activeDays};
 }
 function aiSetBudget(a){
   const v = parseFloat(a.amount);
