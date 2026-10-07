@@ -3935,7 +3935,7 @@ function enterApp(){
   // 主动消息现在只有云端唤醒时现场生成这一条路——预写必然与中间发生的事撞车。
   try{ setTimeout(()=>{ pushInit(); pushStartHeartbeat(); }, 800); }catch(e){ console.error(e); } // 后台消息推送：开启时订阅并上报（/sub）；心跳持续上报用户活跃时间
   try{ setTimeout(()=>{ syncCloudContext().catch(()=>{}); }, 1500); }catch(e){ console.error(e); } // 云端语境同步：打开时把角色设定+最近对话+当天动态传给 Worker（/sync）
-  try{ setTimeout(()=>{ pullCloudMsgs().catch(()=>{}); }, 2400); }catch(e){ console.error(e); } // 云端主动消息回填：打开时拉云端推过的消息，合并进对话页
+  try{ setTimeout(()=>{ window.__cloudPullPromise = pullCloudMsgs().catch(()=>{}); }, 2400); }catch(e){ console.error(e); } // 云端主动消息回填：打开时拉云端推过的消息，合并进对话页（把 promise 暴露出去，供 maybeAutoAIProactive 等它跑完再决定要不要抢话，见 2026-10-07 修）
   try{
     // 点系统通知冷启动（sw.js 会带 ?chat=1 打开）：等云端消息回填（上面 2.4s）完成后再自动打开对话页，
     // 让「刚推的话」一进来就能看到，不用手动点红点、更不用退出重进。
@@ -7767,7 +7767,24 @@ async function maybeAutoAIProactive(){
     let rec = null;
     try{ rec = JSON.parse(localStorage.getItem(AI_PROACTIVE_KEY) || 'null'); }catch(e){ rec = null; }
     const ds = todayStr();
-    if(rec && rec.date === ds && (Number(rec.count) || 0) >= AI_PROACTIVE_MAX_PER_DAY) return;
+    // 今日已开口：count 判断 + lastAt 兜底。
+    // ⚠️ 2026-10-07 线上实测 mhm_ai_proactive = {date:'2026-10-07', count:28}，而 AI_PROACTIVE_MAX_PER_DAY = 1
+    //    —— 说明纯 count 判断曾被绕过（28 次放行），这里补一道与 count 无关的保险：当天只要写过 lastAt 就不再开口。
+    if(rec && rec.date === ds && ((Number(rec.count) || 0) >= AI_PROACTIVE_MAX_PER_DAY || Number(rec.lastAt) > 0)) return;
+    /* ★ 2026-10-07：云端在岗且今天已经推过 → 前端不再自动开口（治「打开 App 就是一堆」）。
+       根因：主动消息有两个生成源，彼此不知道对方说了什么 ——
+         ① 本函数：打开 App 时角色先开口；
+         ② 云端 cloudAutoWake：App 关着时定时唤醒生成。
+       于是同一素材被写两遍（线上存档实证）：
+         10-06：①18:24「念他包里那堆东西，念到第三遍…头发还得擦」
+              ／②22:18「刚念完他包里那本折了角的书，第三遍…头发现在半干」
+         10-07：①13:07:51「旧货摊·铜件·旧秤砣」／②13:09:09「旧货摊·铜铃·铃芯掉了」（相隔 78 秒）
+       叠加 pullCloudMsgs 回填，用户一打开 App 就是一屏内容在互相重复。
+       云端正岗时统一交给云端排期（云端能看到最近对话 recent，挑素材比前端准），前端只做掉线兜底。 */
+    if(cloudCtxOn()){
+      try{ if(window.__cloudPullPromise) await window.__cloudPullPromise; }catch(e){}
+      if(cloudPushedToday()) return;
+    }
     window.__aiAutoReq = true;
     try{
       if(!aiConv) aiReset();
@@ -7824,6 +7841,7 @@ async function maybeAutoAIProactive(){
       rec = rec || {date:ds, count:0};
       rec.date = ds;
       rec.count = (Number(rec.count) || 0) + 1;
+      rec.lastAt = Date.now(); // 与 count 无关的「今天开过口」凭据（防 count 判断被绕过，见函数开头注释）
       try{ localStorage.setItem(AI_PROACTIVE_KEY, JSON.stringify(rec)); }catch(e){}
     }finally{
       window.__aiAutoReq = false;
@@ -8061,6 +8079,7 @@ async function syncCloudContext(){
    拉最近 7 天（2026-09-01 起从 3 天扩到 7 天），按 id（cloudmsg:<ts>）去重后追加进 aiConv，让消息页能看到记录（不只是弹窗）。 */
 const CLOUD_MSG_PREFIX = 'cloudmsg';
 const CLOUD_LAST_SEEN_KEY = 'mhm_cloud_last_seen'; // 消费水位：已同步到的最大云端消息 ts，防止已删的消息刷新后复活
+const CLOUD_FIRST_SYNC_MAX = 5; // 首次同步最多回填几条：水位丢失/刚装 PWA 时，7 天窗口一次全灌会造成「打开 App 就是一屏」（2026-10-07）
 let __cloudMsgMerged = {}; // 本次会话已合并的 id 集合（防重复拉取重复注入）
 /* 前台回填节流（2026-09-02 新增）：切回前台/获得焦点时高频事件合并为一次拉取，
    配合 openAI 的每次重绘，解决「点通知回来看到红点、打开对话却看不到刚推的话」。
@@ -8086,8 +8105,13 @@ async function pullCloudMsgs(){
     if(!aiConv) aiReset();
     const have = {};
     for(const m of aiConv){ if(m && m.id) have[m.id] = true; }
+    /* ★ 2026-10-07：首次同步（水位丢失 / 刚装 PWA / 换设备）最多回填最近 CLOUD_FIRST_SYNC_MAX 条。
+       旧版「首次不过滤」会把 7 天窗口内的云端消息一次全灌进对话 —— 用户打开 App 就是一堆。
+       水位照旧按全量列表推进（下面用 d.msgs 而不是 scanList），所以不会下次再来一遍；
+       更早的交给 7 天窗口自然淘汰，比一屏重复内容更划算。 */
+    const scanList = (firstSync && d.msgs.length > CLOUD_FIRST_SYNC_MAX) ? d.msgs.slice(-CLOUD_FIRST_SYNC_MAX) : d.msgs;
     let added = 0, mergedMaxTs = 0;
-    for(const m of d.msgs){
+    for(const m of scanList){
       if(!m || !m.text) continue;
       const ts = Number(m.ts) || 0;
       if(!firstSync && lastSeen > 0 && ts && ts <= lastSeen) continue; // 已消费过（含已删除）的跳过
@@ -8124,6 +8148,18 @@ function cloudCtxFresh(){
 function cloudCtxOn(){
   try{
     return CLOUD_CTX_SYNC_ON && pushWorkerReady() && pushEnabled() && !!(getAiCfg().apiKey) && cloudCtxFresh();
+  }catch(e){ return false; }
+}
+/* 云端今天是否已经开过口（2026-10-07 新增）。
+   判据：消费水位 CLOUD_LAST_SEEN_KEY 落在「今天」—— 它只有在 pullCloudMsgs 真的拉到并消费了
+   云端消息时才会推进到那条消息的 ts。水位是今天 ⇒ 云端今天推过 ⇒ 前端不该再自动开口，
+   否则就会出现「同一素材两天内写两遍」那种撞车（10-06 念书/头发、10-07 铜件/铜铃）。 */
+function cloudPushedToday(){
+  try{
+    const ls = parseInt(localStorage.getItem(CLOUD_LAST_SEEN_KEY) || '0', 10) || 0;
+    if(!ls) return false;
+    const a = new Date(ls), b = new Date();
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   }catch(e){ return false; }
 }
 function setPushHint(t){
@@ -8745,6 +8781,21 @@ async function collectDiag(){
     L('aiBusy(卡死标志)', 'false');
   }
   L('对话条数', (aiConv && aiConv.length) || 0);
+  // ★ 2026-10-07 新增：主动消息「谁在说话」诊断。
+  //   主动消息有两个生成源（① 前端打开 App 先开口 ② 云端定时唤醒），两边互不知情 ⇒ 会撞题
+  //   （10-06 念书/头发、10-07 铜件/铜铃）。以后报「重复」「打开就是一堆」先看这一段：
+  //   谁关了闸、谁漏了闸一目了然，不用再去翻线上 KV。
+  L('--- 主动消息来源 ---', '');
+  try{
+    let prec = null;
+    try{ prec = JSON.parse(localStorage.getItem(AI_PROACTIVE_KEY) || 'null'); }catch(e){}
+    const pds = todayStr();
+    L('前端今日开口', prec ? ('date='+prec.date+' · count='+prec.count+' · '+(prec.date === pds ? '今天已开过口' : '今天还没开口')) : '(无记录)');
+    L('前端让位云端', cloudCtxOn() ? 'true（云端在岗，前端不再抢话）' : 'false（云端不在岗，前端兜底）');
+    L('云端今天推过', cloudPushedToday() ? '是（消费水位落在今天）' : '否');
+    const lsSeen = parseInt(localStorage.getItem(CLOUD_LAST_SEEN_KEY) || '0', 10) || 0;
+    L('云端消费水位', lsSeen ? new Date(lsSeen).toLocaleString() : '(空)');
+  }catch(e){ L('主动消息诊断', '收集失败：'+(e && e.message ? e.message : e)); }
   // ★ 2026-09-11 新增：对话存档体检（「对话记录一下子消失」排查用）
   L('--- 对话存档(localStorage) ---', '');
   try{
