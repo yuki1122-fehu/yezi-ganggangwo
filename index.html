@@ -9037,6 +9037,20 @@ function pcResetCompanionRules(){
   const h = document.getElementById('promptCenterHint');
   if(h) h.textContent = '已恢复默认陪伴规则，点「保存修改」生效。';
 }
+function pcResetDiaryTpl(){
+  const ta = document.getElementById('pcDiaryTpl');
+  if(!ta) return;
+  ta.value = MEM_DIARY_PROMPT;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认日记生成提示词，点「保存修改」生效。';
+}
+function pcResetJournalMergeTpl(){
+  const ta = document.getElementById('pcJournalMergeTpl');
+  if(!ta) return;
+  ta.value = MEM_JOURNAL_MERGE_PROMPT;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认周记/月记压缩提示词，点「保存修改」生效。';
+}
 function renderPromptCenter(){
   const wrap = document.getElementById('promptCenterBody');
   if(!wrap) return;
@@ -9132,6 +9146,17 @@ function renderPromptCenter(){
   sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">12</span><span>用户最新指令</span></div>'
     + '<p class="prompt-desc">最新这条用户消息会单独包起来，与上面的实时上下文区分。</p>'
     + '<pre class="prompt-pre"><用户当前指令>\n{{用户最新这句话}}\n</用户当前指令></pre></div>');
+  // 新增：日记 / 周记月记 生成提示词（用户可直接修改）
+  const diaryTpl = (cfg.diaryTpl && cfg.diaryTpl.trim()) ? cfg.diaryTpl.trim() : MEM_DIARY_PROMPT;
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">13</span><span>回忆日记 · 日记生成提示词</span></div>'
+    + '<p class="prompt-desc">生成「今日小记」的提示词，主角定死为【用户本人(叶子)】。{DATE} 发送时替换为当天日期；不要删掉它。</p>'
+    + '<textarea id="pcDiaryTpl" class="prompt-body" rows="14">'+escHtml(diaryTpl)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetDiaryTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  const journalMergeTpl = (cfg.journalMergeTpl && cfg.journalMergeTpl.trim()) ? cfg.journalMergeTpl.trim() : MEM_JOURNAL_MERGE_PROMPT;
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">14</span><span>回忆日记 · 周记/月记压缩提示词</span></div>'
+    + '<p class="prompt-desc">把多则日记压缩成周记/月记的提示词，主角同定为【用户本人】。{N}/{TYPE}/{OUT}/{LEN} 发送时替换；不要删掉它们。</p>'
+    + '<textarea id="pcJournalMergeTpl" class="prompt-body" rows="8">'+escHtml(journalMergeTpl)+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetJournalMergeTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
   wrap.innerHTML = sc.join('');
 }
 function savePromptCenter(){
@@ -9152,6 +9177,8 @@ function savePromptCenter(){
   const godSysEl = document.getElementById('pcGodSysTpl');
   const godUserEl = document.getElementById('pcGodUserTpl');
   const compRulesEl = document.getElementById('pcCompanionRules');
+  const diaryTplEl = document.getElementById('pcDiaryTpl');
+  const journalMergeTplEl = document.getElementById('pcJournalMergeTpl');
   
   if(sysEl) cfg.systemTpl = sysEl.value;
   if(idEl) localStorage.setItem(MEM_IDENTITY_KEY, idEl.value.trim());
@@ -9164,6 +9191,8 @@ function savePromptCenter(){
   if(godSysEl) cfg.godSysTpl = godSysEl.value;
   if(godUserEl) cfg.godUserTpl = godUserEl.value;
   if(compRulesEl) cfg.companionRules = compRulesEl.value;
+  if(diaryTplEl) cfg.diaryTpl = diaryTplEl.value;
+  if(journalMergeTplEl) cfg.journalMergeTpl = journalMergeTplEl.value;
   
   if(vOn){
     const vv = aiVoices();
@@ -9202,7 +9231,7 @@ function savePromptCenter(){
   if(aiConv && aiConv.length && aiConv[0].role === 'system') aiConv[0].content = buildSystem();
   renderPromptCenter();
   const h = document.getElementById('promptCenterHint');
-  if(h) h.textContent = '已保存：系统提示词、关系身份、关系现状规则、音色协议、表情包协议、角色名、粤语模式、上帝视角提示词与亲密尺度、陪伴规则与发送范围都已更新。';
+  if(h) h.textContent = '已保存：系统提示词、关系身份、关系现状规则、音色协议、表情包协议、角色名、粤语模式、上帝视角提示词与亲密尺度、陪伴规则与发送范围、回忆日记与周/月记生成提示词都已更新。';
   toast('提示词已保存');
 }
 function copyPromptCenter(){
@@ -10810,7 +10839,8 @@ async function memJournalDay(cfg, afterDate, endDate){
                      .slice(0, 60);
     if(!rows.length) return;
     const lines = rows.map(m=> (m.role === 'user' ? '(用户) ' : '(角色) ') + String(m.content || '').slice(0, 120)).join('\n');
-    const prompt = MEM_DIARY_PROMPT.replace('{DATE}', endDate || _memToday());
+    const diaryTpl = (cfg && cfg.diaryTpl && cfg.diaryTpl.trim()) ? cfg.diaryTpl.trim() : MEM_DIARY_PROMPT;
+    const prompt = diaryTpl.replace('{DATE}', endDate || _memToday());
     const r = await aiCall([{role:'system', content:'你是回忆日记写手。只输出 JSON，不输出其他文字。'},{role:'user', content: prompt + '\n\n待整理的对话：\n' + lines}], cfg, 1, {noTools:true});
     if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) return;
     const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
@@ -10844,7 +10874,8 @@ async function memJournalMake(cfg, type, items, span){
     const out = isWeek ? '周记' : '月记';
     const len = isWeek ? '150~250' : '200~300';
     const bullet = items.map(j=>'【' + (j.start || '') + ' ~ ' + (j.end || '') + '】\n' + String(j.content || '').slice(0, 300)).join('\n\n');
-    const prompt = MEM_JOURNAL_MERGE_PROMPT.replace('{N}', items.length).replace('{TYPE}', label).replace('{OUT}', out).replace('{LEN}', len);
+    const mergeTpl = (cfg && cfg.journalMergeTpl && cfg.journalMergeTpl.trim()) ? cfg.journalMergeTpl.trim() : MEM_JOURNAL_MERGE_PROMPT;
+    const prompt = mergeTpl.replace('{N}', items.length).replace('{TYPE}', label).replace('{OUT}', out).replace('{LEN}', len);
     const r = await aiCall([{role:'system', content:'你是回忆档案整理员。只输出 JSON，不输出其他文字。'},{role:'user', content: prompt + '\n\n待压缩的回忆：\n' + bullet}], cfg, 1, {noTools:true});
     if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) return;
     const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
