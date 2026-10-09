@@ -4,7 +4,7 @@
    - 同源静态资源（manifest / 图标）：缓存优先
    - 跨域 API（香港天文台天气/警告等）：一律放行，不缓存、不拦截
    - Web Push：接收云端推送中继的消息并弹系统通知（App 关闭也能收到） */
-const CACHE = 'yezi-v4';  // v3 → v4（2026-09-02）：回执带消息 id(msgTs) 供 Worker 精确取消补发；支持静默探活(probe)；点通知直达对话
+const CACHE = 'yezi-v5';  // v4 → v5（2026-10-09）：预缓存开屏动画素材（splash.mp4/webm/poster），消除解码前露白
 const SHELL = [
   './',
   './index.html',
@@ -13,7 +13,11 @@ const SHELL = [
   './icons/icon-512.png',
   './icons/icon-maskable-192.png',
   './icons/icon-maskable-512.png',
-  './icons/apple-touch-icon.png'
+  './icons/apple-touch-icon.png',
+  // 开屏：必须预缓存，否则冷启动时视频未到位，poster 也要等网络
+  './splash-poster.jpg',
+  './splash.mp4',
+  './splash.webm'
 ];
 
 self.addEventListener('install', function(e){
