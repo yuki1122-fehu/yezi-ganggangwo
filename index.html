@@ -2137,6 +2137,41 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 }
 /* 全屏页（AI 助理 / 番茄钟）退场：置于 .show 规则之后，同特异性下 closing 胜出 */
 #aiMask.closing,#pomoMask.closing{display:flex;animation:pageOut .34s var(--ease) both;}
+/* ===== 开屏动画层 =====
+   底色 #EEF4D8 与 manifest background_color 及视频首帧一致，
+   保证「Chrome 原生开屏 → 网页开屏」接缝不可见。 */
+#splashLayer{
+  position:fixed; inset:0; z-index:2147483000;
+  background:#EEF4D8;
+  display:grid; place-items:center;
+  opacity:1;
+  transition:opacity .42s cubic-bezier(.4,0,.2,1);
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+}
+#splashLayer.splash-hidden{opacity:0;pointer-events:none;}
+#splashLayer.splash-gone{display:none;}
+.splash-media{
+  width:100%; height:100%;
+  object-fit:cover; object-position:center;
+  background:#EEF4D8;
+  display:block;
+}
+.splash-skip{
+  position:absolute; right:14px; bottom:16px;
+  font-size:11px; letter-spacing:.06em;
+  color:rgba(107,133,96,.62);
+  background:rgba(255,255,255,.34);
+  border:.5px solid rgba(107,133,96,.14);
+  border-radius:999px; padding:5px 11px;
+  opacity:0; animation:splashHint .01s .9s forwards;
+  pointer-events:none;
+}
+@keyframes splashHint{to{opacity:1;}}
+@media (prefers-reduced-motion:reduce){
+  #splashLayer{transition:none;}
+  .splash-skip{animation:none;opacity:1;}
+}
 </style>
 </head>
 <body>
@@ -2168,6 +2203,15 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.4A8.5 8.5 0 0 1 9.6 4a8.6 8.6 0 1 0 10.4 10.4z"/><path d="M17.6 3.6v2.2M16.4 4.7h2.4"/></symbol>
   <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 21c3.4 0 5.8-2.3 5.8-5.4 0-4.3-4.3-5.9-3.4-11.6-3 1.2-6.2 4.6-6.2 8.4 0 1.5.6 2.5.6 2.5S8 13.4 7.2 12c-.9 1.2-1.4 2.6-1.4 4C5.8 18.4 8.2 21 12 21z"/></symbol>
 </defs></svg>
+<!-- 开屏动画层（狼与狐狸· 原速 6 秒；点任意处可跳过，超时强制结束） -->
+<div id="splashLayer" aria-hidden="true">
+  <video id="splashVideo" class="splash-media"
+         poster="splash-poster.jpg"
+         preload="auto"
+         muted loop playsinline
+         disablepictureinpicture disableremoteplayback></video>
+  <div id="splashSkip" class="splash-skip">轻触跳过</div>
+</div>
 <!-- 主应用 -->
 <div id="appPage" class="app">
   <!-- 首页环境微光点（沉浸感氛围层） -->
@@ -2505,6 +2549,17 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 
     <label>工作台名称 <span style="font-size:11px;color:var(--ink-soft)">（首页最大的一行字，留空则用默认）</span></label>
     <input id="appTitle" placeholder="叶子港港窝" maxlength="20" style="margin-bottom:10px;">
+
+    <div style="padding:13px 16px;margin-bottom:14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
+      <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:9px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-sprout"/></svg>开屏动画</div>
+      <div class="row" id="splashModeRow" style="margin:0;gap:7px;">
+        <button class="btn ghost" type="button" data-splash-mode="first" onclick="setSplashMode('first')" style="flex:1;font-size:12.5px;">每天首次</button>
+        <button class="btn ghost" type="button" data-splash-mode="always" onclick="setSplashMode('always')" style="flex:1;font-size:12.5px;">每次都播</button>
+        <button class="btn ghost" type="button" data-splash-mode="never" onclick="setSplashMode('never')" style="flex:1;font-size:12.5px;">关闭</button>
+      </div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:9px 0 0;line-height:1.65;">狼与狐狸那7 秒。默认「每天首次」：早上第一次打开完整看一遍，同日反复开关自动跳过。系统开启「减弱动效」时永不播放。随时点屏可提前结束。</p>
+      <button class="btn ghost" type="button" onclick="resetSplashToday()" style="margin-top:9px;width:100%;font-size:12.5px;">重播今天这段</button>
+    </div>
 
     <div style="padding:14px 16px;margin-bottom:14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
       <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:8px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-folder"/></svg>备份与恢复</div>
@@ -3469,6 +3524,117 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 <div class="toast" id="toast"></div>
 
 <script>
+/* ===================== 开屏动画（狼与狐狸） =====================
+   要点：
+   ① 底色 #EEF4D8 同时等于 manifest.background_color 与视频首帧/末帧实测值
+      （#EFF3D7，色差 1~2 色阶）⇒ Chrome 原生开屏 → 网页开屏无接缝。
+   ② poster 挂纯色首帧，视频解码完成前不会露白。
+   ③ muted+playsinline 是 iOS 自动播放的硬性条件，缺一个就永不播放。
+   ④ 「每天首次完整播、同日自动跳过」用 mhm_splash_last 做日期水位。
+   ⑤ 超时兜底：即使视频加载失败 / 解码异常，最多等 SPLASH_MAX_MS 也必须放行。 */
+(function(){
+  var SPLASH_MAX_MS   = 7000;   /* 视频 7.0s + 余量，超时强制结束 */
+  var SPLASH_SKIP_AFTER = 900;  /* 多久后显示「轻触跳过」提示 */
+  var KEY_LAST = 'mhm_splash_last';
+  var KEY_CFG  = 'mhm_splash_cfg';
+
+  function todayStr(){
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  function readCfg(){
+    try{ return JSON.parse(localStorage.getItem(KEY_CFG)) || {}; }catch(e){ return {}; }
+  }
+  /* mode: 'first'（每天首次播，默认）| 'always'（每次都播）| 'never'（关闭） */
+  function shouldShow(){
+    var cfg = readCfg();
+    var mode = cfg.mode || 'first';
+    if(mode === 'never') return false;
+    if(mode === 'always') return true;
+    var last = '';
+    try{ last = localStorage.getItem(KEY_LAST) || ''; }catch(e){}
+    return last !== todayStr();
+  }
+  function markShown(){
+    try{ localStorage.setItem(KEY_LAST, todayStr()); }catch(e){}
+  }
+
+  var layer, video, done = false;
+  function finish(){
+    if(done) return;
+    done = true;
+    try{ video.pause(); }catch(e){}
+    layer.classList.add('splash-hidden');
+    setTimeout(function(){
+      layer.classList.add('splash-gone');
+      /* 从 DOM 摘除并释放解码器，避免长期占用内存/电量 */
+      if(layer.parentNode) layer.parentNode.removeChild(layer);
+    }, 460);
+  }
+
+  function start(){
+    layer  = document.getElementById('splashLayer');
+    video  = document.getElementById('splashVideo');
+    if(!layer || !video) return;
+
+    /* 用户在设置里关掉了，或今天已经看过 */
+    if(!shouldShow()){ layer.parentNode && layer.parentNode.removeChild(layer); return; }
+    markShown();
+
+    /* 减弱动效偏好：直接跳过，不播放 */
+    try{
+      if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+        layer.parentNode && layer.parentNode.removeChild(layer);
+        return;
+      }
+    }catch(e){}
+
+    /* 超时兜底：绝不因视频问题卡住 App */
+    var guard = setTimeout(finish, SPLASH_MAX_MS);
+
+    /* 支持的浏览器用 webm（更小），否则退回 mp4 */
+    var canWebm = false;
+    try{
+      var v = document.createElement('video');
+      canWebm = (v.canPlayType && v.canPlayType('video/webm; codecs="vp9"').length > 0);
+    }catch(e){}
+    video.src = canWebm ? 'splash.webm' : 'splash.mp4';
+
+    var ended = false;
+    video.addEventListener('ended', function(){ ended = true; finish(); });
+    /* 视频播完但 ended 没触发（部分 WebView）→ 按时长兜底 */
+    video.addEventListener('timeupdate', function(){
+      if(!ended && video.duration && video.currentTime >= video.duration - 0.12){ finish(); }
+    });
+    video.addEventListener('error', function(){ finish(); });
+
+    /* 播放失败（自动播放策略等）不要卡住页面 */
+    var p = video.play();
+    if(p && typeof p.catch === 'function'){
+      p.catch(function(){ /* 保持 poster 画面，按超时兜底结束 */ });
+    }
+
+    /* 点击任意处跳过 */
+    layer.addEventListener('pointerup', function(){ clearTimeout(guard); finish(); });
+    layer.addEventListener('click', function(){ clearTimeout(guard); finish(); });
+  }
+
+  /* 设置页可调用：改模式并立即生效（返回 true 表示需要重载才看得到）*/
+  window.SplashControl = {
+    get: function(){ var c = readCfg(); return { mode: c.mode || 'first' }; },
+    set: function(mode){
+      if(['first','always','never'].indexOf(mode) < 0) return false;
+      try{ localStorage.setItem(KEY_CFG, JSON.stringify({mode: mode})); }catch(e){ return false; }
+      return true;
+    },
+    /* 'first' 模式下把今天的水位清掉，下次打开就会播 */
+    resetToday: function(){ try{ localStorage.removeItem(KEY_LAST); }catch(e){} }
+  };
+
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
+
 /* ===================== 数据模板（本机优先，即开即用） ===================== */
 const DEFAULT_TASKS = [
   {cat:'study', title:'确认是否需修读 MHM7200', priority:'mid', deadline:'2026-08-20',
@@ -8637,6 +8803,7 @@ function hideTyping(){
 
 function openAISettings(){
   const cfg = getAiCfg();
+  paintSplashMode();
   document.getElementById('aiMode').value = cfg.mode||'direct';
   document.getElementById('aiRelay').value = cfg.relayUrl||'';
   const _b = cfg.baseUrl||'https://api.deepseek.com/v1';
@@ -8724,6 +8891,28 @@ function aiTtsUI(){
   if(!fields) return;
   fields.style.opacity = on ? '1' : '.35';
   fields.style.pointerEvents = on ? 'auto' : 'none';
+}
+
+/* ---- 开屏动画设置（配合 IIFE 里的 SplashControl） ---- */
+function paintSplashMode(){
+  const m = (window.SplashControl && window.SplashControl.get()) ? window.SplashControl.get().mode : 'first';
+  document.querySelectorAll('#splashModeRow [data-splash-mode]').forEach(function(b){
+    const on = b.getAttribute('data-splash-mode') === m;
+    b.style.background = on ? 'var(--green-mid)' : 'var(--glass-strong)';
+    b.style.color = on ? '#fff' : '';
+    b.style.borderColor = on ? 'var(--green-dark)' : '';
+    b.style.fontWeight = on ? '500' : '';
+  });
+}
+function setSplashMode(mode){
+  if(!window.SplashControl) return;
+  if(SplashControl.set(mode)){
+    paintSplashMode();
+    if(mode === 'never') try{ localStorage.removeItem('mhm_splash_last'); }catch(e){}
+  }
+}
+function resetSplashToday(){
+  if(window.SplashControl) SplashControl.resetToday();
 }
 // 用一张 16×16 白色像素图真实跑一遍视觉链路（百炼 VL 要求边长 >10px，1×1 会被拒）
 async function testVisionConn(){
