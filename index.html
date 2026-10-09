@@ -2561,14 +2561,20 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
       <button class="btn ghost" type="button" onclick="resetSplashToday()" style="margin-top:9px;width:100%;font-size:12.5px;">重播今天这段</button>
     </div>
 
-    <div style="padding:14px 16px;margin-bottom:14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
+      <div style="padding:14px 16px;margin-bottom:14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
       <div style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:8px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-folder"/></svg>备份与恢复</div>
       <div class="row" style="margin:0;gap:8px;">
-        <button class="btn ghost" type="button" onclick="exportData()" style="flex:1;background:var(--glass-strong);display:flex;align-items:center;justify-content:center;gap:6px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-export"/></svg>导出数据</button>
+        <button class="btn ghost" type="button" onclick="previewExportSize()" style="flex:1;background:var(--glass-strong);display:flex;align-items:center;justify-content:center;gap:6px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-export"/></svg>全量导出</button>
         <button class="btn ghost" type="button" onclick="document.getElementById('dataFile').click()" style="flex:1;background:var(--glass-strong);display:flex;align-items:center;justify-content:center;gap:6px;"><svg class="ico" style="width:15px;height:15px;"><use href="#i-import"/></svg>导入数据</button>
         <input type="file" id="dataFile" accept=".json,application/json" hidden onchange="importData(event)">
       </div>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">上次导出：<span id="lastBackupTime">暂无</span>。导出文件请存云盘（换设备/清缓存时能救回来）。</p>
+      <p class="hint" id="exportPreview" style="font-size:11px;color:var(--ink-soft);margin:9px 0 0;line-height:1.6;">备份内容：任务 · 课表 · 记账 · 番茄钟 · AI 设定与提示词 · 声线 · 对话全文 · <b>日记/周记/月记 · 记忆库 · 原始消息 · 角色设定</b>。点「全量导出」会先算体积给你看。</p>
+      <label style="display:flex;align-items:center;gap:7px;margin:9px 0 0;font-size:11.5px;color:var(--ink-soft);cursor:pointer;">
+        <input type="checkbox" id="exportImages" checked onchange="setExportIncludeImages(this.checked)" style="width:15px;height:15px;flex:0 0 auto;margin:0;">
+        包含图片（对话里的照片/图片）
+        <span style="color:var(--ink-faint);">— 关掉体积小很多，但图片只剩占位文字</span>
+      </label>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">上次导出：<span id="lastBackupTime">暂无</span>。导出文件请存云盘（换设备/清缓存/重装 App 时能救回来）。</p>
       <div style="margin-top:12px;padding-top:11px;border-top:1px dashed var(--glass-line);">
         <div style="font-size:12.5px;font-weight:700;color:var(--green-dark);margin-bottom:7px;">🛡 自动本机快照</div>
         <div class="row" style="margin:0 0 8px;gap:8px;">
@@ -8804,6 +8810,7 @@ function hideTyping(){
 function openAISettings(){
   const cfg = getAiCfg();
   paintSplashMode();
+  try{ const _cb = document.getElementById('exportImages'); if(_cb) _cb.checked = __exportIncludeImages; }catch(e){}
   document.getElementById('aiMode').value = cfg.mode||'direct';
   document.getElementById('aiRelay').value = cfg.relayUrl||'';
   const _b = cfg.baseUrl||'https://api.deepseek.com/v1';
@@ -9579,54 +9586,205 @@ function saveAISettings(){
   toast('助理配置已保存');
 }
 // 导出全部本地数据（任务/课表/配置/心情）为一个 JSON 文件
-async function exportData(){
-  const data = {};
-  const keys = ['mhm_cloud_v1','mhm_courses_v1','mhm_ai_cfg','mhm_last_doc_text','mhm_expense_v1','mhm_app_title', POMO_KEY, 'mhm_ai_voices', 'mhm_ai_stickers', 'mhm_mem_identity', MEM_ENABLED_KEY];
-  keys.forEach(k=>{ try{ const v=localStorage.getItem(k); if(v!==null) data[k]=v; }catch(e){} });
+// ===== 全量导出（2026-10-09 重写）=====
+// ⚠️ 旧版是「白名单制」：只导 keys 里写死的 11 个键 ⇒ 日记/记忆库/原始消息/角色设定全部丢失，
+// 对话还只留最近 100 条且图片被占位替换。重装一次就丢一次。
+// 现在复用 bkCollect()（自动快照那套全量采集）：localStorage 全部业务键 + IDB 六张表。
+// 代价是文件变大（含图片），故保留「不含图片」的瘦身开关。
+let __exportIncludeImages = true;
+function setExportIncludeImages(on){ __exportIncludeImages = !!on; }
+
+function stripConvImagesDeep(m){
+  if(!m || typeof m !== 'object') return m;
+  const O = Object.assign({}, m);
+  ['image','img','images','imgUrl','imageUrl','pic','photo','base64','dataUrl'].forEach(k=>{
+    if(O[k]) O[k] = '[图片已省略]';
+  });
+  return O;
+}
+
+// 导出前先算体积与条目，让用户点之前就知道会导出什么、多大
+async function previewExportSize(){
+  const el = document.getElementById('exportPreview');
+  if(el) el.textContent = '统计中…';
   try{
-    for(let i=0;i<localStorage.length;i++){
-      const k=localStorage.key(i);
-      if(k && k.indexOf('mhm_mood_')===0) data[k]=localStorage.getItem(k);
+    const snap = await bkCollect();
+    const c = bkCounts(snap);
+    let text;
+    try{
+      const ls = Object.assign({}, snap.ls||{});
+      if(ls['mhm_ai_conv'] && !__exportIncludeImages){
+        const conv = JSON.parse(ls['mhm_ai_conv']);
+        if(Array.isArray(conv)) ls['mhm_ai_conv'] = JSON.stringify(conv.map(stripConvImagesDeep));
+      }
+      text = JSON.stringify({_fmt:'mhm-full-2', _at:snap.at, ls, idb:snap.idb});
+    }catch(e){ text = ''; }
+    const mb = (text.length/1048576).toFixed(2);
+    if(el){
+      el.innerHTML = '📦 本次将导出 <b>'+mb+' MB</b> —— '+bkSummary(c)
+        + (Object.keys(snap.ls||{}).length+' 项设置 · '
+           + (Array.isArray(snap.idb&&snap.idb.journal)?snap.idb.journal.length:0)+' 篇日记'
+           + ' / '+(Array.isArray(snap.idb&&snap.idb.entries)?snap.idb.entries.length:0)+' 条记忆')
+        + '。' + (__exportIncludeImages ? '含图片。' : '图片已省略。');
     }
-  }catch(e){}
-  // 对话记录：最多导出最近 100 条（不含 system），老图片省略为占位，避免文件过大
-  try{
-    if(aiConv && aiConv.length>1){
-      const sys = aiConv[0];
-      const rest = aiConv.slice(1);
-      const KEEP = Math.min(rest.length, 100); // 用户要求：最多 100 条
-      const tail = rest.slice(rest.length - KEEP).map(stripConvImages);
-      data['mhm_ai_conv'] = JSON.stringify([sys, ...tail]);
+    if(mb === '0.00') toast('⚠️ 采集到的数据为空');
+    else if(parseFloat(mb) > 8) toast('⚠️ 有 '+mb+'MB，建议关掉「包含图片」再导出');
+    else toast('将导出 '+mb+'MB，确认后点「确认导出」');
+    if(el){
+      const old = el.parentNode.querySelector('#exportGoBtn');
+      if(old) old.parentNode.removeChild(old);
+      const b = document.createElement('button');
+      b.id = 'exportGoBtn'; b.className = 'btn ghost'; b.type = 'button';
+      b.textContent = '确认导出 '+mb+'MB';
+      b.style.cssText = 'margin-top:9px;width:100%;';
+      b.onclick = ()=>{ b.parentNode.removeChild(b); exportData(); };
+      el.parentNode.insertBefore(b, el.nextSibling);
     }
-  }catch(e){}
-  // 角色生活记录（oc_posts，IndexedDB）：最多导出 200 条（备忘录）+ 不导出全量图片
-  try{
-    const posts = await ocPostRecent(200);
-    if(posts.length) data['mhm_oc_posts'] = JSON.stringify(posts);
-  }catch(e){}
-  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  }catch(e){
+    if(el) el.textContent = '⚠️ 统计失败：'+e.message;
+  }
+}
+
+async function exportData(opts){
+  opts = opts || {};
+  const includeImages = ('includeImages' in opts) ? !!opts.includeImages : __exportIncludeImages;
+  const snap = await bkCollect();            // {v, at, title, ls, idb}
+  const ls = Object.assign({}, snap.ls||{});
+  const idb = JSON.parse(JSON.stringify(snap.idb||{}));
+
+  // 对话：全量，不再只留 100 条
+  if(ls['mhm_ai_conv']){
+    try{
+      const conv = JSON.parse(ls['mhm_ai_conv']);
+      if(Array.isArray(conv)){
+        ls['mhm_ai_conv'] = JSON.stringify(includeImages ? conv : conv.map(stripConvImagesDeep));
+      }
+    }catch(e){}
+  }
+  if(!includeImages){
+    if(Array.isArray(idb.messages)) idb.messages = idb.messages.map(stripConvImagesDeep);
+    if(Array.isArray(idb.oc_posts)) idb.oc_posts = idb.oc_posts.map(p=>{
+      const c = Object.assign({}, p||{});
+      if(typeof c.img === 'string' && c.img.length > 200) c.img = '[图片已省略]';
+      return c;
+    });
+  }
+
+  const data = {
+    _fmt: 'mhm-full-2',                      // 格式标记：导入时据此识别新版全量包
+    _at: snap.at,
+    _title: snap.title,
+    _images: !!includeImages,
+    ls: ls,
+    idb: idb
+  };
+  const text = JSON.stringify(data);
+  const mb = (text.length/1048576).toFixed(2);
+  const blob = new Blob([text], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   const ts = new Date().toISOString().slice(0,10);
-  a.href = url; a.download = 'mhm-backup-'+ts+'.json';
+  a.href = url; a.download = 'yezi-full-'+ts+'.json';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
-  // WebView（APK/iOS）里 <a download> 可能不触发下载：把完整 JSON 复制进剪贴板作备选，内容不大时静默执行
+  // WebView（APK/iOS）里 <a download> 可能不触发下载：内容不大时同时复制进剪贴板作备选
   try{
-    const fullText = JSON.stringify(data);
-    if(navigator.clipboard && navigator.clipboard.writeText && fullText.length < 800000){
-      navigator.clipboard.writeText(fullText).then(()=>{
-        toast('已导出备份；若未弹出下载，JSON 已复制到剪贴板，粘贴保存即可');
+    if(navigator.clipboard && navigator.clipboard.writeText && text.length < 2000000){
+      navigator.clipboard.writeText(text).then(()=>{
+        toast('已导出 '+mb+'MB；若未弹出下载，JSON 已复制到剪贴板，粘贴保存即可');
       }).catch(()=>{});
     }
   }catch(e){}
   try{ localStorage.setItem('mhm_last_backup', new Date().toISOString()); }catch(e){}
   updateBackupUI();
+  const c = bkCounts(snap);
   const hint = document.getElementById('aiSetHint');
-  if(hint) hint.textContent = '✅ 已导出备份（'+Object.keys(data).length+' 项，含最近对话）。保存到云盘或发到新设备即可。';
-  toast('已导出数据备份');
+  if(hint) hint.textContent = '✅ 全量备份已导出（'+mb+'MB）：'+bkSummary(c)
+    + (includeImages ? '，含图片' : '，图片已省略') + '。存云盘或发到新设备即可。';
+  toast('已导出全量备份 '+mb+'MB');
 }
 // 从 JSON 文件导入并写回本地存储，随后刷新界面
+// ⚠️ 2026-10-09 支持新版全量包{_fmt:'mhm-full-2', ls:{}, idb:{}}：
+//旧包（键平铺在顶层）仍兼容。IDB 六张表按「主键 upsert」还原，**不清空**现有库。
+async function memRestoreFullIdb(idbObj){
+  const summary = {};
+  let db = null;
+  try{ db = await memOpenDB(); }catch(e){ return summary; }
+  if(!db) return summary;
+  const tables = [
+    ['journal',   r=>r],
+    ['entries',   r=>r],
+    ['tags',      r=>r],
+    ['messages',  r=>r],
+    ['oc_posts',  r=>r],
+  ];
+  // ⚠️ tags / messages 是 autoIncrement 自增键、没有业务主键 ⇒ 同一个包导入两次会**翻倍**。
+  // 解法：导入前先算出包内指纹，与库内已有行做集合差，只补库里没有的那些。
+  function fp(v){ try{ return JSON.stringify(v); }catch(e){ return ''; } }
+  for(const [name, fix] of tables){
+    const arr = idbObj && idbObj[name];
+    if(!Array.isArray(arr) || !arr.length) continue;
+    if(!db.objectStoreNames.contains(name)) continue;
+    // 读出库内现存行的指纹集合
+    const have = new Set();
+    try{
+      const existing = await new Promise(res2=>{
+        try{
+          const tx = db.transaction(name, 'readonly');
+          const st = tx.objectStore(name);
+          const rq = st.getAll ? st.getAll() : null;
+          if(rq){ rq.onsuccess = ()=>res2(rq.result||[]); rq.onerror = ()=>res2([]); }
+          else{
+            const out = [];
+            const c = st.openCursor();
+            c.onsuccess = ()=>{ const cur=c.result; if(cur){ out.push(cur.value); cur.continue(); } else res2(out); };
+            c.onerror = ()=>res2(out);
+          }
+        }catch(e){ res2([]); }
+      });
+      (existing||[]).forEach(row=>{
+        try{
+          if(Array.isArray(row)){ have.add(fp(row[1])); return; }
+          have.add(fp(row));
+        }catch(e){}
+      });
+    }catch(e){}
+    let ok = 0;
+    for(const raw of arr){
+      try{
+        const rec = fix(raw);
+        if(!rec || typeof rec !== 'object') continue;
+        // 指纹对比时忽略自增 id / 时间戳差异：只比业务字段
+        const probe = Object.assign({}, rec);
+        delete probe.id;
+        const key = fp(probe);
+        if(key && have.has(key)) continue;      // 库里已有 ⇒ 跳过，防重复累加
+        if(key) have.add(key);
+        await memPut(name, rec);
+        ok++;
+      }catch(e){}
+    }
+    summary[name] = ok;
+  }
+  // kv 表是 out-of-line 键（[key, value] 形式）
+  try{
+    if(Array.isArray(idbObj.kv) && idbObj.kv.length && db.objectStoreNames.contains('kv')){
+      let ok = 0;
+      for(const pair of idbObj.kv){
+        try{
+          if(Array.isArray(pair) && pair.length >= 2){ await memKvSet(String(pair[0]), pair[1]); ok++; }
+          else if(pair && typeof pair === 'object'){
+            const k = pair.k!==undefined ? pair.k : pair.key;
+            if(k !== undefined){ await memKvSet(String(k), pair.v!==undefined?pair.v:pair.value); ok++; }
+          }
+        }catch(e){}
+      }
+      summary.kv = ok;
+    }
+  }catch(e){}
+  return summary;
+}
+
 async function importData(ev){
   const file = ev.target.files && ev.target.files[0];
   ev.target.value='';
@@ -9636,10 +9794,43 @@ async function importData(ev){
     const hint = document.getElementById('aiSetHint');
     try{
       const data = JSON.parse(String(reader.result||''));
-      let n=0;
-      Object.keys(data).forEach(k=>{
-        if(k && k.indexOf('mhm_')===0){ try{ localStorage.setItem(k, data[k]); n++; }catch(e){} }
-      });
+      const isFull = (data && data._fmt === 'mhm-full-2' && data.ls);
+      let n = 0, idbSum = {};
+
+      if(isFull){
+        // 新版全量包：ls 对象逐键写回
+        const lsObj = data.ls || {};
+        Object.keys(lsObj).forEach(k=>{
+          try{ localStorage.setItem(k, lsObj[k]); n++; }catch(e){}
+        });
+        // idb 六张表还原（不清空现有数据，按主键 upsert）
+        idbSum = await memRestoreFullIdb(data.idb || {});
+        // 记忆库开关要开着，否则还原了也读不出来
+        try{ if(lsObj[MEM_ENABLED_KEY] !== undefined) localStorage.setItem(MEM_ENABLED_KEY, lsObj[MEM_ENABLED_KEY]); }catch(e){}
+      }else{
+        // 旧包：键平铺在顶层，mhm_ 开头的都写回
+        Object.keys(data).forEach(k=>{
+          if(k && k.indexOf('mhm_')===0){ try{ localStorage.setItem(k, data[k]); n++; }catch(e){} }
+        });
+        // 旧包里的 oc_posts 是 localStorage 键（JSON 字符串）
+        try{
+          const postsRaw = data['mhm_oc_posts'];
+          if(postsRaw && typeof postsRaw === 'string'){
+            const posts = JSON.parse(postsRaw);
+            if(Array.isArray(posts)){
+              await memClearStore('oc_posts');
+              for(const p of posts){
+                if(!p || !p.content) continue;
+                await memPut('oc_posts', {
+                  who:String(p.who||''), kind:(p.kind==='diary'?'diary':'post'), content:String(p.content||''),
+                  img:String(p.img||''), mood:String(p.mood||''), when:String(p.when||''), ts:Number(p.ts)||Date.now()
+                });
+              }
+            }
+          }
+        }catch(e){}
+      }
+
       // 重新加载界面数据
       try{ loadTasks(); }catch(e){}
       try{ loadCourses(); }catch(e){}
@@ -9647,7 +9838,7 @@ async function importData(ev){
       try{ setCheer(); }catch(e){}
       try{ updateRing(); renderNext(); renderList(); renderCalendar(); }catch(e){}
       try{ loadConv(); }catch(e){} // 恢复对话记录气泡
-      // 番茄钟：重载数据 + 小园 + 预设/任务绑定状态 + 彩蛋（备份含 mhm_pomodoro 后这里才会生效）
+      // 番茄钟：重载数据 + 小园 + 预设/任务绑定状态 + 彩蛋
       try{
         pomoData = loadPomoData();
         ensurePomoGarden();
@@ -9656,26 +9847,16 @@ async function importData(ev){
         pomo.taskId = pomoData.lastTaskId;
         renderPomoIdle(); renderPomoTaskSel(); renderGarden(); refreshPomoEggBtn();
       }catch(e){ console.error(e); }
-      // 角色生活记录（oc_posts）：从备份恢复并重刷主页卡片
-      try{
-        const postsRaw = data['mhm_oc_posts'];
-        if(postsRaw && typeof postsRaw === 'string'){
-          const posts = JSON.parse(postsRaw);
-          if(Array.isArray(posts)){
-            await memClearStore('oc_posts');
-            for(const p of posts){
-              if(!p || !p.content) continue;
-              await memPut('oc_posts', {
-                who:String(p.who||''), kind:(p.kind==='diary'?'diary':'post'), content:String(p.content||''),
-                img:String(p.img||''), mood:String(p.mood||''), when:String(p.when||''), ts:Number(p.ts)||Date.now()
-              });
-            }
-          }
-        }
-        ocRenderCard(); ocRefreshCtx();
-      }catch(e){ console.error(e); }
-      if(hint) hint.textContent = '✅ 已导入 '+n+' 项数据，任务/课表/记账/番茄钟/配置已更新，可关闭设置。';
-      toast('数据导入成功');
+      // 角色生活记录 + 记忆库界面
+      try{ ocRenderCard(); ocRefreshCtx(); }catch(e){}
+      try{ memRefreshStats(); memRender && memRender(); }catch(e){}
+
+      const idbTxt = Object.keys(idbSum).length
+        ? '；记忆库：' + Object.keys(idbSum).map(k=>k+' '+idbSum[k]).join('·')
+        : '';
+      if(hint) hint.textContent = '✅ 已导入 '+n+' 项数据' + idbTxt
+        + '。任务/课表/记账/番茄钟/配置/对话/记忆库/日记均已恢复，可关闭设置。';
+      toast('全量导入成功');
     }catch(e){
       if(hint) hint.textContent = '⚠️ 导入失败：'+e.message;
     }
