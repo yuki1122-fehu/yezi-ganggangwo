@@ -4,15 +4,15 @@
    - 同源静态资源（manifest / 图标）：缓存优先
    - 跨域 API（香港天文台天气/警告等）：一律放行，不缓存、不拦截
    - Web Push：接收云端推送中继的消息并弹系统通知（App 关闭也能收到） */
-const CACHE = 'yezi-v5';  // v4 → v5（2026-10-09）：预缓存开屏动画素材（splash.mp4/webm/poster），消除解码前露白
+const CACHE = 'yezi-v6';  // v5 → v6（2026-10-10）：图标文件名加版本号（icon-*-v2.png）破 Chrome manifest 图标缓存；预缓存路径同步
 const SHELL = [
   './',
   './index.html',
   './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  './icons/icon-maskable-192.png',
-  './icons/icon-maskable-512.png',
+  './icons/icon-192-v2.png',
+  './icons/icon-512-v2.png',
+  './icons/icon-maskable-192-v2.png',
+  './icons/icon-maskable-512-v2.png',
   './icons/apple-touch-icon.png',
   // 开屏：必须预缓存，否则冷启动时视频未到位，poster 也要等网络
   './splash-poster.jpg',
@@ -120,8 +120,8 @@ self.addEventListener('push', function(e){
   } else {
     p = self.registration.showNotification(data.title, {
       body: data.body,
-      icon: 'icons/icon-192.png',
-      badge: 'icons/icon-192.png',
+      icon: 'icons/icon-192-v2.png',
+      badge: 'icons/icon-192-v2.png',
       tag: 'yezi-push-' + (msgTs || diag.t),
       vibrate: [120, 60, 120],
       requireInteraction: false
