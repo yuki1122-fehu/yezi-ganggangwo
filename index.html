@@ -13249,6 +13249,18 @@ function renderUsageStats(){
     return;
   }
   const t=log.total;
+  /* ★ 10-11 新增：按来源分组的「调用次数」。按次计费的 API 贩子不看 token 看次数，
+     而原来这面板只显示 token 与缓存命中 ⇒ 用户完全看不出"我这一下午花了多少次"。
+     recent 里每条都带 tag（aiTagInfer 推断或显式 __aiTag），直接聚合即可。 */
+  const byTag={};
+  for(const r of (log.recent||[])){
+    const k=String((r && r.tag) || '对话');
+    byTag[k]=(byTag[k]||0)+1;
+  }
+  const tagRows=Object.keys(byTag).sort((a,b)=>byTag[b]-byTag[a]);
+  /* ⚠️ 台账只留最近 600 条（AI_USAGE_MAX），所以这是「最近 N 次」而非全量累计，
+     面板文案必须说清楚，否则叶子会拿它跟账单对账、以为漏了。 */
+  const nearCalls = tagRows.reduce((s,k)=>s+byTag[k],0);
   // 最近 20 次平均命中率（recent 里最新在前，取前 20 条），反映近况；累计值仅作长期参考
   const rec=(log.recent||[]).slice(0,20);
   let rh=0, rm=0;
@@ -13272,6 +13284,11 @@ function renderUsageStats(){
     html+='<div style="margin-top:6px;font-size:11px;color:var(--ink-soft);">最近 10 次明细（红=低命中）：</div>'+rows;
   }
   html+='<div>累计命中 <b style="color:var(--green-dark);">'+hitRate+'%</b> — 系统提示词等稳定内容被服务端复用，省下的重复输入费 ≈ <b style="color:var(--green-dark);">¥'+money+'</b></div>';
+  if(tagRows.length){
+    html+='<div style="margin-top:8px;padding-top:6px;border-top:1px dashed var(--green-mid);font-size:11px;color:var(--ink-soft);">'
+        + '按次计费的看这里 — 最近 '+nearCalls+' 次调用按功能分：</div>';
+    html+=tagRows.map(k=>'<div style="font-size:11px;margin:1px 0;">'+escHtml(k)+' · <b>'+byTag[k]+'</b> 次</div>').join('');
+  }
   el.innerHTML=html;
 }
 function fmtTokens(n){
