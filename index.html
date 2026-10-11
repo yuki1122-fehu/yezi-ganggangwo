@@ -2652,6 +2652,12 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
       <option value="nvidia/nemotron-nano-12b-v2-vl:free">★ OpenRouter 免费·视觉</option>
       <option value="openrouter/free">★ OpenRouter 免费·自动轮换(视觉)</option>
     </datalist>
+    <div class="row" style="margin:8px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
+      <button class="btn ghost" type="button" onclick="fetchModels()" style="flex:0 0 auto;">⬇ 拉取可用模型</button>
+      <span id="modelFetchHint" style="font-size:11px;color:var(--ink-soft);line-height:1.5;flex:1;min-width:120px;"></span>
+    </div>
+    <div id="modelFetchBox" style="display:none;margin-top:8px;max-height:220px;overflow:auto;border:1px solid var(--green-mid);border-radius:var(--radius);padding:8px 10px;">
+    </div>
 
     <!-- ===================== 视觉模型（眼睛） ===================== -->
     <div style="padding:14px 16px;margin:10px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(140,165,215,.16),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
@@ -2685,6 +2691,11 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           <option value="qwen/qwen2.5-vl-72b-instruct:free">OpenRouter·免费视觉</option>
           <option value="google/gemma-4-26b-a4b-it:free">OpenRouter·免费视觉</option>
         </datalist>
+        <div class="row" style="margin:8px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn ghost" type="button" onclick="fetchModels('vision')" style="flex:0 0 auto;">⬇ 拉取可用模型</button>
+          <span id="visionModelHint" style="font-size:11px;color:var(--ink-soft);line-height:1.5;flex:1;min-width:120px;"></span>
+        </div>
+        <div id="visionModelBox" style="display:none;margin-top:8px;max-height:220px;overflow:auto;border:1px solid var(--green-mid);border-radius:var(--radius);padding:8px 10px;"></div>
         <div class="row" style="margin:8px 0 0;gap:8px;align-items:center;">
           <button class="btn ghost" type="button" onclick="testVisionConn()" style="flex:0 0 auto;">测试视觉连接</button>
           <span id="visionHint" style="font-size:11px;color:var(--ink-soft);line-height:1.5;"></span>
@@ -8964,6 +8975,162 @@ function setSplashMode(mode){
 }
 function resetSplashToday(){
   if(window.SplashControl) SplashControl.resetToday();
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   拉取可用模型列表（10-11 新增，为 API 贩子/中转站准备）
+   为什么需要：模型名千奇百怪（`vendor/model:free`、`claude-xxx`、数字版本号…），
+   写死 datalist 永远追不上，只能让用户手打 ⇒ 打错一个字符就是 400/404，还很难看出是名字错。
+   做法：打 `GET {base}/models`（OpenAI 兼容协议的标准端点，绝大多数中转站都实现），
+        把返回的 id 填进 datalist，点一下就选上。
+   ⚠️ 三层兜底（真实中转站的脏活）：
+     ① URL 拼接：用户可能填 `…/v1`、`…/v1/`、`…/v1/chat/completions`，要归一化
+     ② 响应格式：标准是 {data:[{id}]},但有贩子返回 {models:[…]} / {data:[{model_name}]} / 裸数组
+     ③ 跨域：站点直连会被 CORS 拦 ⇒ 自动改走本站自己的中转（见下）
+   ══════════════════════════════════════════════════════════════════════ */
+
+// 把用户填的 Base URL 归一化成「能直接拼 /models 的前缀」
+function _modelsEndpoint(base){
+  let b = String(base||'').trim().replace(/\/+$/,'');
+  if(!b) return '';
+  // 填到具体的对话端点 ⇒ 回退到它的根（如 …/v1/chat/completions → …/v1）
+  b = b.replace(/\/(chat\/completions|completions|responses)$/i, '');
+  return b + '/models';
+}
+
+/*中转站直连常被 CORS 拦。本站自建 Worker 已加 `/models` 透传端点（10-11 新增，
+   见 push-worker-sw.js），填了「中转站地址」就可借它发请求——它在 Cloudflare 侧，
+   没有浏览器同源限制。未部署该端点时返回 null，前端会照实提示。 */
+async function _fetchModelsViaRelay(endpoint, key){
+  const cfg = getAiCfg();
+  const relay = String(cfg.relayUrl||'').trim().replace(/\/+$/,'');
+  const secret = String(PUSH_SECRET || '').trim();   // 硬编码常量（8092），不在 cfg 里——别去cfg 里找
+  if(!relay || !secret) return null;      // 没配中转/没配 secret ⇒ 用不了这条路
+  try{
+    const u = relay + '/models?secret=' + encodeURIComponent(secret)
+            + '&url=' + encodeURIComponent(endpoint)
+            + (key ? '&key=' + encodeURIComponent(key) : '');
+    const r = await fetch(u, { headers: { 'Authorization':'Bearer ' + secret } });
+    if(!r.ok) return null;
+    const j = await r.json().catch(()=>null);
+    return (j && (j.data || j.models || Array.isArray(j))) ? j : null;
+  }catch(e){ return null; }
+}
+
+// 从千奇百怪的响应里挖出模型 id 数组
+function _parseModelList(j){
+  const out = [];
+  const push = v => { if(typeof v === 'string' && v.trim()) out.push(v.trim()); };
+  const walk = arr => {
+    if(!Array.isArray(arr)) return;
+    arr.forEach(it=>{
+      if(typeof it === 'string') return push(it);
+      if(it && typeof it === 'object'){
+        push(it.id); push(it.name); push(it.model); push(it.model_name); push(it.slug);
+      }
+    });
+  };
+  if(Array.isArray(j)) walk(j);                    // 裸数组
+  else if(j && typeof j === 'object'){
+    walk(j.data); walk(j.models); walk(j.result);
+    if(j.data && !Array.isArray(j.data) && typeof j.data === 'object') walk(j.data.models);
+  }
+  // 去重 + 排序（同一批里把"看起来是主力"的排前面：不含 free/oss/mini 的常见模型）
+  const uniq = Array.from(new Set(out));
+  uniq.sort((a,b)=>{
+    const score = s => (/free|:free|oss|nano|mini|small/i.test(s) ? 1 : 0);
+    return score(a) - score(b) || a.localeCompare(b);
+  });
+  return uniq;
+}
+
+/* 入口：kind='main' 主模型 / 'vision' 视觉模型 */
+async function fetchModels(kind){
+  kind = (kind === 'vision') ? 'vision' : 'main';
+  const isV = (kind === 'vision');
+  const hint = document.getElementById(isV ? 'visionModelHint' : 'modelFetchHint');
+  const box  = document.getElementById(isV ? 'visionModelBox'   : 'modelFetchBox');
+  const inp  = document.getElementById(isV ? 'aiVisionModel'   : 'aiModel');
+  const list = document.getElementById(isV ? 'visionModelList' : 'modelList');
+  const base = (document.getElementById(isV ? 'aiVisionBase' : 'aiBase').value || '').trim();
+  const key  = (document.getElementById(isV ? 'aiVisionKey'  : 'aiKey').value || '').trim()
+             || (getAiCfg().apiKey || '').trim();
+
+  if(!hint) return;
+  if(box) box.style.display = 'none';
+  if(!base){
+    hint.innerHTML = '<span style="color:var(--red-mid);">先填上面的 Base URL。</span>';
+    return;
+  }
+  const endpoint = _modelsEndpoint(base);
+  hint.innerHTML = '正在拉取…（' + endpoint.replace(/https?:\/\/[^/]+/, '…') + '）';
+  const btn = document.querySelector('#aiSetMask button[onclick*="fetchModels"]');
+  if(btn) btn.disabled = true;
+
+  let got = null, err = '';
+  try{
+    // ① 直连（最快，且不经过第三方）
+    try{
+      const ctl = new AbortController();
+      const to = setTimeout(()=>ctl.abort(), 15000);   // 贩子挂起很常见，必须自己超时
+      const r = await fetch(endpoint, { headers: key ? { 'Authorization':'Bearer '+key } : {}, signal: ctl.signal });
+      clearTimeout(to);
+      if(r.ok){
+        const txt = await r.text();
+        let j; try{ j = JSON.parse(txt); }catch(e){ err = '返回的不是 JSON（前 80 字：' + txt.slice(0,80) + '）'; }
+        if(j) got = j;
+      } else {
+        const t = await r.text().catch(()=>'');
+        err = 'HTTP ' + r.status + (t ? '：' + t.slice(0,120) : '');
+      }
+    }catch(e){
+      err = (e && e.name === 'AbortError') ? '连接超时（15 秒）' : ('连不上：' + (e && e.message ? e.message : e));
+    }
+    // ② 直连失败且像是浏览器同源限制 ⇒ 借中转
+    if(!got && /Failed to fetch|NetworkError|Load Failed|连不上|超时/.test(err)){
+      hint.textContent = '直连被拦，正在尝试走中转…';
+      got = await _fetchModelsViaRelay(endpoint, key);
+      if(!got) err += ' ｜中转也没通（需先在设置里填「中转站地址」，且该中转要部署了 /models 端点）';
+    }
+  }catch(e){
+    err = String(e && e.message || e);
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+
+  const ids = got ? _parseModelList(got) : [];
+  if(!ids.length){
+    hint.innerHTML = '<span style="color:var(--red-mid);">没拉到：' + escHtml(err || '返回里找不到模型名')
+      + '。可以手动填模型名——名字错一个字符就会 404。</span>';
+    return;
+  }
+
+  // 写进 datalist（保留原有推荐项：置顶我们写的说明项，联网拉到的追加在后面）
+  if(list){
+    const keep = Array.from(list.querySelectorAll('option')).map(o=>o.outerHTML).join('');
+    list.innerHTML = keep + ids.map(id=>'<option value="'+escHtml(id)+'"></option>').join('');
+  }
+  if(box){
+    box.style.display = 'block';
+    box.innerHTML = '<div style="font-size:11px;color:var(--ink-soft);margin-bottom:6px;">共 '
+      + ids.length + ' 个，点一下填进上方输入框：</div>'
+      + '<div style="display:flex;flex-wrap:wrap;gap:6px;">'
+      + ids.map(id=>'<button type="button" class="btn ghost" style="font-size:11px;padding:3px 8px;" onclick="'
+          + escHtml(String(id).replace(/'/g,"\\'")) + ' && 0;" data-mid="'+escHtml(id)+'">'
+          + escHtml(id.length>34 ? id.slice(0,33)+'…' : id) + '</button>').join('')
+      + '</div>';
+    // 事件委托：点按钮 → 填入输入框
+    box.onclick = ev=>{
+      const b2 = ev.target.closest('button[data-mid]');
+      if(!b2 || !inp) return;
+      inp.value = b2.getAttribute('data-mid');
+      hint.innerHTML = '✅ 已填入 <b>' + escHtml(inp.value) + '</b>，记得点「保存」。';
+      box.style.display = 'none';
+    };
+  }
+  hint.innerHTML = '✅ 拉到 <b>' + ids.length + '</b> 个模型'
+    + (isV ? '（视觉模型名在上方输入框）' : '（在上方框里选，或直接点下面的名字）')
+    + '。已经加进候选列表了。';
 }
 // 用一张 16×16 白色像素图真实跑一遍视觉链路（百炼 VL 要求边长 >10px，1×1 会被拒）
 async function testVisionConn(){
