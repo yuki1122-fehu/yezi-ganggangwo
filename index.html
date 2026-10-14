@@ -9254,6 +9254,9 @@ async function collectDiag(){
      现在能直接分辨：被输出上限截断 / 模型只想没答 / 只调工具不回头说话。 */
   const lr = window.__lastAIResp;
   L('最近响应体检', lr ? (lr.at + ' · HTTP ' + lr.status + ' · finish=' + lr.finish_reason + ' · 正文' + lr.content_len + '字 · 思考' + lr.reasoning_len + '字 · 工具' + lr.tool_calls + '次') : '(无)');
+  // 2026-10-14：工具闸门现场——模型有没有刷重复调用、拦了多少，一眼可见（比“记账里莫名多出几十条”好查）
+  const tg = window.__lastToolGuard;
+  if(tg) L('最近工具闸门', new Date(tg.at).toLocaleString() + ' · 已执行 ' + tg.done + ' · 已拦截 ' + tg.skipped + (tg.names && tg.names.length ? (' · ' + tg.names.join('、')) : ''));
   if(window.__lastEmptyReply){
     const er = window.__lastEmptyReply;
     L('上次空回复现场', new Date(er.at).toLocaleString() + ' · finish=' + (er.finish_reason || '(空)') + ' · 正文' + er.content_len + '字 · 思考' + er.reasoning_len + '字 · 工具' + er.tools + '次');
@@ -12909,9 +12912,38 @@ async function sendAI(){
   }
 }
 
+/* ★ 2026-10-14：工具消息不进历史。
+   以前 assistant(tool_calls) 与 role:'tool' 的回执会一直留在 aiConv 里：界面上看不见（不渲染气泡），
+   但会落进 localStorage 存档，并在下一轮请求里按「条数」占满 trimMessagesForSend 的窗口 ——
+   一旦模型抽风连发二三十个工具调用，真实对话就被整段挤出窗口，模型就读不到之前说过的话了。
+   处理时机：本轮循环内部仍然照常 push（DeepSeek V4 严格要求 tool 序列就地配对，缺一条就 400），
+   但一轮结束就整体清掉 —— 对话历史里只留下「人话」，工具流水不留痕。
+   开头也清一次：上一轮中途异常退出时留下的工具消息同样会被带走。 */
+function aiConvStripToolMsgs(){
+  if(!Array.isArray(aiConv) || aiConv.length<=1) return 0;
+  const before = aiConv.length;
+  aiConv = aiConv.filter(m => !!m && m.role!=='tool' && !(m.role==='assistant' && m.tool_calls && m.tool_calls.length));
+  return before - aiConv.length;
+}
+// 单轮工具调用上限：超过就停止执行并跳出循环（防「模型一次吐几十个重复调用 → 真执行几十次」）
+const AI_TOOL_MAX_PER_TURN = 12;
+/* 重复判定用的指纹：工具名 + 「归一化后的参数」。
+   归一化 = 键名排序 + 去掉多余空白 —— 否则模型把参数换个键序、多打个空格就能绕过去重闸。 */
+function aiToolSig(name, argsStr){
+  let a = String(argsStr == null ? '' : argsStr);
+  try{
+    const o = JSON.parse(a);
+    if(o && typeof o === 'object' && !Array.isArray(o)){
+      a = JSON.stringify(Object.keys(o).sort().map(k => [k, o[k]]));
+    }
+  }catch(e){ /* 参数不是合法 JSON：按原文比对 */ }
+  return String(name) + '|' + a.replace(/\s+/g, '');
+}
+
 async function aiRun(){
   const cfg = getAiCfg();
   window.__aiTurnSaid = false; // ★ 本轮是否产出过可见回复（addAIMsg('ai'…) 会置 true）；末尾兜底用
+  aiConvStripToolMsgs(); // 上一轮残留的工具流水先清掉（异常退出时才会留下）
   if(!cfg.apiKey){
     addAIMsg('ai','还没配置 API Key，点右上角 ⚙ 填一下（推荐 DeepSeek：国内可直连、注册送免费额度；也可填 OpenRouter / opencode）。', aiMsgId());
     openAISettings();
@@ -12927,6 +12959,10 @@ async function aiRun(){
     await memJournalRefreshCtx().catch(()=>{}); // 刷新「近期回忆」注入块（仅 IndexedDB 读取，毫秒级，等待它保证本轮带上快照）
     let loop = 0;
     let stepEl = null;
+    // ★ 2026-10-14 工具闸门：本轮已执行过的「工具名+参数」签名 + 计数。拦截重复与超限，防模型复读式刷工具。
+    const toolSig = new Set();
+    let toolDone = 0, toolSkipped = 0, toolLimitHit = false;
+    window.__lastToolGuard = null;
     while(loop++ < 6){
       const r = await aiCall(aiConv, cfg);
       if(r.error){
@@ -12952,12 +12988,38 @@ async function aiRun(){
           const n = (tc.function && tc.function.name) || '';
           return TOOL_LABEL[n] || n;
         }).filter(Boolean);
-        const label = names.length ? '正在' + names.join('、') + '…' : '正在处理…';
+        /* ★ 2026-10-14：一次响应里可能夹带几十个 tool_calls，逐条展示会把步骤气泡撑成一大坨。
+           只显示前 4 个 + 「等 N 项」，并如实标出被拦截的条数。 */
+        const headNames = names.slice(0,4);
+        const label = (headNames.length ? '正在' + headNames.join('、') + (names.length>4 ? (' 等 '+names.length+' 项') : '') + '…' : '正在处理…')
+          + (toolSkipped ? ('（已拦截 '+toolSkipped+' 个重复/超限调用）') : '');
         if(!stepEl) stepEl = addSysStep('🧭 ' + label);
         else stepEl.textContent = '🧭 ' + label;
         for(const tc of msg.tool_calls){
-          const res = await execTool(tc.function.name, tc.function.arguments);
+          const fnName = (tc.function && tc.function.name) || '';
+          const argsStr = (tc.function && tc.function.arguments) || '';
+          const sig = aiToolSig(fnName, argsStr);
+          let res;
+          if(toolDone >= AI_TOOL_MAX_PER_TURN){
+            // 闸 B：单轮总量到顶，剩下的不再真执行（仍回执，保证工具序列合法）
+            toolSkipped++;
+            res = {skipped:true, reason:'本轮操作已达上限（最多 '+AI_TOOL_MAX_PER_TURN+' 个），这条没执行。请先回复用户已办好的部分。'};
+          } else if(toolSig.has(sig)){
+            // 闸 A：同名同参重复调用（模型复读/低价中转模型的典型抽风），只执行第一次
+            toolSkipped++;
+            res = {skipped:true, reason:'重复调用已拦截：同样的操作本轮已经做过，无需再做一次。'};
+          } else {
+            toolSig.add(sig);
+            toolDone++;
+            res = await execTool(fnName, argsStr);
+          }
           aiConv.push({role:'tool', tool_call_id: tc.id, content: JSON.stringify(res)});
+        }
+        window.__lastToolGuard = { at: Date.now(), done: toolDone, skipped: toolSkipped, names: names.slice(0,8) };
+        if(toolDone >= AI_TOOL_MAX_PER_TURN){
+          // 已达上限：不再把剩下的交给模型重来一轮，直接收尾说话
+          toolLimitHit = true;
+          break;
         }
         continue;
       } else {
@@ -12990,7 +13052,12 @@ async function aiRun(){
         break;
       }
     }
-    if(loop > 6){
+    if(toolLimitHit){
+      if(stepEl) stepEl.remove();
+      /* 明确告知而不是静默跳出：以前模型刷几十个工具时会一路执行到底（记账真被记二三十条），
+         用户看到的只有一串工具名，既不知道做了什么也不知道停在哪。 */
+      addAIMsg('ai','🔄 这一步模型一口气发起了太多操作（'+ (toolDone+toolSkipped) +' 个）：已执行前 '+toolDone+' 个，拦下了 '+toolSkipped+' 个重复或超出的。存好的部分不受影响；还没办完的你直接再说一遍（例如"继续"），我接着做。', aiMsgId());
+    } else if(loop > 6){
       if(stepEl) stepEl.remove();
       // 明确告知：本轮涉及的操作较多，已尽力处理，超出的部分请用户再说一次
       addAIMsg('ai','🔄 这一步涉及的改动比较多，我连续处理了几轮后达到了单次上限。已经完成的部分都保存好了；如果还有没做完的，你直接再说一遍（例如"继续删剩下的"），我会接着处理。', aiMsgId());
@@ -13007,6 +13074,7 @@ async function aiRun(){
     addAIMsg('ai','出错了：'+(e.message||'未知错误'), aiMsgId());
   }finally{
     clearTimeout(wd);
+    aiConvStripToolMsgs(); // ★ 工具流水不进历史：清掉本轮的 tool_calls/tool 消息，只留人话（存档更小，也不再挤占上下文窗口）
     saveConv(); // 持久化本次对话，刷新后仍在
     syncCloudContext().catch(()=>{}); // 云端语境同步：聊完一回合刷新云端上下文（回复主动消息后语境即更新）
     pullCloudMsgs().catch(()=>{}); // 云端主动消息回填：聊完也拉一次（云端可能刚好推了新消息）
