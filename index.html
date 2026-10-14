@@ -2909,6 +2909,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 
     <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
     <button class="btn ghost" type="button" onclick="openDiag()" style="width:100%;margin-bottom:8px;">🩺 诊断自检（出问题点这个，复制后发给 AI 排查）</button>
+    <button class="btn ghost" type="button" onclick="openAiUndo()" style="width:100%;margin-bottom:8px;">↩️ 撤销上一轮 AI 的改动（它乱改东西时点这个）</button>
     <div class="row">
       <button class="btn ghost" onclick="closeAISettings()">取消</button>
       <button class="btn primary" onclick="saveAISettings()">保存</button>
@@ -3068,6 +3069,21 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
       <button class="btn ghost" onclick="forceUnstick('手动强制解除卡死：已释放忙碌态并清除三点气泡。'); openDiag();" style="border-color:#e0823c;color:#c96a1f;">🛠 强制解除卡死</button>
       <button class="btn primary" onclick="copyDiag()">复制全部</button>
     </div>
+  </div>
+</div>
+
+<!-- 撤销 AI 改动弹窗（2026-10-14：AI 动手前存快照，事后一键作废） -->
+<div class="mask" id="undoMask" style="z-index:94;">
+  <div class="sheet glass-strong">
+    <h3>↩️ 撤销 AI 的改动</h3>
+    <div class="payload-meta" style="font-size:11px;color:var(--ink-soft);">下面是<b>最近一次 AI 回复里</b>，它对你数据做的全部改动（记账 / 任务 / 课表 / 心情 / 角色动态 / 预约）。点「全部撤销」就一次性还原到它动手之前的样子；你自己在同一时间段手动改的东西也会被一起还原，看清楚了再点。</div>
+    <div id="undoList" style="max-height:50vh;overflow:auto;margin:10px 0;font-size:12px;line-height:1.65;"></div>
+    <div class="row">
+      <button class="btn ghost" onclick="closeAiUndo()">关闭</button>
+      <button class="btn ghost" onclick="openDiag()">🩺 诊断自检</button>
+      <button class="btn primary" onclick="doAiUndo()">全部撤销</button>
+    </div>
+    <div class="msg" id="undoMsg" style="font-size:11px;color:var(--ink-soft);margin-top:8px;"></div>
   </div>
 </div>
 
@@ -9257,6 +9273,13 @@ async function collectDiag(){
   // 2026-10-14：工具闸门现场——模型有没有刷重复调用、拦了多少，一眼可见（比“记账里莫名多出几十条”好查）
   const tg = window.__lastToolGuard;
   if(tg) L('最近工具闸门', new Date(tg.at).toLocaleString() + ' · 已执行 ' + tg.done + ' · 已拦截 ' + tg.skipped + (tg.names && tg.names.length ? (' · ' + tg.names.join('、')) : ''));
+  try{
+    const tl = JSON.parse(localStorage.getItem(AI_TOOL_LOG_KEY) || '[]');
+    if(Array.isArray(tl) && tl.length){
+      L('--- AI 操作流水（最近 15 次工具调用）---', '');
+      tl.slice(-15).forEach(e => L('·', aiToolLogLine(e)));
+    } else L('AI 操作流水', '(还没有记录)');
+  }catch(e){ L('AI 操作流水', '读取异常: ' + (e.message||'')); }
   if(window.__lastEmptyReply){
     const er = window.__lastEmptyReply;
     L('上次空回复现场', new Date(er.at).toLocaleString() + ' · finish=' + (er.finish_reason || '(空)') + ' · 正文' + er.content_len + '字 · 思考' + er.reasoning_len + '字 · 工具' + er.tools + '次');
@@ -9310,6 +9333,240 @@ function copyDiag(){
   const done = ()=>{ const b = document.querySelector('#diagMask .btn.primary'); if(b){ const o = b.textContent; b.textContent = '已复制✓'; setTimeout(()=>b.textContent = o, 1500); } };
   if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(done).catch(()=>{ fallbackCopy(t); done(); }); }
   else { fallbackCopy(t); done(); }
+}
+
+/* ====== 2026-10-14：AI 操作流水（工具审计日志） ======
+   起因：中转模型一次吐几十个重复调用，叶子只能看到「记账里莫名多了一堆」，
+   却完全回答不了「它还动了什么」——因为此前工具调用没有任何留痕，只有结果。
+   现在每一次工具调用（含被闸门拦下的）都记一条：时间 / 工具 / 参数 / 结果。
+   只存本机、环形 200 条，不上传。以后再出这种事，「诊断自检」里一眼看到底动了什么。 */
+const AI_TOOL_LOG_KEY = 'mhm_ai_tool_log';
+const AI_TOOL_LOG_MAX = 200;
+function aiToolLog(entry){
+  try{
+    let arr = [];
+    try{ arr = JSON.parse(localStorage.getItem(AI_TOOL_LOG_KEY)) || []; }catch(e){ arr = []; }
+    if(!Array.isArray(arr)) arr = [];
+    const rec = {t: Date.now(), name: entry.name, args: String(entry.args==null?'':entry.args).replace(/\s+/g,' ').slice(0,120)};
+    if(entry.skipped){ rec.skipped = true; rec.err = String(entry.err||'').slice(0,40); }
+    else { rec.ok = (entry.ok !== false); if(entry.ok === false) rec.err = String(entry.err||'').slice(0,40); }
+    arr.push(rec);
+    if(arr.length > AI_TOOL_LOG_MAX) arr = arr.slice(-AI_TOOL_LOG_MAX);
+    localStorage.setItem(AI_TOOL_LOG_KEY, JSON.stringify(arr));
+  }catch(e){ /* 存储满就算了，绝不让它影响主流程 */ }
+}
+function aiToolLogLine(e){
+  const d = new Date(e.t || Date.now());
+  const md = (d.getMonth()+1) + '/' + d.getDate();
+  const hhmm = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  const nm = (typeof TOOL_LABEL !== 'undefined' && TOOL_LABEL[e.name]) ? TOOL_LABEL[e.name] : (e.name || '?');
+  let tag = '✅';
+  if(e.skipped) tag = '⏭ 已拦截' + (e.err ? ('（'+e.err+'）') : '');
+  else if(e.ok === false) tag = '❌ ' + (e.err || '失败');
+  return md + ' ' + hhmm + ' ' + nm + (e.args ? (' · ' + e.args.slice(0,60)) : '') + ' ' + tag;
+}
+
+/* ====== 2026-10-14：AI 改动作废（动手前存快照，事后一键还原） ======
+   为什么不用「扫重复」：重复只是抽风的一种表现，真正的问题是「我不知道它动了什么」。
+   正解是快照 —— AI 动手之前把所有它能改的库拍一张，事后 Diff 出清单，用户点头就整体还原。
+   覆盖：记账 / 任务 / 课表 / 心情 / 角色世界 / 预约推送 / 角色动态(oc_posts)。 */
+const AI_UNDO_KEY = 'mhm_ai_undo_snap';
+function aiSnapTake(){
+  const snap = { t: Date.now(), postIds: null };
+  try{ snap.tasks = JSON.stringify((typeof tasks !== 'undefined' && tasks) ? tasks : []); }catch(e){ snap.tasks = '[]'; }
+  try{ snap.courses = JSON.stringify((typeof COURSES !== 'undefined' && COURSES) ? COURSES : []); }catch(e){ snap.courses = '[]'; }
+  try{ snap.expenses = JSON.stringify(EXPENSES || {items:[]}); }catch(e){ snap.expenses = '{"items":[]}'; }
+  snap.moods = {};
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.indexOf('mhm_mood_') === 0) snap.moods[k] = localStorage.getItem(k);
+    }
+  }catch(e){}
+  try{ snap.world = localStorage.getItem('mhm_oc_world'); }catch(e){ snap.world = null; }
+  try{ snap.proactive = localStorage.getItem(AI_PROACTIVE_KEY); }catch(e){ snap.proactive = null; }
+  // 角色动态在 IndexedDB 里，只能异步取：先把 Promise 挂上，谁用到谁 await
+  try{
+    snap.__postsP = (async()=>{
+      try{
+        const rows = (await memGetAll('oc_posts')) || [];
+        return (rows||[]).map(p => p && p.id).filter(x => x !== undefined && x !== null);
+      }catch(e){ return null; }
+    })();
+  }catch(e){ snap.__postsP = null; }
+  window.__aiSnap = snap;
+  try{
+    const disk = {t:snap.t, tasks:snap.tasks, courses:snap.courses, expenses:snap.expenses, moods:snap.moods, world:snap.world, proactive:snap.proactive};
+    localStorage.setItem(AI_UNDO_KEY, JSON.stringify(disk)); // 刷新后也能撤销（不含 oc_posts，异步那部分丢掉）
+  }catch(e){}
+  return snap;
+}
+function _aiSnapParse(s){
+  const get = (v, d)=>{ try{ const x = JSON.parse(v); return (x===null||x===undefined) ? d : x; }catch(e){ return d; } };
+  return {
+    t: s.t,
+    tasks: get(s.tasks, []),
+    courses: get(s.courses, []),
+    expenses: get(s.expenses, {items:[]}),
+    moods: s.moods || {},
+    world: s.world || null,
+    proactive: s.proactive || null
+  };
+}
+function _expName(r){ return (r.date||'') + ' ¥' + r.amount + ' ' + (r.cat||'') + (r.note ? ('「'+r.note+'」') : ''); }
+function _taskName(t){ return (t.title||'未命名') + (t.done ? '（已完成）' : ''); }
+function _courseName(c){ return (c.date||'') + ' ' + (c.subj||'') + ' 第' + (c.ses||'') + '节' + (c.room ? (' · '+c.room) : ''); }
+// 逐条比 id：新增 / 删除 / 内容变化，都能说清楚
+function _diffById(before, after, nameOf, label){
+  const b = {}, a = {}, out = [];
+  (before||[]).forEach(x=>{ if(x && x.id!=null) b[x.id] = x; });
+  (after||[]).forEach(x=>{ if(x && x.id!=null) a[x.id] = x; });
+  (after||[]).forEach(x=>{ if(x && x.id!=null && !b[x.id]) out.push({k:'新增', s:label, t:nameOf(x)}); });
+  (before||[]).forEach(x=>{ if(x && x.id!=null && !a[x.id]) out.push({k:'删除', s:label, t:nameOf(x)}); });
+  (after||[]).forEach(x=>{
+    const old = x && x.id!=null ? b[x.id] : null;
+    if(old && JSON.stringify(old) !== JSON.stringify(x)) out.push({k:'修改', s:label, t:nameOf(old) + ' → ' + nameOf(x)});
+  });
+  return out;
+}
+async function aiSnapDiff(snap){
+  const s = _aiSnapParse(snap || (window.__aiSnap || {}));
+  const out = [];
+  out.push(..._diffById(s.expenses.items, (EXPENSES && EXPENSES.items) ? EXPENSES.items : [], _expName, '记账'));
+  out.push(..._diffById(s.tasks, (typeof tasks !== 'undefined' ? tasks : []), _taskName, '任务'));
+  // 课表没有 id：按下标对齐，长度不同就说明有增删
+  try{
+    const cs = s.courses || [];
+    const cn = (typeof COURSES !== 'undefined' && COURSES) ? COURSES : [];
+    if(JSON.stringify(cs) !== JSON.stringify(cn)){
+      if(cn.length > cs.length) cn.slice(cs.length).forEach(c=>out.push({k:'新增', s:'课表', t:_courseName(c)}));
+      if(cs.length > cn.length) cs.slice(cn.length).forEach(c=>out.push({k:'删除', s:'课表', t:_courseName(c)}));
+      const n = Math.min(cs.length, cn.length);
+      for(let i=0;i<n;i++){ if(JSON.stringify(cs[i]) !== JSON.stringify(cn[i])) out.push({k:'修改', s:'课表', t:_courseName(cs[i]) + ' → ' + _courseName(cn[i])}); }
+    }
+  }catch(e){}
+  // 心情：按日期键比对
+  try{
+    const nowMoods = {};
+    for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(k && k.indexOf('mhm_mood_')===0) nowMoods[k] = localStorage.getItem(k); }
+    Object.keys(nowMoods).forEach(k=>{
+      const old = s.moods[k];
+      const d = k.replace('mhm_mood_','');
+      if(old === undefined) out.push({k:'新增', s:'心情', t:d + ' → ' + (nowMoods[k]||'')});
+      else if(old !== nowMoods[k]) out.push({k:'修改', s:'心情', t:d + '：' + old + ' → ' + (nowMoods[k]||'')});
+    });
+    Object.keys(s.moods).forEach(k=>{ if(nowMoods[k] === undefined) out.push({k:'删除', s:'心情', t:k.replace('mhm_mood_','')}); });
+  }catch(e){}
+  try{ if(String(s.world||'') !== String(localStorage.getItem('mhm_oc_world')||'')) out.push({k:'修改', s:'角色世界', t:'关系状态 / 今日共同事件有变动'}); }catch(e){}
+  try{ if(String(s.proactive||'') !== String(localStorage.getItem(AI_PROACTIVE_KEY)||'')) out.push({k:'修改', s:'预约推送', t:'主动消息预约有变动'}); }catch(e){}
+  // 角色动态（IndexedDB）：只知道多了几条
+  try{
+    const p = snap && snap.__postsP;
+    if(p){
+      const ids = await p;
+      if(Array.isArray(ids)){
+        const rows = (await memGetAll('oc_posts')) || [];
+        const nowIds = (rows||[]).map(x=>x && x.id);
+        const added = nowIds.filter(id => ids.indexOf(id) < 0);
+        if(added.length) out.push({k:'新增', s:'角色动态', t:added.length + ' 条（朋友圈 / 日记）'});
+      }
+    }
+  }catch(e){}
+  return out;
+}
+function openAiUndo(){ renderAiUndo(); openMask(document.getElementById('undoMask')); }
+// 聊天气泡流里的撤销入口（DOM 本地产物，不进对话历史、不落存档）
+function aiUndoBar(n){
+  const wrap = document.getElementById('aiMsgs');
+  if(!wrap) return;
+  const d = document.createElement('div');
+  d.className = 'ai-msg sys';
+  d.style.cssText = 'text-align:center;background:transparent;box-shadow:none;padding:6px 0;';
+  const b = document.createElement('button');
+  b.className = 'btn ghost';
+  b.style.cssText = 'font-size:12px;padding:7px 14px;';
+  b.textContent = '↩️ 本轮改了 ' + n + ' 处 · 查看 / 全部撤销';
+  b.onclick = openAiUndo;
+  d.appendChild(b);
+  wrap.appendChild(d);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+function closeAiUndo(){ closeMask(document.getElementById('undoMask')); }
+async function renderAiUndo(){
+  const box = document.getElementById('undoList'), msg = document.getElementById('undoMsg');
+  if(!box) return;
+  box.textContent = '正在比对…';
+  let snap = window.__aiSnap;
+  if(!snap){
+    try{ const raw = localStorage.getItem(AI_UNDO_KEY); if(raw) snap = JSON.parse(raw); }catch(e){}
+  }
+  if(!snap){ box.innerHTML = '<div style="padding:16px 6px;text-align:center;color:var(--ink-soft);">还没有快照 —— 等 AI 下一次动过你的数据之后，这里就能列出它改了什么。</div>'; if(msg) msg.textContent=''; window.__aiUndoItems = []; return; }
+  const items = await aiSnapDiff(snap);
+  window.__aiUndoItems = items;
+  if(!items.length){
+    box.innerHTML = '<div style="padding:16px 6px;text-align:center;color:var(--ink-soft);line-height:1.7;">✅ 上次 AI 回复没有改动任何数据<br><span style="font-size:11px;">记账 / 任务 / 课表 / 心情 / 角色动态都没有变化。</span></div>';
+    if(msg) msg.textContent = '快照时间：' + new Date(snap.t).toLocaleString();
+    return;
+  }
+  const byStore = {};
+  items.forEach(it=>{ (byStore[it.s] = byStore[it.s] || []).push(it); });
+  let html = '';
+  Object.keys(byStore).forEach(store=>{
+    html += '<div style="margin:10px 0;padding:10px 12px;border-radius:14px;background:rgba(145,180,200,.12);border:1px solid var(--green-mid);">';
+    html += '<div style="font-weight:700;margin-bottom:6px;">' + escHtml(store) + ' <span style="color:#c96a1f;">' + byStore[store].length + ' 处</span></div>';
+    byStore[store].slice(0, 40).forEach(it=>{
+      const color = it.k==='新增' ? '#2e7d5b' : (it.k==='删除' ? '#c0392b' : '#c96a1f');
+      html += '<div style="padding:3px 0;"><span style="color:' + color + ';font-weight:700;">' + it.k + '</span> ' + escHtml(it.t) + '</div>';
+    });
+    if(byStore[store].length > 40) html += '<div style="color:var(--ink-soft);">…还有 ' + (byStore[store].length-40) + ' 处</div>';
+    html += '</div>';
+  });
+  box.innerHTML = html;
+  if(msg) msg.textContent = '共 ' + items.length + ' 处改动（快照 ' + new Date(snap.t).toLocaleString() + '）。撤销会把这些数据整包还原到那一刻。';
+}
+async function doAiUndo(){
+  let items = window.__aiUndoItems || [];
+  if(!items.length){ items = await aiSnapDiff(); window.__aiUndoItems = items; } // 兜底：没先开面板也算得出
+  if(!items.length){ toast('没有可撤销的改动'); return; }
+  showDialog('确认撤销', '将把记账 / 任务 / 课表 / 心情 / 角色世界 / 预约 / 角色动态**整包还原**到 AI 动手之前（共 ' + items.length + ' 处改动作废）。\n⚠️ 这段时间里你自己手动改的内容也会被一起还原。', [
+    {label:'取消', cls:'ghost'},
+    {label:'确认撤销', cls:'primary', fn: async ()=>{
+      try{
+        let snap = window.__aiSnap;
+        if(!snap){ try{ const raw = localStorage.getItem(AI_UNDO_KEY); if(raw) snap = JSON.parse(raw); }catch(e){} }
+        if(!snap){ toast('快照已失效，无法撤销'); return; }
+        const s = _aiSnapParse(snap);
+        if(typeof tasks !== 'undefined'){ tasks = s.tasks; saveLocal(); }
+        if(typeof COURSES !== 'undefined'){ COURSES = s.courses; saveCourses(); }
+        EXPENSES = s.expenses; saveExpenses();
+        try{
+          const del = [];
+          for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(k && k.indexOf('mhm_mood_')===0) del.push(k); }
+          del.forEach(k=>localStorage.removeItem(k));
+          Object.keys(s.moods).forEach(k=>localStorage.setItem(k, s.moods[k]));
+        }catch(e){}
+        try{ if(s.world) localStorage.setItem('mhm_oc_world', s.world); else localStorage.removeItem('mhm_oc_world'); }catch(e){}
+        try{ if(s.proactive) localStorage.setItem(AI_PROACTIVE_KEY, s.proactive); else localStorage.removeItem(AI_PROACTIVE_KEY); }catch(e){}
+        // 角色动态：删掉快照之后新增的那些
+        try{
+          const p = snap.__postsP;
+          if(p){
+            const ids = await p;
+            if(Array.isArray(ids)){
+              const rows = (await memGetAll('oc_posts')) || [];
+              for(const r of (rows||[])){
+                if(r && r.id != null && ids.indexOf(r.id) < 0){ try{ await memDelete('oc_posts', r.id); }catch(e){} }
+              }
+            }
+          }
+        }catch(e){}
+        try{ updateRing(); renderNext(); renderList(); }catch(e){}
+        toast('已撤销 ' + items.length + ' 处改动');
+        window.__aiUndoItems = [];
+        renderAiUndo();
+      }catch(e){ toast('撤销失败：' + (e.message||'未知错误')); }
+    }}
+  ]);
 }
 
 /* ====== 查看发送给助理的内容 ====== */
@@ -12957,6 +13214,7 @@ async function aiRun(){
     if(memUserText) await memInjectMagnet(memUserText); // 磁铁召回注入：说到什么就召回什么（空块整块消失）
     memJournalMaintain(cfg).catch(()=>{}); // 回忆分层维护：今天无日记则生成（幂等），后台跑不阻塞主对话；自然周/自然月结束自动合并周记/月记
     await memJournalRefreshCtx().catch(()=>{}); // 刷新「近期回忆」注入块（仅 IndexedDB 读取，毫秒级，等待它保证本轮带上快照）
+    aiSnapTake(); // ★ 动手前先拍一张：本轮 AI 改了什么、想作废就能整包还原（见 openAiUndo）
     let loop = 0;
     let stepEl = null;
     // ★ 2026-10-14 工具闸门：本轮已执行过的「工具名+参数」签名 + 计数。拦截重复与超限，防模型复读式刷工具。
@@ -13004,10 +13262,12 @@ async function aiRun(){
             // 闸 B：单轮总量到顶，剩下的不再真执行（仍回执，保证工具序列合法）
             toolSkipped++;
             res = {skipped:true, reason:'本轮操作已达上限（最多 '+AI_TOOL_MAX_PER_TURN+' 个），这条没执行。请先回复用户已办好的部分。'};
+            aiToolLog({name: fnName, args: argsStr, skipped:true, err:'已达上限'});
           } else if(toolSig.has(sig)){
             // 闸 A：同名同参重复调用（模型复读/低价中转模型的典型抽风），只执行第一次
             toolSkipped++;
             res = {skipped:true, reason:'重复调用已拦截：同样的操作本轮已经做过，无需再做一次。'};
+            aiToolLog({name: fnName, args: argsStr, skipped:true, err:'重复'});
           } else {
             toolSig.add(sig);
             toolDone++;
@@ -13068,6 +13328,14 @@ async function aiRun(){
       window.__lastAIError = window.__lastAIError || '本轮无可见产出（模型没吐出正文）';
       if(stepEl) stepEl.remove();
       addAIMsg('ai', '⚠️ 这一轮我没能给出内容（模型返回了空正文，或只顾着办事没回头说话）。已经办好的都存下来了；你再说一句，我接着办。\n（诊断自检里能看到这轮的 finish_reason 与输出字数。）', aiMsgId());
+    }
+    /* ★ 2026-10-14：本轮真动过数据 → 在对话流里就地给一个撤销入口。
+       放设置里没用 —— 出事那一刻没人想得到去翻设置；放在聊天气泡下面，一眼就看见。 */
+    if(toolDone > 0){
+      try{
+        const items = await aiSnapDiff();
+        if(items && items.length) aiUndoBar(items.length);
+      }catch(e){}
     }
   }catch(e){
     window.__lastAIError = '异常: '+(e.message||'未知错误');
@@ -13626,6 +13894,8 @@ async function execTool(name, argsStr){
   // 诚实回路：失败记回执（下一轮注入让 AI 自己开口，不替它写台词），成功消账；方向认不出不猜
   if(res && res.ok === false){ memRecordActionFail(name, res.error || ''); }
   else if(res && res.ok !== false){ memResolveActionFail(name); }
+  // ★ 2026-10-14：每一次真实执行都留痕 —— 出事时能回答「它到底动了什么」
+  try{ aiToolLog({name: name, args: argsStr, ok: (res && res.ok !== false), err: (res && res.ok === false) ? (res.error || '') : ''}); }catch(e){}
   return res;
 }
 
