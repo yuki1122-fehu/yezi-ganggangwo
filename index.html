@@ -9474,19 +9474,139 @@ async function aiSnapDiff(snap){
   }catch(e){}
   return out;
 }
-function openAiUndo(){ renderAiUndo(); openMask(document.getElementById('undoMask')); }
-// 聊天气泡流里的撤销入口（DOM 本地产物，不进对话历史、不落存档）
-function aiUndoBar(n){
+/* 真正执行「整包还原」。抽出来是因为重 roll 也要用它 —— 重新生成前必须先还原，
+   否则上一轮已经写进去的记账/任务会在重生成时再写一遍。返回还原的改动数，-1 = 快照失效。 */
+async function aiUndoRestore(){
+  try{
+    let snap = window.__aiSnap;
+    if(!snap){ try{ const raw = localStorage.getItem(AI_UNDO_KEY); if(raw) snap = JSON.parse(raw); }catch(e){} }
+    if(!snap) return -1;
+    const s = _aiSnapParse(snap);
+    const items = await aiSnapDiff(snap);
+    if(typeof tasks !== 'undefined'){ tasks = s.tasks; saveLocal(); }
+    if(typeof COURSES !== 'undefined'){ COURSES = s.courses; saveCourses(); }
+    EXPENSES = s.expenses; saveExpenses();
+    try{
+      const del = [];
+      for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(k && k.indexOf('mhm_mood_')===0) del.push(k); }
+      del.forEach(k=>localStorage.removeItem(k));
+      Object.keys(s.moods).forEach(k=>localStorage.setItem(k, s.moods[k]));
+    }catch(e){}
+    try{ if(s.world) localStorage.setItem('mhm_oc_world', s.world); else localStorage.removeItem('mhm_oc_world'); }catch(e){}
+    try{ if(s.proactive) localStorage.setItem(AI_PROACTIVE_KEY, s.proactive); else localStorage.removeItem(AI_PROACTIVE_KEY); }catch(e){}
+    try{ // 角色动态：删掉快照之后新增的那些
+      const p = snap.__postsP;
+      if(p){
+        const ids = await p;
+        if(Array.isArray(ids)){
+          const rows = (await memGetAll('oc_posts')) || [];
+          for(const r of (rows||[])){
+            if(r && r.id != null && ids.indexOf(r.id) < 0){ try{ await memDelete('oc_posts', r.id); }catch(e){} }
+          }
+        }
+      }
+    }catch(e){}
+    try{ updateRing(); renderNext(); renderList(); }catch(e){}
+    window.__aiUndoItems = items;
+    return items.length;
+  }catch(e){ toast('还原失败：' + (e.message||'未知错误')); return -1; }
+}
+
+/* ====== 🔄 重 roll：把刚才那条回答作废，就同一句话重新生成 ======
+   以前不满意只能手动删掉一问一答再重发 —— 那对工具型回复尤其糟：删掉再发，
+   AI 会重新查一遍、重新写一遍，记账/任务很容易被写两遍。
+   现在：删掉最后一条 user 之后的所有 assistant/tool 消息 → 还原本轮数据改动 → 再跑一轮。
+   触发：气泡下面那排按钮，或长按 / 双击最后一条回复（都要再确认一次，防误触）。 */
+function askReroll(){
+  if(typeof aiBusy !== 'undefined' && aiBusy){ toast('助理还在忙，等它说完再试'); return; }
+  const willUndo = !!window.__aiLastTurnTools;
+  showDialog('重新生成', '把刚才那条回复作废，让助理就你上一句话重新答一次。'
+    + (willUndo ? '\n（它这一轮已经写进去的记账 / 任务 / 课表等改动会先还原，不会重复写一遍。）' : '')
+    + '\n你那句话本身不动。', [
+    {label:'取消', cls:'ghost'},
+    {label:'🔄 重新生成', cls:'primary', fn: doAiReroll}
+  ]);
+}
+async function doAiReroll(){
+  try{
+    if(typeof aiBusy !== 'undefined' && aiBusy){ toast('助理还在忙，等它说完再试'); return; }
+    if(!aiConv || aiConv.length < 2){ toast('还没有可以重新生成的对话'); return; }
+    let i = aiConv.length - 1;
+    while(i >= 1 && aiConv[i].role !== 'user') i--; // 回退到最近一条 user
+    if(i < 1){ toast('没找到可以重新生成的问题'); return; }
+    const removed = aiConv.splice(i + 1); // 丢掉它之后的 assistant / tool 消息
+    if(window.__aiLastTurnTools){ await aiUndoRestore(); } // 本轮写过数据 → 先还原，避免重生成时写两遍
+    // 界面：清掉被作废的气泡、步骤气泡、以及上一轮的操作条
+    const wrap = document.getElementById('aiMsgs');
+    if(wrap){
+      (removed || []).forEach(m=>{
+        if(!m || !m.id) return;
+        try{ if(aiTtsLast && aiTtsLast.mid === m.id) aiTtsClearLast(); }catch(e){}
+        const el = wrap.querySelector('[data-mid="' + m.id + '"]');
+        if(el) el.remove();
+        if(m.role === 'assistant'){ try{ memDeleteByMid(m.id); }catch(e){} } // 作废的回复也不该留在记忆库里被召回
+      });
+      try{ wrap.querySelectorAll('.ai-turn-bar').forEach(b=>b.remove()); }catch(e){}
+      try{ wrap.querySelectorAll('.ai-msg.sys').forEach(b=>{ if(b.textContent && b.textContent.indexOf('🧭')===0) b.remove(); }); }catch(e){}
+    }
+    aiConvStripToolMsgs();
+    saveConv();
+    toast('已作废，正在重新生成…');
+    await aiRun();
+  }catch(e){ toast('重新生成失败：' + (e.message||'未知错误')); }
+}
+// 长按 / 双击最后一条 AI 回复 → 重 roll（事件委托，只有「最后一条」才响应）
+function aiInitRerollGesture(){
+  if(window.__rerollBound) return;
   const wrap = document.getElementById('aiMsgs');
   if(!wrap) return;
+  window.__rerollBound = true;
+  const isLast = (el)=>{
+    if(!el) return false;
+    const all = wrap.querySelectorAll('.ai-msg.ai[data-mid]');
+    return all.length > 0 && all[all.length-1] === el;
+  };
+  let timer = null, moved = false;
+  wrap.addEventListener('touchstart', (e)=>{
+    const el = e.target && e.target.closest ? e.target.closest('.ai-msg.ai') : null;
+    if(!isLast(el)) return;
+    moved = false;
+    timer = setTimeout(()=>{ timer = null; if(!moved) askReroll(); }, 550);
+  }, {passive:true});
+  const cancel = ()=>{ if(timer){ clearTimeout(timer); timer = null; } };
+  wrap.addEventListener('touchmove', ()=>{ moved = true; cancel(); }, {passive:true});
+  wrap.addEventListener('touchend', cancel);
+  wrap.addEventListener('touchcancel', cancel);
+  wrap.addEventListener('dblclick', (e)=>{
+    const el = e.target && e.target.closest ? e.target.closest('.ai-msg.ai') : null;
+    if(isLast(el)) askReroll();
+  });
+}
+
+function openAiUndo(){ renderAiUndo(); openMask(document.getElementById('undoMask')); }
+/* 每轮结束挂一排操作条（DOM 本地产物，不进对话历史、不落存档）：
+   有改动 → 「↩️ 撤销」；永远有 → 「🔄 重新生成」。
+   ⚠️ 必须挂在气泡流里：出事那一刻没人会去翻设置。 */
+function aiTurnBar(n){
+  const wrap = document.getElementById('aiMsgs');
+  if(!wrap) return;
+  aiInitRerollGesture(); // 顺手绑上长按/双击手势（只绑一次）
   const d = document.createElement('div');
-  d.className = 'ai-msg sys';
-  d.style.cssText = 'text-align:center;background:transparent;box-shadow:none;padding:6px 0;';
+  d.className = 'ai-msg sys ai-turn-bar';
+  d.style.cssText = 'text-align:center;background:transparent;box-shadow:none;padding:6px 0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;';
+  if(n > 0){
+    const u = document.createElement('button');
+    u.className = 'btn ghost';
+    u.style.cssText = 'font-size:12px;padding:7px 14px;';
+    u.textContent = '↩️ 本轮改了 ' + n + ' 处 · 查看 / 撤销';
+    u.onclick = openAiUndo;
+    d.appendChild(u);
+  }
   const b = document.createElement('button');
   b.className = 'btn ghost';
   b.style.cssText = 'font-size:12px;padding:7px 14px;';
-  b.textContent = '↩️ 本轮改了 ' + n + ' 处 · 查看 / 全部撤销';
-  b.onclick = openAiUndo;
+  b.textContent = '🔄 重新生成';
+  b.onclick = askReroll;
   d.appendChild(b);
   wrap.appendChild(d);
   wrap.scrollTop = wrap.scrollHeight;
@@ -9531,40 +9651,11 @@ async function doAiUndo(){
   showDialog('确认撤销', '将把记账 / 任务 / 课表 / 心情 / 角色世界 / 预约 / 角色动态**整包还原**到 AI 动手之前（共 ' + items.length + ' 处改动作废）。\n⚠️ 这段时间里你自己手动改的内容也会被一起还原。', [
     {label:'取消', cls:'ghost'},
     {label:'确认撤销', cls:'primary', fn: async ()=>{
-      try{
-        let snap = window.__aiSnap;
-        if(!snap){ try{ const raw = localStorage.getItem(AI_UNDO_KEY); if(raw) snap = JSON.parse(raw); }catch(e){} }
-        if(!snap){ toast('快照已失效，无法撤销'); return; }
-        const s = _aiSnapParse(snap);
-        if(typeof tasks !== 'undefined'){ tasks = s.tasks; saveLocal(); }
-        if(typeof COURSES !== 'undefined'){ COURSES = s.courses; saveCourses(); }
-        EXPENSES = s.expenses; saveExpenses();
-        try{
-          const del = [];
-          for(let i=0;i<localStorage.length;i++){ const k = localStorage.key(i); if(k && k.indexOf('mhm_mood_')===0) del.push(k); }
-          del.forEach(k=>localStorage.removeItem(k));
-          Object.keys(s.moods).forEach(k=>localStorage.setItem(k, s.moods[k]));
-        }catch(e){}
-        try{ if(s.world) localStorage.setItem('mhm_oc_world', s.world); else localStorage.removeItem('mhm_oc_world'); }catch(e){}
-        try{ if(s.proactive) localStorage.setItem(AI_PROACTIVE_KEY, s.proactive); else localStorage.removeItem(AI_PROACTIVE_KEY); }catch(e){}
-        // 角色动态：删掉快照之后新增的那些
-        try{
-          const p = snap.__postsP;
-          if(p){
-            const ids = await p;
-            if(Array.isArray(ids)){
-              const rows = (await memGetAll('oc_posts')) || [];
-              for(const r of (rows||[])){
-                if(r && r.id != null && ids.indexOf(r.id) < 0){ try{ await memDelete('oc_posts', r.id); }catch(e){} }
-              }
-            }
-          }
-        }catch(e){}
-        try{ updateRing(); renderNext(); renderList(); }catch(e){}
-        toast('已撤销 ' + items.length + ' 处改动');
-        window.__aiUndoItems = [];
-        renderAiUndo();
-      }catch(e){ toast('撤销失败：' + (e.message||'未知错误')); }
+      const n = await aiUndoRestore();
+      if(n < 0){ toast('快照已失效，无法撤销'); return; }
+      toast('已撤销 ' + n + ' 处改动');
+      window.__aiUndoItems = [];
+      renderAiUndo();
     }}
   ]);
 }
@@ -13329,14 +13420,15 @@ async function aiRun(){
       if(stepEl) stepEl.remove();
       addAIMsg('ai', '⚠️ 这一轮我没能给出内容（模型返回了空正文，或只顾着办事没回头说话）。已经办好的都存下来了；你再说一句，我接着办。\n（诊断自检里能看到这轮的 finish_reason 与输出字数。）', aiMsgId());
     }
-    /* ★ 2026-10-14：本轮真动过数据 → 在对话流里就地给一个撤销入口。
-       放设置里没用 —— 出事那一刻没人想得到去翻设置；放在聊天气泡下面，一眼就看见。 */
+    /* ★ 2026-10-14：本轮结束就地给操作条（撤销 / 重新生成）。
+       放设置里没用 —— 出事那一刻没人想得到去翻设置；放在聊天气泡下面，一眼就看见。
+       ⚠️ 没有工具调用也要挂：回复不满意、或报错了，同样需要重 roll。 */
+    window.__aiLastTurnTools = (toolDone > 0);
+    let chgN = 0;
     if(toolDone > 0){
-      try{
-        const items = await aiSnapDiff();
-        if(items && items.length) aiUndoBar(items.length);
-      }catch(e){}
+      try{ const it = await aiSnapDiff(); chgN = (it && it.length) || 0; window.__aiUndoItems = it || []; }catch(e){}
     }
+    aiTurnBar(chgN);
   }catch(e){
     window.__lastAIError = '异常: '+(e.message||'未知错误');
     addAIMsg('ai','出错了：'+(e.message||'未知错误'), aiMsgId());
