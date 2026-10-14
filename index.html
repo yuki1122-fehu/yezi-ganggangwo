@@ -1374,6 +1374,33 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 /* 全屏页（AI 助理 / 番茄钟）丝滑上滑入场 + 下滑退场 */
 @keyframes pageIn{from{transform:translateY(7%);opacity:0;}to{transform:translateY(0);opacity:1;}}
 @keyframes pageOut{from{transform:translateY(0);opacity:1;}to{transform:translateY(5%);opacity:0;visibility:hidden;}}
+
+/* ====== 统一设置中心（2026-10-14）：助理设置 / 提示词中心 / 番茄钟设置三合一 ======
+   结构：.set-sheet（弹性列） → head / tabs（横向胶囊） / body（滚动，内含多个 pane） / foot（常驻保存栏）。
+   滚动只在 body 内发生，保存栏永远悬在底部，不用滚到页尾找按钮。 */
+.set-sheet{max-height:92vh;overflow:hidden;display:flex;flex-direction:column;padding:20px 20px calc(16px + var(--safe-b));}
+.set-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex:0 0 auto;}
+.set-head h3{margin:0;font-size:18px;}
+.set-x{background:none;border:none;font-size:25px;line-height:1;color:var(--ink-faint);cursor:pointer;padding:0 4px;flex:0 0 auto;}
+.set-x:active{transform:scale(.88);}
+.set-tabs{display:flex;gap:7px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;
+  padding:11px 2px 12px;margin:6px 0 0;flex:0 0 auto;border-bottom:1px solid var(--glass-line);}
+.set-tabs::-webkit-scrollbar{display:none;}
+.set-tab{flex:0 0 auto;white-space:nowrap;padding:7px 13px;border-radius:999px;font-size:12.5px;font-weight:700;
+  border:1px solid var(--glass-line);background:var(--glass-strong);color:var(--ink-soft);cursor:pointer;
+  transition:background .2s var(--ease),color .2s var(--ease),border-color .2s var(--ease);}
+.set-tab.on{background:var(--green-mid);border-color:var(--green-mid);color:#fff;box-shadow:0 3px 10px rgba(120,160,120,.28);}
+.set-tab:active{transform:scale(.94);}
+.set-body{flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;padding:12px 3px 4px 0;}
+.set-pane{display:none;}
+.set-pane.on{display:block;animation:setPaneIn .26s var(--ease) both;}
+@keyframes setPaneIn{from{opacity:0;transform:translateY(9px);}to{opacity:1;transform:none;}}
+.set-foot{display:flex;gap:8px;padding-top:12px;margin-top:6px;border-top:1px solid var(--glass-line);flex:0 0 auto;}
+.set-foot .btn{flex:1;}
+.set-hint{font-size:11px;color:var(--green-dark);margin:8px 0 0;line-height:1.55;flex:0 0 auto;}
+/* 复选框修复：.sheet input 的 padding:13px 15px + appearance:none 会把原生勾选框撑成一个大白胶囊
+   （「包含图片」那个一直是这个样子的老毛病）。这里只针对 checkbox 还原原生外观。 */
+.sheet input[type="checkbox"]{appearance:auto;-webkit-appearance:auto;padding:0;box-shadow:none;background:none;border:none;border-radius:0;accent-color:var(--green-mid);flex:0 0 auto;}
 .sheet h3{margin:0 0 6px;font-size:19px;color:var(--ink);font-weight:800;letter-spacing:.2px;}
 .sheet p{margin:0 0 16px;font-size:var(--fs-3);color:var(--ink-soft);line-height:1.6;}
 .sheet label{display:block;font-size:var(--fs-2);font-weight:700;color:var(--ink-soft);margin:14px 0 6px;letter-spacing:.2px;}
@@ -2515,7 +2542,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
       <button onclick="openUsageLedger()" title="用量台账：每一次 API 调用的时间 / 来源 / 额度" style="font-size:14px;">💸</button>
       <button onclick="clearAIConv()" title="清空对话（不影响任务/课表）"><svg class="ico" style="width:17px;height:17px;"><use href="#i-trash"/></svg></button>
       <button onclick="openPayloadView()" title="查看发送给助理的内容"><svg class="ico" style="width:18px;height:18px;"><use href="#i-file"/></svg></button>
-      <button onclick="openPromptCenter()" title="提示词中心：按发送顺序查看并修改所有发给 AI 的提示词"><svg class="ico" style="width:17px;height:17px;"><use href="#i-pencil"/></svg></button>
+      <button onclick="openPromptCenter()" title="提示词：按发送顺序查看并修改所有发给 AI 的提示词（设置中心 → ✎ 提示词）"><svg class="ico" style="width:17px;height:17px;"><use href="#i-pencil"/></svg></button>
       <button onclick="openAISettings()" title="设置" style="font-size:16px;"><svg class="ico" style="width:18px;height:18px;"><use href="#i-sliders"/></svg></button>
       <button onclick="closeAI()" title="关闭"><svg class="ico" style="width:17px;height:17px;"><use href="#i-close"/></svg></button>
     </div>
@@ -2542,11 +2569,26 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
   <div class="ai-attach-bar" id="aiAttachBar" style="display:none;"></div>
 </div>
 
-<!-- 助理设置弹窗 -->
-<div class="mask" id="aiSetMask" style="z-index:80;">
-  <div class="sheet glass-strong">
-    <h3>助理设置</h3>
+<!-- 统一设置中心（2026-10-14）：原「助理设置」「✎ 提示词中心」「番茄钟设置」三处整合为一块面板，
+     顶部胶囊分类切换，底部常驻保存栏。所有控件 id 原样保留，三个旧函数改为跳到对应分类。 -->
+<div class="mask" id="setMask" style="z-index:86;">
+  <div class="sheet glass-strong set-sheet">
+    <div class="set-head">
+      <h3>设置中心</h3>
+      <button class="set-x" type="button" onclick="closeSettings()" aria-label="关闭">×</button>
+    </div>
+    <div class="set-tabs" id="setTabs">
+      <button class="set-tab" type="button" data-tab="general" onclick="switchSetTab('general')">🏠 常用</button>
+      <button class="set-tab" type="button" data-tab="conn" onclick="switchSetTab('conn')">🔌 连接与模型</button>
+      <button class="set-tab" type="button" data-tab="voice" onclick="switchSetTab('voice')">🔊 语音与音色</button>
+      <button class="set-tab" type="button" data-tab="prompt" onclick="switchSetTab('prompt')">✎ 提示词</button>
+      <button class="set-tab" type="button" data-tab="pomo" onclick="switchSetTab('pomo')">🍅 番茄钟</button>
+      <button class="set-tab" type="button" data-tab="data" onclick="switchSetTab('data')">🧠 数据与记忆</button>
+    </div>
+    <div class="set-body" id="setBody">
 
+    <!-- ========== ① 常用 ========== -->
+    <div class="set-pane" data-pane="general">
     <label>工作台名称 <span style="font-size:11px;color:var(--ink-soft)">（首页最大的一行字，留空则用默认）</span></label>
     <input id="appTitle" placeholder="叶子港港窝" maxlength="20" style="margin-bottom:10px;">
 
@@ -2601,6 +2643,21 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
       </div>
     </div>
 
+    <!-- ===================== 用量与缓存命中（Cove Prompt Cache 观测） ===================== -->
+    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(145,180,200,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
+      <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">💸 用量与缓存命中</div>
+      <div id="aiUsageStats" style="font-size:12px;line-height:1.7;"></div>
+      <button class="btn ghost" type="button" onclick="openUsageLedger()" style="width:100%;margin-top:10px;padding:8px;font-size:12px;">📒 打开完整用量台账（每次调用的时间 / 来源 / 额度，可导出）</button>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">缓存命中 = 系统提示词等稳定内容被服务端复用、少收一次输入费（DeepSeek / OpenRouter 支持）。「最近 N 次平均」反映近期健康度；累计值为长期参考。金额粗估仅供比较，精确数字以官方账单为准。想查<b>每次调用</b>的时间 / 来源 / 额度，点下面那个台账按钮。数据只存本机。</p>
+    </div>
+
+    <button class="btn ghost" type="button" onclick="openDiag()" style="width:100%;margin-bottom:8px;">🩺 诊断自检（出问题点这个，复制后发给 AI 排查）</button>
+    <button class="btn ghost" type="button" onclick="openAiUndo()" style="width:100%;margin-bottom:8px;">↩️ 撤销上一轮 AI 的改动（它乱改东西时点这个）</button>
+
+    </div><!-- /pane general -->
+
+    <!-- ========== ② 连接与模型 ========== -->
+    <div class="set-pane" data-pane="conn">
     <p>配置你自己的 API（Key 只存本机，不经任何第三方）。</p>
     <label>接入方式</label>
     <select id="aiMode">
@@ -2635,7 +2692,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
     <label>API Key</label>
     <input id="aiKey" placeholder="API Key" type="password">
     <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.6;">
-      系统提示词、关系身份、音色协议、表情包协议、粤语模式等全部统一在右侧「✎ 提示词中心」里改，这里只保留连接与模型设置。
+      系统提示词、关系身份、音色协议、表情包协议、粤语模式等统一在顶部「✎ 提示词」页改，这里只保留连接与模型设置。
     </p>
     <label>模型</label>
     <input id="aiModel" list="modelList" placeholder="如 deepseek-v4-flash">
@@ -2705,6 +2762,12 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 
     <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+    <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
+
+    </div><!-- /pane conn -->
+
+    <!-- ========== ③ 语音与音色（助手朗读 / 角色音色 / 粤语 / 番茄钟伴学与引擎，原分散在两处） ========== -->
+    <div class="set-pane" data-pane="voice">
         <div style="font-size:13px;font-weight:700;color:var(--green-dark);">🔊 助手语音</div>
         <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
           <input type="checkbox" id="aiTtsOn" onchange="aiTtsUI()" style="opacity:0;width:0;height:0;position:absolute;">
@@ -2712,7 +2775,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         </label>
       </div>
       <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
-        AI 回复后用语音自动朗读。声音沿用番茄钟里的「语音引擎、声线、音调、语速」，先在番茄钟设置里配好音色，这里只管 AI 助手要不要读。
+        AI 回复后用语音自动朗读。声音沿用本页下方的「语音引擎、声线、音调、语速」，这里只管 AI 助手要不要读。
       </p>
       <div id="aiTtsFields" style="transition:opacity .25s;">
         <label>朗读范围</label>
@@ -2722,7 +2785,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         </select>
         <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;">
           <button class="btn ghost" type="button" onclick="aiTtsTest()" style="flex:0 0 auto;">🔊 试听</button>
-          <span id="aiTtsHint" style="font-size:11px;color:var(--ink-soft);line-height:1.5;">试听使用当前番茄钟语音设置。</span>
+          <span id="aiTtsHint" style="font-size:11px;color:var(--ink-soft);line-height:1.5;">试听使用下方当前语音设置。</span>
         </div>
       </div>
       <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--green-mid);">
@@ -2803,9 +2866,166 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           <span style="font-size:13px;color:var(--ink-dark);">💬 粤语文字输出（自动改提示词）</span>
         </div>
       </div>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.6;">与番茄钟语音设置里的粤语开关是同一份，任意一处改都生效：<b>粤语发音</b>=MiniMax 朗读用粤语（language_boost=Chinese,Yue）；<b>粤语文字输出</b>=自动注入提示词让助理用粤语繁体口语回复。两个都开 = 完整粤语对话。</p>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.6;">这里是粤语开关的唯一位置（原来助理设置与番茄钟设置各有一份，现已合并）：<b>粤语发音</b>=MiniMax 朗读用粤语（language_boost=Chinese,Yue）；<b>粤语文字输出</b>=自动注入提示词让助理用粤语繁体口语回复。两个都开 = 完整粤语对话。</p>
     </div>
 
+    <!-- —— 番茄钟伴学语音（原在「番茄钟设置」里；声音配置统一收到本页，与助手共用引擎与声线） —— -->
+    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(233,195,145,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
+      <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:8px;">🍅 伴学语音（番茄钟）</div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">番茄钟开始 / 完成 / 休息时的朗读。节奏与彩蛋在「🍅 番茄钟」页，声音在这里配。</p>
+      <label>伴学语音（助理朗读关键节点）</label>
+      <select id="psTTS">
+        <option value="1">开启（开始/完成/休息时朗读）</option>
+        <option value="0">关闭</option>
+      </select>
+      <label>预设声线（点选填下方滑块，可再微调）</label>
+      <select id="psVoice" onchange="pomoVoicePreset()">
+        <option value="gentle">温柔 · 稍高音</option>
+        <option value="calm">沉稳 · 低音</option>
+        <option value="lively">活力 · 轻快</option>
+        <option value="custom">自定义…</option>
+      </select>
+      <label>音调 <span id="psPitchVal" style="color:var(--green-dark);font-weight:700;">1.12</span></label>
+      <input type="range" id="psPitch" min="50" max="200" value="112" oninput="document.getElementById('psPitchVal').textContent=(this.value/100).toFixed(2)" style="width:100%;accent-color:var(--green-mid);">
+      <label>语速 <span id="psRateVal" style="color:var(--green-dark);font-weight:700;">0.98</span></label>
+      <input type="range" id="psRate" min="50" max="200" value="98" oninput="document.getElementById('psRateVal').textContent=(this.value/100).toFixed(2)" style="width:100%;accent-color:var(--green-mid);">
+      <label>伴学文案来源</label>
+      <select id="psTTSSource">
+        <option value="ai">AI 每次现写（跟随助理性格）</option>
+        <option value="builtin">内置模板（立即、离线）</option>
+      </select>
+      <label style="margin-top:14px;">伴学人格（可选，留空用精简默认）</label>
+      <textarea id="psTtsPersona" rows="2" style="width:100%;font-size:12px;" placeholder="独立于助理的伴学人格，例如：你是活泼元气的小姐姐，说话爱用感叹号，常鼓励我…"></textarea>
+      <label style="margin-top:14px;">伴学提示词（自定义，留空用默认）</label>
+      <textarea id="psTtsPrompt" rows="2" style="width:100%;font-size:12px;" placeholder="自定义发给助理的写作要求，例如：用俏皮一点的口吻，多鼓励我…"></textarea>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.6;">「AI 每次现写」= 开始/休息时助理当场写一句 20~40 字的口语陪伴（约 1-3 秒，AI 忙时自动退回内置模板）；完成番茄的彩蛋正文朗读不受此影响。iOS 首次需点一次「开始」解锁自动朗读。</p>
+    </div>
+
+    <!-- —— 语音引擎 / MiniMax —— -->
+    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(145,180,200,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
+      <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">🎛 语音引擎（助手与番茄钟共用）</div>
+      <label>语音引擎</label>
+      <select id="psEngine" onchange="pomoEngineUI()">
+        <option value="sys">系统语音（Web Speech，免费离线）</option>
+        <option value="mini">MiniMax TTS（更自然，需配置）</option>
+      </select>
+      <div id="psMiniWrap" style="display:none;">
+        <label>MiniMax GroupId（开放平台右上角）</label>
+        <input type="text" id="psMiniGroup" placeholder="粘贴 GroupId">
+        <label>MiniMax API Key</label>
+        <input type="password" id="psMiniKey" placeholder="粘贴 API 密钥">
+        <label>MiniMax 音色</label>
+        <select id="psMiniVoice">
+          <option value="female-tianmei">甜美女性</option>
+          <option value="female-shaonv">少女</option>
+          <option value="female-yujie">御姐</option>
+          <option value="female-chengshu">成熟女性</option>
+          <option value="presenter_female">女性主持人</option>
+          <option value="presenter_male">男性主持人</option>
+          <option value="male-qn-qingse">青涩青年</option>
+          <option value="male-qn-jingying">精英青年</option>
+          <option value="male-qn-badao">霸道青年</option>
+          <option value="male-qn-daxuesheng">青年大学生</option>
+          <option value="audiobook_female_1">有声书·女声1</option>
+          <option value="audiobook_female_2">有声书·女声2</option>
+          <option value="audiobook_male_1">有声书·男声1</option>
+          <option value="audiobook_male_2">有声书·男声2</option>
+        </select>
+        <label style="margin-top:14px;">MiniMax 模型（turbo 便宜 / hd 更自然）</label>
+        <select id="psMiniModel">
+          <option value="speech-2.8-turbo">speech-2.8-turbo（最新 · 2元/万字符）</option>
+          <option value="speech-2.8-hd">speech-2.8-hd（最新高清 · 3.5元/万字符）</option>
+          <option value="speech-02-turbo">speech-02-turbo（经典 · 2元/万字符）</option>
+          <option value="speech-02-hd">speech-02-hd（经典高清 · 3.5元/万字符）</option>
+          <option value="speech-01-turbo">speech-01-turbo（老中文模型）</option>
+        </select>
+        <button type="button" class="btn ghost" onclick="pomoMiniTest()" style="width:100%;margin-top:6px;">🔊 试听当前音色（用上方音调/语速）</button>
+        <label style="margin-top:14px;">自定义音色 ID（设计/复刻/官网生成，填这里优先于系统音色）</label>
+        <input type="text" id="psMiniVoiceId" placeholder="例如 ttv-voice-xxx 或 MiniMaxVoice001（留空则用上方系统音色）">
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 0;line-height:1.5;">自定义音色绑定创建它的 GroupId，更换账号/GroupId 后原音色会失效；想用系统音色请把这里清空。</p>
+        <label style="margin-top:14px;">音色设计（文字描述生成全新音色，首次合成时计费 ¥9.9/音色）</label>
+        <div style="display:flex;gap:6px;">
+          <input type="text" id="psDesignPrompt" placeholder="如：温柔知性、带一点气音的女声" style="flex:1;">
+          <button type="button" class="btn ghost" onclick="pomoMiniDesign()" style="white-space:nowrap;">生成</button>
+        </div>
+        <label style="margin-top:14px;">声音复刻（上传 10秒-5分钟 人声，克隆成自己的声音，¥9.9/音色）</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="file" id="psCloneFile" accept="audio/*" style="flex:1;font-size:11px;">
+          <button type="button" class="btn ghost" onclick="pomoMiniClone()" style="white-space:nowrap;">复刻</button>
+        </div>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">价格约 speech-02-turbo 2 元/万字符（1 万汉字≈4 元，按量扣余额）。上方的音调/语速滑块同样作用于 MiniMax（音调≈pitch、语速≈speed）。未配置或请求失败时自动退回系统语音。</p>
+      </div>
+    </div>
+
+    </div><!-- /pane voice -->
+
+    <!-- ========== ④ 提示词 ========== -->
+    <div class="set-pane" data-pane="prompt">
+      <p style="font-size:12px;color:var(--ink-soft);line-height:1.65;margin:0 0 10px;">✎ 按实际发送顺序排列；实时更新的内容用占位符表示。这里是检查与修改提示词的地方，不是实时查看某次发送结果。改完点底部「保存本页」。</p>
+      <div id="promptCenterBody"></div>
+      <button class="btn ghost" type="button" onclick="copyPromptCenter()" style="width:100%;margin-top:12px;">📋 复制全部提示词</button>
+    </div><!-- /pane prompt -->
+
+    <!-- ========== ⑤ 番茄钟 ========== -->
+    <div class="set-pane" data-pane="pomo">
+      <p style="font-size:12px;color:var(--ink-soft);line-height:1.65;margin:0 0 10px;">专注节奏与彩蛋。声音相关的设置（伴学语音 / 引擎 / MiniMax 音色）已统一移到「🔊 语音与音色」页。</p>
+      <label>专注时长（分钟）</label>
+      <input type="number" id="psFocus" min="1" max="180" inputmode="numeric">
+      <label>短休息（分钟）</label>
+      <input type="number" id="psShort" min="1" max="60" inputmode="numeric">
+      <label>长休息（分钟）</label>
+      <input type="number" id="psLong" min="1" max="90" inputmode="numeric">
+      <label>每几个番茄长休一次</label>
+      <input type="number" id="psEvery" min="2" max="8" inputmode="numeric">
+      <label>阶段衔接</label>
+      <select id="psAuto">
+        <option value="1">自动连跑（推荐）</option>
+        <option value="0">手动开始下一阶段</option>
+      </select>
+      <label>完成提醒</label>
+      <select id="psAlert">
+        <option value="chime">铃声 + 振动</option>
+        <option value="vibrate">仅振动</option>
+        <option value="notify">系统通知 + 振动</option>
+        <option value="silent">静音</option>
+      </select>
+      <label style="margin-top:18px;">专注彩蛋</label>
+      <select id="psEggOn">
+        <option value="1">开启（完成番茄后生成）</option>
+        <option value="0">关闭</option>
+      </select>
+      <label>彩蛋来源</label>
+      <select id="psEggSource">
+        <option value="ai">AI 全新生成（跟随助理性格）</option>
+        <option value="builtin">内置彩蛋（不消耗 AI 额度）</option>
+      </select>
+      <label>彩蛋主题</label>
+      <select id="psEggTheme" onchange="pomoEggThemeUI()">
+        <option value="random">随机</option>
+        <option value="encourage">鼓励语</option>
+        <option value="joke">冷笑话</option>
+        <option value="story">小故事</option>
+        <option value="health">养生小知识</option>
+        <option value="custom">自定义主题…</option>
+      </select>
+      <div id="psEggCustomWrap" style="display:none;">
+        <label>自定义主题内容</label>
+        <input type="text" id="psEggCustom" maxlength="60" placeholder="例如：关于小猫的暖心小故事">
+      </div>
+      <label style="margin-top:18px;">白噪音（Web Audio 实时合成，零音频文件）</label>
+      <select id="psNoise">
+        <option value="off">关闭</option>
+        <option value="pink">粉噪 · 专注</option>
+        <option value="rain">雨声 · 治愈</option>
+        <option value="fire">篝火 · 冬夜</option>
+      </select>
+      <label>白噪音音量</label>
+      <input type="range" id="psNoiseVol" min="0" max="100" value="50" style="width:100%;accent-color:var(--green-mid);">
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">「AI 全新生成」= 每次都是模型现写的，严格跟随你在助理设置里自定义的性格；「内置彩蛋」= 用本地彩蛋库（离线也能用）。自定义主题需要选「AI 全新生成」。</p>
+    </div><!-- /pane pomo -->
+
+    <!-- ========== ⑥ 数据与记忆 ========== -->
+    <div class="set-pane" data-pane="data">
     <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
       <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">📎 发送给助理的内容</div>
       <div class="row" style="margin:0;gap:10px;align-items:flex-end;">
@@ -2863,7 +3083,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         </p>
       <div id="memFields" style="transition:opacity .25s;">
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
-          关系身份（常驻块）已统一到「✎ 提示词中心」里修改，这里只管理记忆库本身。
+          关系身份（常驻块）已统一到「✎ 提示词」页里修改，这里只管理记忆库本身。
         </p>
         <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
@@ -2899,22 +3119,17 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
       <p class="hint" id="pushHint" style="font-size:11px;color:var(--green-dark);margin:8px 0 0;line-height:1.5;"></p>
     </div>
 
-    <!-- ===================== 用量与缓存命中（Cove Prompt Cache 观测） ===================== -->
-    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(145,180,200,.12),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
-      <div style="font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:10px;">💸 用量与缓存命中</div>
-      <div id="aiUsageStats" style="font-size:12px;line-height:1.7;"></div>
-      <button class="btn ghost" type="button" onclick="openUsageLedger()" style="width:100%;margin-top:10px;padding:8px;font-size:12px;">📒 打开完整用量台账（每次调用的时间 / 来源 / 额度，可导出）</button>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.5;">缓存命中 = 系统提示词等稳定内容被服务端复用、少收一次输入费（DeepSeek / OpenRouter 支持）。「最近 N 次平均」反映近期健康度；累计值为长期参考。金额粗估仅供比较，精确数字以官方账单为准。想查<b>每次调用</b>的时间 / 来源 / 额度，点下面那个台账按钮。数据只存本机。</p>
-    </div>
+    <!-- 原「测试连接 / 诊断自检 / 撤销 AI 改动」三个按钮已按归属搬进「连接与模型」与「常用」页 -->
+    </div><!-- /pane data -->
 
-    <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
-    <button class="btn ghost" type="button" onclick="openDiag()" style="width:100%;margin-bottom:8px;">🩺 诊断自检（出问题点这个，复制后发给 AI 排查）</button>
-    <button class="btn ghost" type="button" onclick="openAiUndo()" style="width:100%;margin-bottom:8px;">↩️ 撤销上一轮 AI 的改动（它乱改东西时点这个）</button>
-    <div class="row">
-      <button class="btn ghost" onclick="closeAISettings()">取消</button>
-      <button class="btn primary" onclick="saveAISettings()">保存</button>
+    </div><!-- /setBody -->
+
+    <p class="set-hint" id="aiSetHint" style="display:none;"></p>
+    <p class="set-hint" id="promptCenterHint" style="display:none;"></p>
+    <div class="set-foot">
+      <button class="btn ghost" type="button" onclick="closeSettings()">关闭</button>
+      <button class="btn primary" type="button" id="setSaveBtn" onclick="saveSettings()">保存本页</button>
     </div>
-    <p class="hint" id="aiSetHint" style="font-size:11px;color:var(--ink-soft);margin-top:14px;line-height:1.6;"></p>
   </div>
 </div>
 
@@ -3043,20 +3258,6 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
   </div>
 </div>
 
-<!-- 提示词中心：按实际发送顺序集中查看/修改所有发给 AI 的提示词 -->
-<div class="mask" id="promptCenterMask" style="z-index:91;">
-  <div class="sheet glass-strong" style="max-height:90vh;display:flex;flex-direction:column;padding-bottom:14px;">
-    <h3>✎ 提示词中心</h3>
-    <p class="payload-meta">按实际发送顺序排列；实时更新的内容用占位符表示。这里是用来检查与修改提示词的地方，不是实时查看某次发送结果。</p>
-    <div id="promptCenterBody" style="flex:1 1 auto;min-height:0;overflow:auto;-webkit-overflow-scrolling:touch;padding:2px 4px 10px 0;"></div>
-    <div class="row" style="flex:0 0 auto;margin:10px 0 0;gap:8px;">
-      <button class="btn ghost" onclick="closePromptCenter()">关闭</button>
-      <button class="btn ghost" onclick="copyPromptCenter()">复制全部</button>
-      <button class="btn primary" onclick="savePromptCenter()">保存修改</button>
-    </div>
-    <p class="hint" id="promptCenterHint" style="font-size:11px;color:var(--green-dark);margin:8px 0 0;line-height:1.5;"></p>
-  </div>
-</div>
 
 <!-- 诊断自检弹窗 -->
 <div class="mask" id="diagMask" style="z-index:95;">
@@ -3377,164 +3578,6 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
   </div>
 </div>
 
-<!-- 番茄钟设置弹窗 -->
-<div class="mask" id="pomoSetMask">
-  <div class="sheet glass-strong">
-    <h3>番茄钟设置</h3>
-    <p>自定义节奏与提醒方式，保存后立即生效。</p>
-    <label>专注时长（分钟）</label>
-    <input type="number" id="psFocus" min="1" max="180" inputmode="numeric">
-    <label>短休息（分钟）</label>
-    <input type="number" id="psShort" min="1" max="60" inputmode="numeric">
-    <label>长休息（分钟）</label>
-    <input type="number" id="psLong" min="1" max="90" inputmode="numeric">
-    <label>每几个番茄长休一次</label>
-    <input type="number" id="psEvery" min="2" max="8" inputmode="numeric">
-    <label>阶段衔接</label>
-    <select id="psAuto">
-      <option value="1">自动连跑（推荐）</option>
-      <option value="0">手动开始下一阶段</option>
-    </select>
-    <label>完成提醒</label>
-    <select id="psAlert">
-      <option value="chime">铃声 + 振动</option>
-      <option value="vibrate">仅振动</option>
-      <option value="notify">系统通知 + 振动</option>
-      <option value="silent">静音</option>
-    </select>
-    <label style="margin-top:18px;">专注彩蛋</label>
-    <select id="psEggOn">
-      <option value="1">开启（完成番茄后生成）</option>
-      <option value="0">关闭</option>
-    </select>
-    <label>彩蛋来源</label>
-    <select id="psEggSource">
-      <option value="ai">AI 全新生成（跟随助理性格）</option>
-      <option value="builtin">内置彩蛋（不消耗 AI 额度）</option>
-    </select>
-    <label>彩蛋主题</label>
-    <select id="psEggTheme" onchange="pomoEggThemeUI()">
-      <option value="random">随机</option>
-      <option value="encourage">鼓励语</option>
-      <option value="joke">冷笑话</option>
-      <option value="story">小故事</option>
-      <option value="health">养生小知识</option>
-      <option value="custom">自定义主题…</option>
-    </select>
-    <div id="psEggCustomWrap" style="display:none;">
-      <label>自定义主题内容</label>
-      <input type="text" id="psEggCustom" maxlength="60" placeholder="例如：关于小猫的暖心小故事">
-    </div>
-    <label style="margin-top:18px;">白噪音（Web Audio 实时合成，零音频文件）</label>
-    <select id="psNoise">
-      <option value="off">关闭</option>
-      <option value="pink">粉噪 · 专注</option>
-      <option value="rain">雨声 · 治愈</option>
-      <option value="fire">篝火 · 冬夜</option>
-    </select>
-    <label>白噪音音量</label>
-    <input type="range" id="psNoiseVol" min="0" max="100" value="50" style="width:100%;accent-color:var(--green-mid);">
-    <label style="margin-top:18px;">伴学语音（助理朗读关键节点）</label>
-    <select id="psTTS">
-      <option value="1">开启（开始/完成/休息时朗读）</option>
-      <option value="0">关闭</option>
-    </select>
-    <label>预设声线（点选填下方滑块，可再微调）</label>
-    <select id="psVoice" onchange="pomoVoicePreset()">
-      <option value="gentle">温柔 · 稍高音</option>
-      <option value="calm">沉稳 · 低音</option>
-      <option value="lively">活力 · 轻快</option>
-      <option value="custom">自定义…</option>
-    </select>
-    <label>音调 <span id="psPitchVal" style="color:var(--green-dark);font-weight:700;">1.12</span></label>
-    <input type="range" id="psPitch" min="50" max="200" value="112" oninput="document.getElementById('psPitchVal').textContent=(this.value/100).toFixed(2)" style="width:100%;accent-color:var(--green-mid);">
-    <label>语速 <span id="psRateVal" style="color:var(--green-dark);font-weight:700;">0.98</span></label>
-    <input type="range" id="psRate" min="50" max="200" value="98" oninput="document.getElementById('psRateVal').textContent=(this.value/100).toFixed(2)" style="width:100%;accent-color:var(--green-mid);">
-    <label>伴学文案来源</label>
-    <select id="psTTSSource">
-      <option value="ai">AI 每次现写（跟随助理性格）</option>
-      <option value="builtin">内置模板（立即、离线）</option>
-    </select>
-    <label style="margin-top:14px;">伴学人格（可选，留空用精简默认）</label>
-    <textarea id="psTtsPersona" rows="2" style="width:100%;font-size:12px;" placeholder="独立于助理的伴学人格，例如：你是活泼元气的小姐姐，说话爱用感叹号，常鼓励我…"></textarea>
-    <label style="margin-top:14px;">伴学提示词（自定义，留空用默认）</label>
-    <textarea id="psTtsPrompt" rows="2" style="width:100%;font-size:12px;" placeholder="自定义发给助理的写作要求，例如：用俏皮一点的口吻，多鼓励我…"></textarea>
-    <label style="margin-top:18px;">语音引擎</label>
-    <select id="psEngine" onchange="pomoEngineUI()">
-      <option value="sys">系统语音（Web Speech，免费离线）</option>
-      <option value="mini">MiniMax TTS（更自然，需配置）</option>
-    </select>
-    <div id="psMiniWrap" style="display:none;">
-      <label>MiniMax GroupId（开放平台右上角）</label>
-      <input type="text" id="psMiniGroup" placeholder="粘贴 GroupId">
-      <label>MiniMax API Key</label>
-      <input type="password" id="psMiniKey" placeholder="粘贴 API 密钥">
-      <label>MiniMax 音色</label>
-      <select id="psMiniVoice">
-        <option value="female-tianmei">甜美女性</option>
-        <option value="female-shaonv">少女</option>
-        <option value="female-yujie">御姐</option>
-        <option value="female-chengshu">成熟女性</option>
-        <option value="presenter_female">女性主持人</option>
-        <option value="presenter_male">男性主持人</option>
-        <option value="male-qn-qingse">青涩青年</option>
-        <option value="male-qn-jingying">精英青年</option>
-        <option value="male-qn-badao">霸道青年</option>
-        <option value="male-qn-daxuesheng">青年大学生</option>
-        <option value="audiobook_female_1">有声书·女声1</option>
-        <option value="audiobook_female_2">有声书·女声2</option>
-        <option value="audiobook_male_1">有声书·男声1</option>
-        <option value="audiobook_male_2">有声书·男声2</option>
-      </select>
-      <label style="margin-top:14px;">MiniMax 模型（turbo 便宜 / hd 更自然）</label>
-      <select id="psMiniModel">
-        <option value="speech-2.8-turbo">speech-2.8-turbo（最新 · 2元/万字符）</option>
-        <option value="speech-2.8-hd">speech-2.8-hd（最新高清 · 3.5元/万字符）</option>
-        <option value="speech-02-turbo">speech-02-turbo（经典 · 2元/万字符）</option>
-        <option value="speech-02-hd">speech-02-hd（经典高清 · 3.5元/万字符）</option>
-        <option value="speech-01-turbo">speech-01-turbo（老中文模型）</option>
-      </select>
-      <button type="button" class="btn ghost" onclick="pomoMiniTest()" style="width:100%;margin-top:6px;">🔊 试听当前音色（用上方音调/语速）</button>
-      <label style="margin-top:14px;">自定义音色 ID（设计/复刻/官网生成，填这里优先于系统音色）</label>
-      <input type="text" id="psMiniVoiceId" placeholder="例如 ttv-voice-xxx 或 MiniMaxVoice001（留空则用上方系统音色）">
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 0;line-height:1.5;">自定义音色绑定创建它的 GroupId，更换账号/GroupId 后原音色会失效；想用系统音色请把这里清空。</p>
-      <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px;">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
-            <input type="checkbox" id="psMiniYueVoice" style="opacity:0;width:0;height:0;position:absolute;">
-            <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
-          </label>
-          <span style="font-size:13px;color:var(--ink-dark);">🎙 粤语发音（语音用粤语读）</span>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
-            <input type="checkbox" id="psMiniYueText" style="opacity:0;width:0;height:0;position:absolute;">
-            <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
-          </label>
-          <span style="font-size:13px;color:var(--ink-dark);">💬 粤语文字输出（自动改提示词）</span>
-        </div>
-      </div>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 0;line-height:1.6;">练粤语两件套，可分开开：<b>粤语发音</b>=MiniMax 传 language_boost=Chinese,Yue，克隆音色口音不受影响；<b>粤语文字输出</b>=自动改提示词让 AI 用粤语口语回复。只开发音=普通话文字粤语腔；只开文字=粤语文字普通话读音；都开=完整粤语对话。</p>
-      <label style="margin-top:14px;">音色设计（文字描述生成全新音色，首次合成时计费 ¥9.9/音色）</label>
-      <div style="display:flex;gap:6px;">
-        <input type="text" id="psDesignPrompt" placeholder="如：温柔知性、带一点气音的女声" style="flex:1;">
-        <button type="button" class="btn ghost" onclick="pomoMiniDesign()" style="white-space:nowrap;">生成</button>
-      </div>
-      <label style="margin-top:14px;">声音复刻（上传 10秒-5分钟 人声，克隆成自己的声音，¥9.9/音色）</label>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <input type="file" id="psCloneFile" accept="audio/*" style="flex:1;font-size:11px;">
-        <button type="button" class="btn ghost" onclick="pomoMiniClone()" style="white-space:nowrap;">复刻</button>
-      </div>
-      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">价格约 speech-02-turbo 2 元/万字符（1 万汉字≈4 元，按量扣余额）。上方的音调/语速滑块同样作用于 MiniMax（音调≈pitch、语速≈speed）。未配置或请求失败时自动退回系统语音。</p>
-    </div>
-    <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">「AI 每次现写」= 开始/休息时助理当场写一句 20~40 字的口语陪伴（约 1-3 秒，AI 忙时自动退回内置模板）；完成番茄的彩蛋正文朗读不受此影响。iOS 首次需点一次「开始」解锁自动朗读。</p>
-    <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:10px 0 0;line-height:1.6;">「AI 全新生成」= 每次都是模型现写的，严格跟随你在助理设置里自定义的性格；「内置彩蛋」= 用本地彩蛋库（离线也能用）。自定义主题需要选「AI 全新生成」。</p>
-    <div class="row">
-      <button class="btn ghost" onclick="closePomoSettings()">取消</button>
-      <button class="btn primary" onclick="savePomoSettings()">保存</button>
-    </div>
-  </div>
-</div>
 
 <!-- 专注彩蛋：悬浮蛋按钮 + 弹窗 -->
 <button class="pomo-egg-btn" id="pomoEggBtn" onclick="openPomoEgg()" style="display:none;" aria-label="番茄彩蛋">
@@ -6079,7 +6122,7 @@ async function generateSteps(id){
   const cfg = getAiCfg();
   if(!cfg.apiKey){
     toast('还没配置 API Key，无法生成步骤');
-    openAISettings();
+    openSettings('conn'); // 缺 Key 直接落到「连接与模型」页，省一次找路
     return;
   }
   _genStepsBusy.add(id);
@@ -7026,11 +7069,9 @@ function closeTopOverlay(){
     {id:'memJournalEditMask', close:closeJournalEdit},
     {id:'pomoEggMask', close:closePomoEgg},
     {id:'pomoPlantMask', close:closePomoPlant},
-    {id:'pomoSetMask', close:closePomoSettings},
+    {id:'setMask', close:closeSettings}, // 2026-10-14：三个设置弹窗已合并为统一设置中心
     {id:'pomoMask', close:closePomodoro},
     {id:'aiPayloadMask', close:closePayloadView},
-    {id:'promptCenterMask', close:closePromptCenter},
-    {id:'aiSetMask', close:closeAISettings},
     {id:'aiMask', close:closeAI},
     {id:'dialogMask', close:hideDialog},
     {id:'budgetMask', close:closeBudgetSet},
@@ -8878,7 +8919,90 @@ function hideTyping(){
   if(aiTypingEl && aiTypingEl.parentNode){ aiTypingEl.parentNode.removeChild(aiTypingEl); aiTypingEl = null; }
 }
 
-function openAISettings(){
+/* ====== 统一设置中心（2026-10-14） ======
+   原来「助理设置」「✎ 提示词中心」「番茄钟设置」是三个互不相通的弹窗，改个语音要在两处来回跳。
+   现在合并成一个 #setMask：顶部胶囊切分类，底部常驻保存栏。
+   三个旧函数名保留（页面里到处在调），只是各自跳到对应分类。 */
+let setTab = 'general';        // 当前分类
+let _setSaving = false;        // 组合保存进行中：抑制各 save 函数自己关弹窗
+/* 每个分类点「保存本页」时要跑哪些保存函数（语音横跨 AI 与番茄钟两份配置，所以两个都要跑） */
+const SET_TAB_SAVE = {
+  general: ['ai'],
+  conn:    ['ai'],
+  voice:   ['ai', 'pomo'],
+  prompt:  ['prompt'],
+  pomo:    ['pomo'],
+  data:    ['ai']
+};
+const SET_TAB_LABEL = {general:'常用', conn:'连接与模型', voice:'语音与音色', prompt:'提示词', pomo:'番茄钟', data:'数据与记忆'};
+
+function openSettings(tab){
+  setTab = SET_TAB_SAVE[tab] ? tab : 'general';
+  initAISettingsFields();   // 无论从哪个入口进来都全量填一遍，避免保存时读到未初始化的空值
+  initPomoSettingsFields();
+  applySetTab(true);
+  openMask(document.getElementById('setMask'));
+}
+function switchSetTab(tab){
+  if(!SET_TAB_SAVE[tab]) return;
+  setTab = tab;
+  applySetTab(false);
+}
+function applySetTab(isOpen){
+  const mask = document.getElementById('setMask');
+  if(!mask) return;
+  mask.querySelectorAll('.set-tab').forEach(function(b){
+    b.classList.toggle('on', b.getAttribute('data-tab') === setTab);
+  });
+  mask.querySelectorAll('.set-pane').forEach(function(p){
+    p.classList.toggle('on', p.getAttribute('data-pane') === setTab);
+  });
+  const body = document.getElementById('setBody');
+  if(body) body.scrollTop = 0;
+  // 芯片条横向可滚：把当前分类滑进视野，否则「✎ 提示词」之后几个容易被挤出屏幕看不见
+  const onTab = mask.querySelector('.set-tab.on');
+  if(onTab){
+    try{ onTab.scrollIntoView({inline:'center', block:'nearest', behavior:'smooth'}); }
+    catch(e){ try{ onTab.scrollIntoView(); }catch(e2){} }
+  }
+  // 提示词页内容多，切到时才渲染（原逻辑是每次打开都渲染）
+  // 提示词页：只在 body 为空时渲染。这样「改到一半 → 去别的页看一眼 → 切回来」不会把输入冲掉；
+  // 关闭时统一清空，下次打开仍是「按已保存内容重建」（保持原来的语义）。
+  if(setTab === 'prompt' && typeof renderPromptCenter === 'function'){
+    const pb = document.getElementById('promptCenterBody');
+    if(pb && !pb.innerHTML.trim()) renderPromptCenter();
+  }
+  if(setTab === 'voice'){ try{ pomoEngineUI(); }catch(e){} }
+  if(!isOpen) setHint('');
+}
+function closeSettings(){
+  try{ pomoCustomPending = false; }catch(e){} // 番茄钟模块里的标志位，未加载时忽略
+  // 清空提示词页 DOM：未保存的输入随关闭丢弃，下次打开按已保存内容重建（防止残留旧编辑）
+  try{ const pb = document.getElementById('promptCenterBody'); if(pb) pb.innerHTML = ''; }catch(e){}
+  setHint('');
+  closeMask(document.getElementById('setMask'));
+}
+function setHint(msg, isPrompt){
+  const a = document.getElementById('aiSetHint'), p = document.getElementById('promptCenterHint');
+  if(isPrompt){ if(p){ p.textContent = msg||''; p.style.display = msg ? 'block' : 'none'; } if(a) a.style.display='none'; }
+  else { if(a){ a.textContent = msg||''; a.style.display = msg ? 'block' : 'none'; } if(p) p.style.display='none'; }
+}
+function saveSettings(){
+  const list = SET_TAB_SAVE[setTab] || ['ai'];
+  _setSaving = true;
+  try{
+    if(list.indexOf('ai') >= 0 && typeof saveAISettings === 'function') saveAISettings();
+    if(list.indexOf('pomo') >= 0 && typeof savePomoSettings === 'function') savePomoSettings();
+    if(list.indexOf('prompt') >= 0 && typeof savePromptCenter === 'function') savePromptCenter();
+  } finally { _setSaving = false; }
+  // AI 与番茄钟的保存函数自己会写更具体的提示（含视觉状态 / 白噪音等），这里只在没人写时兜底
+  if(list.indexOf('prompt') >= 0) setHint('提示词已保存', true);
+  else if(list.indexOf('ai') < 0) setHint((SET_TAB_LABEL[setTab] || '设置') + '已保存');
+  closeSettings();
+}
+
+/* 填一遍助理设置区的所有控件（原 openAISettings 的赋值部分，去掉了 openMask） */
+function initAISettingsFields(){
   const cfg = getAiCfg();
   paintSplashMode();
   try{ const _cb = document.getElementById('exportImages'); if(_cb) _cb.checked = __exportIncludeImages; }catch(e){}
@@ -8948,12 +9072,17 @@ function openAISettings(){
   renderUsageStats(); // B1：打开设置时刷新用量/缓存统计
   refreshModelBadge(); // 2026-09-26：设置页也同步一次模型徽章
   document.getElementById('appTitle').value = getAppTitle()===DEFAULT_TITLE ? '' : getAppTitle();
-  document.getElementById('aiSetHint').textContent='';
+  setHint('');
   updateBackupUI();
   bkRenderStatus(); // 打开设置时刷新「自动本机快照」状态（含健康位）
   bkSyncCloudSwitch(); bkRenderCloudStatus(); // 云端备份开关与状态
-  openMask(document.getElementById('aiSetMask'));
 }
+/* 三个旧入口：齿轮 → 常用，✎ → 提示词，番茄钟齿轮 → 番茄钟。函数名保留，页面里到处在调。 */
+function openAISettings(){ openSettings('general'); }
+function openPromptCenter(){ openSettings('prompt'); }
+function openPomoSettings(){ openSettings('pomo'); }
+function closeAISettings(){ closeSettings(); }
+function closePromptCenter(){ closeSettings(); }
 /* ---- 视觉模型开关联动：关掉时配置区变灰禁用 ---- */
 function syncVisionUI(){
   const on = document.getElementById('aiVisionOn').checked;
@@ -9080,7 +9209,7 @@ async function fetchModels(kind){
   }
   const endpoint = _modelsEndpoint(base);
   hint.innerHTML = '正在拉取…（' + endpoint.replace(/https?:\/\/[^/]+/, '…') + '）';
-  const btn = document.querySelector('#aiSetMask button[onclick*="fetchModels"]');
+  const btn = document.querySelector('#setMask button[onclick*="fetchModels"]');
   if(btn) btn.disabled = true;
 
   let got = null, err = '';
@@ -9168,7 +9297,7 @@ async function testVisionConn(){
   const c = r.data.choices[0].message.content || '';
   hint.textContent = '✅ 视觉链路通了！模型 ' + vcfg.model + ' 已响应：' + String(c).slice(0, 60) + ' —— 记得点下面的「保存」。';
 }
-function closeAISettings(){ closeMask(document.getElementById('aiSetMask')); }
+/* closeAISettings / closePromptCenter / closePomoSettings 已在设置中心区块统一定义（都走 closeSettings） */
 
 /* ====== 🩺 诊断自检：一键收集运行快照，复制后发给 AI 排查（不自动发送） ====== */
 async function collectDiag(){
@@ -9730,12 +9859,9 @@ function copyPayload(){
   } else { fallbackCopy(text); done(); }
 }
 
-/* ====== 提示词中心：按发送顺序集中查看/修改所有发给 AI 的提示词 ====== */
-function openPromptCenter(){
-  renderPromptCenter();
-  openMask(document.getElementById('promptCenterMask'));
-}
-function closePromptCenter(){ closeMask(document.getElementById('promptCenterMask')); }
+/* ====== 提示词中心：按发送顺序集中查看/修改所有发给 AI 的提示词 ======
+   2026-10-14：容器已并入设置中心的「✎ 提示词」页，openPromptCenter/closePromptCenter 改由那里统一调度，
+   这里不再重复定义（保留注释以说明这两个入口现在指向何处）。 */
 function pcResetSystemTpl(){
   const ta = document.getElementById('pcSystemTpl');
   if(!ta) return;
@@ -9866,7 +9992,7 @@ function renderPromptCenter(){
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetStickerProto()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
   sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">6</span><span>粤语文字模式</span></div>'
     + '<p class="prompt-desc">开启后追加下面的 &lt;粤语模式&gt; 块，让助理用简单粤语回复。</p>'
-    + '<div class="prompt-actions" style="margin-bottom:8px;"><label><input type="checkbox" id="pcYueText"'+(yueOn ? ' checked' : '')+'> 开启（与助理设置/番茄钟设置联动）</label></div>'
+    + '<div class="prompt-actions" style="margin-bottom:8px;"><label><input type="checkbox" id="pcYueText"'+(yueOn ? ' checked' : '')+'> 开启（与「🔊 语音与音色」页联动）</label></div>'
     + '<pre class="prompt-pre">'+escHtml(yueText)+'</pre></div>');
   
   // 新增：上帝视角 AI旁白提示词
@@ -10006,7 +10132,7 @@ function copyPromptCenter(){
     lines.push('');
   });
   const text = lines.join('\n');
-  const done = ()=>{ const b = document.querySelector('#promptCenterMask .btn.primary'); if(b){ const o = b.textContent; b.textContent='已复制✓'; setTimeout(()=>b.textContent=o,1500); } };
+  const done = ()=>{ const b = document.querySelector('#setMask .btn.ghost[onclick*="copyPromptCenter"]'); if(b){ const o = b.textContent; b.textContent='已复制✓'; setTimeout(()=>b.textContent=o,1500); } };
   if(navigator.clipboard && navigator.clipboard.writeText){
     navigator.clipboard.writeText(text).then(done).catch(()=>{ fallbackCopy(text); done(); });
   } else { fallbackCopy(text); done(); }
@@ -10142,9 +10268,9 @@ function saveAISettings(){
   if(cfg.mode==='relay') tip += '注意：免费 Cloudflare 中转站无法转发 opencode/DeepSeek（子请求被限），建议改用「直连」+ DeepSeek。';
   else if(cfg.mode==='direct') tip += '直连请确保 Base URL 支持跨域（DeepSeek / OpenRouter 均自带 CORS）。';
   if(/reasoner|o1|o3|thinking/i.test(cfg.model)) tip += '⚠️ 当前模型不支持工具调用：助理只能纯聊天，无法自动建任务/记账/改课表，建议换 deepseek-v4-flash。';
-  document.getElementById('aiSetHint').textContent=tip;
+  setHint(tip);
   refreshModelBadge(); // 模型徽章立刻跟上：切了 pro 必须马上在头部看见
-  setTimeout(closeAISettings, 1400);
+  if(!_setSaving) setTimeout(closeSettings, 1400); // 组合保存时由 saveSettings 统一收尾
   toast('助理配置已保存');
 }
 // 导出全部本地数据（任务/课表/配置/心情）为一个 JSON 文件
@@ -13294,7 +13420,7 @@ async function aiRun(){
   aiConvStripToolMsgs(); // 上一轮残留的工具流水先清掉（异常退出时才会留下）
   if(!cfg.apiKey){
     addAIMsg('ai','还没配置 API Key，点右上角 ⚙ 填一下（推荐 DeepSeek：国内可直连、注册送免费额度；也可填 OpenRouter / opencode）。', aiMsgId());
-    openAISettings();
+    openSettings('conn'); // 缺 Key 直接落到「连接与模型」页
     return;
   }
   setAIBusy(true);
@@ -17422,8 +17548,10 @@ function pomoEngineUI(){
   if(wrap) wrap.style.display = (eng && eng.value==='mini') ? 'block' : 'none';
 }
 
-/* ---------- 设置 ---------- */
-function openPomoSettings(){
+/* ---------- 设置 ----------
+   2026-10-14：番茄钟设置一分为二——节奏/彩蛋/白噪音进「🍅 番茄钟」页，
+   伴学语音/引擎/MiniMax 进「🔊 语音与音色」页。下面这个函数只负责填值，不再自己开弹窗。 */
+function initPomoSettingsFields(){
   const s = pomoData.settings;
   document.getElementById('psFocus').value = s.focus;
   document.getElementById('psShort').value = s.short;
@@ -17446,8 +17574,7 @@ function openPomoSettings(){
   document.getElementById('psMiniKey').value = s.miniKey || '';
   document.getElementById('psMiniVoice').value = s.miniVoice || 'female-tianmei';
   document.getElementById('psMiniVoiceId').value = s.miniVoiceId || '';
-  document.getElementById('psMiniYueVoice').checked = (s.miniLang==='Chinese,Yue');
-  document.getElementById('psMiniYueText').checked = !!s.miniYueText;
+  // 粤语开关已合并到「语音与音色」页的唯一真身 aiYueVoice / aiYueText（番茄钟页那份 UI 已删除）
   document.getElementById('psMiniModel').value = s.miniModel || 'speech-2.8-turbo';
   document.getElementById('psDesignPrompt').value = '';
   pomoEngineUI();
@@ -17458,12 +17585,10 @@ function openPomoSettings(){
   document.getElementById('psPitchVal').textContent = pPitch.toFixed(2);
   document.getElementById('psRateVal').textContent = pRate.toFixed(2);
   pomoEggThemeUI();
-  openMask(document.getElementById('pomoSetMask'));
+  pomoEngineUI();
 }
-function closePomoSettings(){
-  pomoCustomPending = false;
-  closeMask(document.getElementById('pomoSetMask'));
-}
+function pomoVoicePresetRefresh(){ try{ pomoEngineUI(); }catch(e){} }
+function closePomoSettings(){ closeSettings(); }
 function savePomoSettings(){
   const clamp = (v,a,b,d)=> isNaN(v) ? d : Math.min(b, Math.max(a, v));
   const s = pomoData.settings;
@@ -17488,8 +17613,12 @@ function savePomoSettings(){
   s.miniKey = String(document.getElementById('psMiniKey').value || '').trim();
   s.miniVoice = document.getElementById('psMiniVoice').value || 'female-tianmei';
   s.miniVoiceId = String(document.getElementById('psMiniVoiceId').value || '').trim();
-  s.miniLang = document.getElementById('psMiniYueVoice').checked ? 'Chinese,Yue' : 'auto';
-  s.miniYueText = document.getElementById('psMiniYueText').checked ? true : false;
+  // 粤语开关的唯一真身在「语音与音色」页（aiYueVoice / aiYueText），番茄钟页那份重复 UI 已删除
+  try{
+    const _yv = document.getElementById('aiYueVoice'), _yt = document.getElementById('aiYueText');
+    s.miniLang = (_yv && _yv.checked) ? 'Chinese,Yue' : 'auto';
+    s.miniYueText = !!(_yt && _yt.checked);
+  }catch(e){}
   s.miniModel = document.getElementById('psMiniModel').value || 'speech-2.8-turbo';
   s.voice = document.getElementById('psVoice').value || 'gentle';
   s.pitch = clamp(parseInt(document.getElementById('psPitch').value,10), 50, 200, 112)/100;
@@ -17501,7 +17630,7 @@ function savePomoSettings(){
     document.querySelectorAll('#pomoPresets button').forEach(b=>b.classList.toggle('active', b.dataset.p==='custom'));
   }
   savePomoData();
-  closeMask(document.getElementById('pomoSetMask'));
+  if(!_setSaving) closeSettings(); // 组合保存时由 saveSettings 统一收尾
   applyNoise(); // 白噪音立即生效（切换/停止）
   if(pomo.phase==='idle') renderPomoIdle();
   if(s.alert==='notify' && 'Notification' in window && Notification.permission==='default'){
