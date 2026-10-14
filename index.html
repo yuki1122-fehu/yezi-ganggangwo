@@ -2760,14 +2760,15 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
       </div>
     </div>
 
-    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
     <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
 
     </div><!-- /pane conn -->
 
     <!-- ========== ③ 语音与音色（助手朗读 / 角色音色 / 粤语 / 番茄钟伴学与引擎，原分散在两处） ========== -->
     <div class="set-pane" data-pane="voice">
+
+    <div style="padding:14px 16px;margin:6px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,var(--green-soft),rgba(165,192,162,.08));border:1px solid var(--green-mid);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
         <div style="font-size:13px;font-weight:700;color:var(--green-dark);">🔊 助手语音</div>
         <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
           <input type="checkbox" id="aiTtsOn" onchange="aiTtsUI()" style="opacity:0;width:0;height:0;position:absolute;">
