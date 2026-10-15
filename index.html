@@ -3080,7 +3080,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         </label>
       </div>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
-        助理会把你们的对话自动沉淀成带标签的记忆（关键词 / 情感 / 主题），你聊到某个词时，相关回忆会自动浮上来——陪伴生动感优先，固定代办不占记忆。打标在后台分批跑，不拖慢聊天。长按任意气泡可手动圈选对话、按你的要求写成一条记忆（总结只进记忆，不影响日记）。
+        助理会把你们的对话自动沉淀成带标签的记忆（关键词 / 情感 / 主题），你聊到某个词时，相关回忆会自动浮上来——陪伴生动感优先，固定代办不占记忆。打标在后台分批跑，不拖慢聊天。长按任意气泡可手动圈选对话、按你的要求写成一条记忆（总结只进记忆，不影响日记）。对哪条回复不满意，双击它就能重新生成。
         </p>
       <div id="memFields" style="transition:opacity .25s;">
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
@@ -7745,6 +7745,7 @@ const CONV_RENDER_PAGE = 60;      // 每次「查看更早」再加载 60 条
 function renderConvFromState(){
   const wrap = document.getElementById('aiMsgs');
   if(!wrap) return;
+  aiInitRerollDblclick(); // ★ 必须在空对话提前 return 之前：按钮已隐化，双击是唯一入口，页面一加载就得能用
   wrap.innerHTML='';
   convShown = CONV_RENDER_INIT;
   if(!aiConv || aiConv.length<=1) return;
@@ -9642,29 +9643,50 @@ async function aiUndoRestore(){
   }catch(e){ toast('还原失败：' + (e.message||'未知错误')); return -1; }
 }
 
-/* ====== 🔄 重 roll：把刚才那条回答作废，就同一句话重新生成 ======
+/* ====== 🔄 重 roll：把那条回答作废，就同一句话重新生成 ======
    以前不满意只能手动删掉一问一答再重发 —— 那对工具型回复尤其糟：删掉再发，
    AI 会重新查一遍、重新写一遍，记账/任务很容易被写两遍。
-   现在：删掉最后一条 user 之后的所有 assistant/tool 消息 → 还原本轮数据改动 → 再跑一轮。
-   触发：气泡下面那排按钮，或长按 / 双击最后一条回复（都要再确认一次，防误触）。 */
-function askReroll(){
+   现在：删掉目标 user 之后的所有 assistant 消息 → 还原本轮数据改动 → 再跑一轮。
+   触发（2026-10-15 起按钮隐化）：**双击**想重新生成的那条回复，直接弹确认框。
+   ⚠️ 长按不归这里 —— 长按任意气泡是「圈选对话记为记忆」（memPick 手势，同样 550ms），
+      两者共用长按会互相触发（先弹确认框、又进选择模式）。现在长按只归记忆选择。 */
+function askReroll(mid){
   if(typeof aiBusy !== 'undefined' && aiBusy){ toast('助理还在忙，等它说完再试'); return; }
+  if(typeof memPickState !== 'undefined' && memPickState.active){ toast('先退出气泡选择模式'); return; }
   const willUndo = !!window.__aiLastTurnTools;
-  showDialog('重新生成', '把刚才那条回复作废，让助理就你上一句话重新答一次。'
-    + (willUndo ? '\n（它这一轮已经写进去的记账 / 任务 / 课表等改动会先还原，不会重复写一遍。）' : '')
-    + '\n你那句话本身不动。', [
+  // 双击的是不是最后一条回复：是 → 只作废这一轮；不是 → 连它后面的对话一起作废
+  let tail = 0;
+  try{
+    const wrap = document.getElementById('aiMsgs');
+    const all = wrap ? Array.from(wrap.querySelectorAll('.ai-msg.ai[data-mid]')) : [];
+    const idx = mid ? all.findIndex(el=>el.getAttribute('data-mid') === mid) : all.length - 1;
+    if(idx >= 0) tail = all.length - 1 - idx;
+  }catch(e){}
+  const scope = (!mid || tail === 0)
+    ? '把刚才那条回复作废，让助理就你上一句话重新答一次。'
+    : '把这条回复和它后面的 ' + tail + ' 条对话一起作废，回到你当时那句话重新生成。';
+  let extra = '';
+  if(willUndo) extra += '\n（它这一轮已经写进去的记账 / 任务 / 课表等改动会先还原，不会重复写一遍。）';
+  if(mid && tail > 0) extra += '\n⚠️ 中间几轮若也改动过数据，不会自动还原，重生成后请到记账 / 任务里核对一眼。';
+  showDialog('重新生成', scope + extra + '\n你那句话本身不动。', [
     {label:'取消', cls:'ghost'},
-    {label:'🔄 重新生成', cls:'primary', fn: doAiReroll}
+    {label:'🔄 重新生成', cls:'primary', fn: ()=>doAiReroll(mid)}
   ]);
 }
-async function doAiReroll(){
+async function doAiReroll(mid){
   try{
     if(typeof aiBusy !== 'undefined' && aiBusy){ toast('助理还在忙，等它说完再试'); return; }
     if(!aiConv || aiConv.length < 2){ toast('还没有可以重新生成的对话'); return; }
-    let i = aiConv.length - 1;
-    while(i >= 1 && aiConv[i].role !== 'user') i--; // 回退到最近一条 user
+    // 目标回复 = 双击的那条；没传 mid（旧入口）= 最后一条
+    let end = aiConv.length - 1;
+    if(mid){
+      const ti = aiConv.findIndex(m=>m && m.id === mid);
+      if(ti >= 0) end = ti;
+    }
+    let i = end;
+    while(i >= 1 && aiConv[i].role !== 'user') i--; // 回退到这条回复对应的 user
     if(i < 1){ toast('没找到可以重新生成的问题'); return; }
-    const removed = aiConv.splice(i + 1); // 丢掉它之后的 assistant / tool 消息
+    const removed = aiConv.splice(i + 1); // 丢掉它之后的 assistant / tool 消息（user 那句话本身不动）
     if(window.__aiLastTurnTools){ await aiUndoRestore(); } // 本轮写过数据 → 先还原，避免重生成时写两遍
     // 界面：清掉被作废的气泡、步骤气泡、以及上一轮的操作条
     const wrap = document.getElementById('aiMsgs');
@@ -9685,59 +9707,43 @@ async function doAiReroll(){
     await aiRun();
   }catch(e){ toast('重新生成失败：' + (e.message||'未知错误')); }
 }
-// 长按 / 双击最后一条 AI 回复 → 重 roll（事件委托，只有「最后一条」才响应）
-function aiInitRerollGesture(){
+// 双击任意一条 AI 回复 → 重 roll（事件委托，只绑一次）。
+// ⚠️ 与「长按圈选记忆」的分工：长按 550ms 进选择模式（memPick 手势），双击弹重新生成确认框；
+//    选择模式进行中双击 = 切换选中，不弹框（下方 memPickState.active 判断）。
+function aiInitRerollDblclick(){
   if(window.__rerollBound) return;
   const wrap = document.getElementById('aiMsgs');
   if(!wrap) return;
   window.__rerollBound = true;
-  const isLast = (el)=>{
-    if(!el) return false;
-    const all = wrap.querySelectorAll('.ai-msg.ai[data-mid]');
-    return all.length > 0 && all[all.length-1] === el;
-  };
-  let timer = null, moved = false;
-  wrap.addEventListener('touchstart', (e)=>{
-    const el = e.target && e.target.closest ? e.target.closest('.ai-msg.ai') : null;
-    if(!isLast(el)) return;
-    moved = false;
-    timer = setTimeout(()=>{ timer = null; if(!moved) askReroll(); }, 550);
-  }, {passive:true});
-  const cancel = ()=>{ if(timer){ clearTimeout(timer); timer = null; } };
-  wrap.addEventListener('touchmove', ()=>{ moved = true; cancel(); }, {passive:true});
-  wrap.addEventListener('touchend', cancel);
-  wrap.addEventListener('touchcancel', cancel);
   wrap.addEventListener('dblclick', (e)=>{
-    const el = e.target && e.target.closest ? e.target.closest('.ai-msg.ai') : null;
-    if(isLast(el)) askReroll();
+    if(typeof memPickState !== 'undefined' && memPickState.active) return; // 选择模式下双击是切换选中
+    const t = e.target;
+    if(t && t.closest && t.closest('.del, .tts-btn, button, a')) return; // 点到气泡上的按钮（删除/朗读）不算
+    const el = t && t.closest ? t.closest('.ai-msg.ai[data-mid]') : null;
+    if(el) askReroll(el.getAttribute('data-mid'));
   });
 }
 
 function openAiUndo(){ renderAiUndo(); openMask(document.getElementById('undoMask')); }
-/* 每轮结束挂一排操作条（DOM 本地产物，不进对话历史、不落存档）：
-   有改动 → 「↩️ 撤销」；永远有 → 「🔄 重新生成」。
+/* 每轮结束就地给操作条（DOM 本地产物，不进对话历史、不落存档）：
+   只有「↩️ 撤销」，且仅在真有改动时挂。
+   2026-10-15：「🔄 重新生成」按钮隐化 —— 改由双击回复气泡触发（见 askReroll）。
+   常驻按钮太突兀；没改动的轮次挂个空条也只是碍眼。
    ⚠️ 必须挂在气泡流里：出事那一刻没人会去翻设置。 */
 function aiTurnBar(n){
   const wrap = document.getElementById('aiMsgs');
   if(!wrap) return;
-  aiInitRerollGesture(); // 顺手绑上长按/双击手势（只绑一次）
+  aiInitRerollDblclick(); // 顺手绑上双击手势（只绑一次）
+  if(!(n > 0)) return; // 没有改动 → 不挂条
   const d = document.createElement('div');
   d.className = 'ai-msg sys ai-turn-bar';
   d.style.cssText = 'text-align:center;background:transparent;box-shadow:none;padding:6px 0;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;';
-  if(n > 0){
-    const u = document.createElement('button');
-    u.className = 'btn ghost';
-    u.style.cssText = 'font-size:12px;padding:7px 14px;';
-    u.textContent = '↩️ 本轮改了 ' + n + ' 处 · 查看 / 撤销';
-    u.onclick = openAiUndo;
-    d.appendChild(u);
-  }
-  const b = document.createElement('button');
-  b.className = 'btn ghost';
-  b.style.cssText = 'font-size:12px;padding:7px 14px;';
-  b.textContent = '🔄 重新生成';
-  b.onclick = askReroll;
-  d.appendChild(b);
+  const u = document.createElement('button');
+  u.className = 'btn ghost';
+  u.style.cssText = 'font-size:12px;padding:7px 14px;';
+  u.textContent = '↩️ 本轮改了 ' + n + ' 处 · 查看 / 撤销';
+  u.onclick = openAiUndo;
+  d.appendChild(u);
   wrap.appendChild(d);
   wrap.scrollTop = wrap.scrollHeight;
 }
@@ -12991,9 +12997,24 @@ async function memPickSave(){
   if(!wrap) return;
   let down = null;
   const setPickClass = (on)=>{ wrap.classList.toggle('mem-picking', on); };
+  /* ★ 2026-10-15：坐标命中气泡，不读 e.target。
+     根因：pointerdown 一按下就会给 wrap 加 mem-picking（user-select:none），
+     Chromium 的 hit-test 会因此把随后 pointerup 的 e.target 漂到 #aiMsgs 容器本身
+     （headless 实测复现）→ 旧代码 e.target.closest('.ai-msg[data-mid]') 得到 null，
+     长按记记忆整个失效；选择模式激活后再点气泡也同样失效。
+     坐标法是按下时记下的 (x,y)，遍历气泡 rect 命中，不受 hit-test 副作用影响。 */
+  const bubbleAt = (x, y)=>{
+    const els = wrap.querySelectorAll('.ai-msg[data-mid]');
+    for(const el of els){
+      const r = el.getBoundingClientRect();
+      if(x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el;
+    }
+    return null;
+  };
   wrap.addEventListener('pointerdown', e=>{
     if(e.target && e.target.closest && e.target.closest('.del, .tts-btn')) return;
-    const b = e.target && e.target.closest ? e.target.closest('.ai-msg[data-mid]') : null;
+    // 正常情况 e.target 就是气泡；hit-test 被 user-select 副作用污染时（选择模式激活中）兜底走坐标
+    const b = (e.target && e.target.closest && e.target.closest('.ai-msg[data-mid]')) || bubbleAt(e.clientX, e.clientY);
     if(!b) return;
     down = { mid: b.getAttribute('data-mid'), x: e.clientX, y: e.clientY, t: Date.now(), moved: false };
     if(!memPickState.active) setPickClass(true);
@@ -13007,10 +13028,10 @@ async function memPickSave(){
     const d = down; down = null;
     if(!memPickState.active) setPickClass(false);
     if(d.moved) return;
-    const b = e.target && e.target.closest ? e.target.closest('.ai-msg[data-mid]') : null;
+    const b = bubbleAt(d.x, d.y);
     const mid = b ? b.getAttribute('data-mid') : null;
     if(memPickState.active){ if(mid) memTogglePick(mid); return; }
-    if(mid && mid === d.mid && Date.now() - d.t >= 550) memEnterPick(mid);
+    if(mid && Date.now() - d.t >= 550) memEnterPick(mid);
   }, {passive:true});
   wrap.addEventListener('pointercancel', ()=>{ down = null; if(!memPickState.active) setPickClass(false); });
 })();
@@ -13547,9 +13568,9 @@ async function aiRun(){
       if(stepEl) stepEl.remove();
       addAIMsg('ai', '⚠️ 这一轮我没能给出内容（模型返回了空正文，或只顾着办事没回头说话）。已经办好的都存下来了；你再说一句，我接着办。\n（诊断自检里能看到这轮的 finish_reason 与输出字数。）', aiMsgId());
     }
-    /* ★ 2026-10-14：本轮结束就地给操作条（撤销 / 重新生成）。
-       放设置里没用 —— 出事那一刻没人想得到去翻设置；放在聊天气泡下面，一眼就看见。
-       ⚠️ 没有工具调用也要挂：回复不满意、或报错了，同样需要重 roll。 */
+    /* ★ 2026-10-14：本轮结束就地给操作条（撤销）。
+       2026-10-15：「重新生成」按钮隐化为双击气泡，条里只留撤销，且没有改动就不挂。
+       放设置里没用 —— 出事那一刻没人想得到去翻设置；放在聊天气泡下面，一眼就看见。 */
     window.__aiLastTurnTools = (toolDone > 0);
     let chgN = 0;
     if(toolDone > 0){
