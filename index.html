@@ -6530,17 +6530,42 @@ let EXPENSES = {budget: DEFAULT_BUDGET, items: []};
 let expenseFullOpen = false; // 本月明细展开状态（重渲染后保持）
 let expenseMonth = null; // 记账卡查看的月份：null=本月；'YYYY-MM'=历史月
 
+/* ★ 2026-10-15 记账 id 唯一化。
+   起因：老备份里缺 id 的行会在载入时补 id，而补 id 用的是「Date.now()+0~999 随机数」——
+   同一个同步循环里 Date.now() 全一样，随机数一撞就出**重号**。一旦两条账共用一个 id，
+   「撤销 AI 改动」按 id 配对就会李冠张戴：报出一条根本没发生的修改
+   （叶子 10-15 现场：¥45 餐饮「超市半价榴莲」→ ¥199 购物「优衣库摇粒绒外套」，两条账其实都好好的）。 */
+function expFreshId(used){
+  let id, guard = 0;
+  do{ id = 'e' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }while(used[id] && (++guard) < 50);
+  used[id] = 1;
+  return id;
+}
+function expNewId(){
+  const used = Object.create(null);
+  ((EXPENSES && EXPENSES.items) || []).forEach(e=>{ if(e && e.id != null) used[String(e.id)] = 1; });
+  return expFreshId(used);
+}
 function loadExpenses(){
   try{
     const raw = localStorage.getItem(EXPENSE_KEY);
     if(raw){
       const p = JSON.parse(raw);
       if(p && typeof p==='object'){
-        EXPENSES = {
-          budget: (typeof p.budget==='number' && p.budget>0) ? p.budget : DEFAULT_BUDGET,
-          // 老备份可能缺 id（删除按钮会失效），载入时自动补上
-          items: Array.isArray(p.items) ? p.items.map(e=>(e && e.id ? e : Object.assign({}, e, {id:'e'+Date.now()+Math.floor(Math.random()*1000)}))) : []
-        };
+        // 老备份可能缺 id（删除按钮会失效），载入时自动补上；顺带把重号的那条重发一个新 id。
+        const used = Object.create(null);
+        let fixed = false;
+        const items = Array.isArray(p.items) ? p.items.map(e=>{
+          if(!e) return e;
+          const id = (e.id != null && String(e.id) !== '') ? String(e.id) : '';
+          if(!id || used[id]){ fixed = true; return Object.assign({}, e, {id: expFreshId(used)}); } // 缺失 / 重号 → 重发
+          used[id] = 1;
+          return e;
+        }) : [];
+        EXPENSES = { budget: (typeof p.budget==='number' && p.budget>0) ? p.budget : DEFAULT_BUDGET, items };
+        /* ★ 补好的 id 必须落盘。以前这一步不保存，等于每次开机都重新随机一批 id：
+           同一条账在内存里 id 天天变，跨刷新的撤销比对（按 id 配对）就完全没有意义了。 */
+        if(fixed) saveExpenses();
         return;
       }
     }
@@ -6729,7 +6754,7 @@ function doExpenseAdd(){
   const cat = document.getElementById('expCat').value;
   const note = document.getElementById('expNote').value.trim();
   const date = document.getElementById('expDate').value || todayStr();
-  EXPENSES.items.push({id:'e'+Date.now()+Math.floor(Math.random()*1000), amount: Math.round(amount*100)/100, cat, note, date, ts: Date.now()});
+  EXPENSES.items.push({id:expNewId(), amount: Math.round(amount*100)/100, cat, note, date, ts: Date.now()});
   saveExpenses();
   closeExpenseAdd();
   renderList();
@@ -7200,7 +7225,7 @@ const AI_TOOLS = [
   }},
   { type:'function', function:{
     name:'add_course',
-    description:'往课表里新增一节课程（临时加课用）。',
+    description:'往课表里**新增**一节课程（临时加课、补课、加讲座用）。⚠️ 要「改」已有的一节课（换导师/换课室/改时间/改节次）请用 update_course，不要用本工具 —— 拿 add_course 去实现"改"，结果就是同一天多出一节课。若该日期已有同科目的课，本工具会返回 need_confirm 而不新增。',
     parameters:{ type:'object', properties:{
       date:{type:'string', description:'日期 YYYY-MM-DD（年份默认 2026）'},
       subj:{type:'string', description:'科目名，如"中医食疗"'},
@@ -7210,16 +7235,18 @@ const AI_TOOLS = [
       time:{type:'string', description:'上课时间，如"晚上7:00-10:00"；留空默认晚课 19:00-22:00'},
       color:{type:'string', description:'自定义颜色：绿/红/橙/黄/蓝/紫/粉/青/灰/黑 或 #hex；留空用默认'},
       tag:{type:'string', description:'自定义小标文字，显示在日历格子和课程卡片上；留空用科目缩写'},
-      note:{type:'string', description:'备注（可选），如考试地点、注意事项；默认空'}
+      note:{type:'string', description:'备注（可选），如考试地点、注意事项；默认空'},
+      force:{type:'boolean', description:'仅在"确定是同一天的第二节"时传 true 强制新增；普通加课不要传。返回 need_confirm 时不要带 force 硬插，先问用户。'}
     }, required:['date','subj']}
   }},
   { type:'function', function:{
     name:'update_course',
-    description:'修改课表里已有的一节课（如改时间、换教室、改节次）。用 date+subj 或 keyword 定位。',
+    description:'修改课表里**已有**的一节课（改时间/换教室/换导师/改节次/改小标/加备注）。用 date+subj 定位；同一天有多节同科目时再补 find_ses。定位到多节课时会返回 need_confirm+candidates，此时把候选念给用户、不要自己挑一节改。成功返回 before/after 原值，请对照后再汇报。',
     parameters:{ type:'object', properties:{
-      date:{type:'string', description:'原课日期 YYYY-MM-DD（没改日期可不填）'},
+      date:{type:'string', description:'原课日期 YYYY-MM-DD（强烈建议填，不填只能靠科目/关键词定位，容易误命中别的一节）'},
       subj:{type:'string', description:'原科目名，定位用'},
       keyword:{type:'string', description:'若不确定原科目全名，用课表里出现的关键词定位，如"食疗"'},
+      find_ses:{type:'string', description:'定位用的原节次（同一天有多节同科目时用来区分；填了它不等于改节次）'},
       new_date:{type:'string', description:'新日期 YYYY-MM-DD，不改不填'},
       new_subj:{type:'string', description:'新科目名，不改不填'},
       ses:{type:'string', description:'新节次/考试，不改不填'},
@@ -7529,6 +7556,19 @@ const REMINDER_FREQ_RULE = [
 '  哪怕你（OC 角色）的设定里写了"督学""监督""管她"这类职责，朋友的挂念也是"偶尔想起"，不是"每句话都念一遍"。两个角色不要在多轮里接力复读同一件事——用户已经明确抱怨过"跟复读机似的"，这是硬性禁止项。'
 ].join('\n');
 
+/* 【课表改动铁律】单一事实源：DEFAULT_SYSTEM_TPL 与「已保存模板」的存量迁移都引用它。
+   10-15 起因：叶子发了张课表截图，AI 嘴上说"10月15日改成方剑锋/晚上7:00-9:30，10月29日换成梁浩荣/WLB205"，
+   实际却是 —— 10-15 一字未动、10-29 凭空多出第二节课（它拿 add_course 去实现"改"）。
+   三道闸一起补：① 工具层 add_course 同日同科目 → need_confirm（不许默默插一节）；
+   ② update_course 返回 before/after 让模型自查；③ 这条规则把"改"和"加"钉死，不许再混用。*/
+const COURSE_EDIT_RULE = [
+'- 用户说"某课改成…/换教室/换导师/改时间/改节次/调到周X/染成绿色/标成红色/改小标/加备注"，一律调用 update_course：先定位**那一节课**（date + subj，同日有多节同科目时再补 find_ses），再传要改的字段（时间→time、导师→teacher、课室→room、备注→note、颜色→color、小标→tag）。',
+'- 改课永远只准用 update_course。add_course 只用于"真的多出一节新课"（临时加课/补课/讲座）——拿它去实现"改"，结果就是同一天多出一节课，这正是 10-15 真实发生过的错。',
+'- add_course 返回 need_confirm（该日期已有一节同科目的课）时，说明你大概率该用 update_course：不要带 force=true 硬插。先把已有的那一节念给用户听（第几节 · 导师 · 课室 · 时间），问清是"把它改成这样"还是"真的是第二节"，得到答复再动手。',
+'- update_course / remove_course 返回 need_confirm 或 candidates（匹配到多节课）时，说明定位不准：把候选逐条念给用户（日期 + 节次 + 导师 + 课室）请他指定，绝不自己挑一节改。',
+'- update_course 成功会返回 before / after 两份原值，请对照一遍再向用户汇报"改的是哪一节、改了什么"。若发现改到的不是你想改的那一节，立刻用 before 里的原值再调一次改回来，并在回复里说明——不许把"改错了"咽下去，也不许嘴上说改好了、实际没动。'
+].join('\n');
+
 // —— 新版默认提示词：补全工具总览（记账/批量改课/心情）、合并重复规则、强化防呆（日期金额逐字、相似候选确认）——
 const DEFAULT_SYSTEM_TPL = `<当前时间>
 {{TIME_ANCHOR}}
@@ -7567,7 +7607,7 @@ ${REMINDER_FREQ_RULE}
 - 用户问"XX上什么课/明天有什么课/下周课表/开学第几周上什么/某天有什么课"，调用 get_courses 查询课表后再回答。课表数据已导入本机，不要编造。
 - 课表每条记录的固定字段顺序（CSV/导入/工具字段都按这个）：日期,科目,节次,老师,课室,时间,颜色,小标,备注。时间如"晚上7:00-10:00"，留空默认晚课 19:00-22:00；颜色可选 绿/红/橙/黄/蓝/紫/粉/青/灰/黑 或 #hex；小标是显示在日历格子和课程卡片上的短标签（如 营养/公卫/食疗/个健/功法/讲座）；备注默认空，可填考试地点、注意事项等。add_course / update_course 的字段对应：时间→time，备注→note，颜色→color，小标→tag。
 - 用户说"加一节/临时加课/某天加个讲座"，调用 add_course（年份按上面规则推断，9-12月填2026，1-8月填2027）；如需指定时间、颜色或图形小标，一并发 time / color / tag 字段，备注用 note。
-- 用户说"某课改到下午/换教室/节次改一下/调到周X/染成绿色/标成红色/加个讲座小标/改小标/改时间/加备注"，调用 update_course，用 date+subj 或 keyword 定位原课，再传要改的字段：时间传 time、备注传 note、颜色传 color、小标传 tag。
+${COURSE_EDIT_RULE}
 - 用户说"某课取消/不上了/删掉"，调用 remove_course 删除。
 - 用户要求批量改课表（如"全部改简体""繁体转简体""批量换教室"），调用 batch_update_courses 一次性完成，把每项的 subj 填原科目名、new_subj 填转换后的新科目名，不要逐条调 update_course。你作为语言模型本身就擅长繁简转换，直接生成映射传入即可。
 - 用户要求"和本地课表核对/比对/检查/校对/看有没有错/找差异"，或上传了 PDF/图片说"核对一下"，必须调用 compare_courses，不要自己说"无法读取附件"。source_text 可留空，工具会自动读取最近解析或发送过的文档缓存。比对时要逐条对照本机课表与来源文本，列出日期、科目、节次、时间、地点的差异，指出缺课或错课。来源若是【Moodle 日历导出摘要】，其中「本机多课」一律不得删除（考勤记录是后建的、会缺学期初课次），只能提示「建议核实」；只有「来源有本机没有」和「时间差异」才建议补课或改时间。不要只说"逻辑自洽"。
@@ -7921,6 +7961,25 @@ function getAiCfg(){
         return line;
       }).filter(x=> x!==null).join('\n');
     }
+  }
+  /* ★ 2026-10-15 课表改动铁律升级（同样是**逐行替换**，理由见上一条）。
+     背景：10-15 现场 —— AI 嘴上说"10月15日改成…、10月29日换成…"，实际 10-15 一字未动、
+     10-29 凭空多出一节（它拿 add_course 去实现"改"）。工具层已加闸（add_course 同日同科目 need_confirm、
+     update_course 返回 before/after），规则也得跟上。
+     幂等判据：模板里已有新锚点就什么都不做；只换含旧锚点的**那一行**（找不到旧锚点则退而求其次，
+     插在"加课"那一行之后），模板其余部分（叶子自己的其它改动）一字不动。 */
+  if(cfg.systemTpl && cfg.systemTpl.indexOf('改课永远只准用 update_course') < 0){
+    const OLD_RULE = /update_course.*(定位原课|keyword ?定位)/;
+    const ADD_RULE = /调用 ?add_course（年份按上面规则推断/;
+    const ls2 = String(cfg.systemTpl).split('\n');
+    let hit2 = -1, fallback = -1;
+    ls2.forEach((line, i)=>{
+      if(hit2 < 0 && line.indexOf('update_course') >= 0 && OLD_RULE.test(line)) hit2 = i;
+      else if(fallback < 0 && ADD_RULE.test(line)) fallback = i;
+    });
+    if(hit2 >= 0) ls2[hit2] = COURSE_EDIT_RULE;
+    else if(fallback >= 0) ls2.splice(fallback + 1, 0, COURSE_EDIT_RULE);
+    if(hit2 >= 0 || fallback >= 0) cfg.systemTpl = ls2.join('\n');
   }
   if(cfg.aiTts === undefined) cfg.aiTts = true;
   if(cfg.aiTtsMode === undefined) cfg.aiTtsMode = 'full';
@@ -9547,11 +9606,26 @@ function _aiSnapParse(s){
 function _expName(r){ return (r.date||'') + ' ¥' + r.amount + ' ' + (r.cat||'') + (r.note ? ('「'+r.note+'」') : ''); }
 function _taskName(t){ return (t.title||'未命名') + (t.done ? '（已完成）' : ''); }
 function _courseName(c){ return (c.date||'') + ' ' + (c.subj||'') + ' 第' + (c.ses||'') + '节' + (c.room ? (' · '+c.room) : ''); }
-// 逐条比 id：新增 / 删除 / 内容变化，都能说清楚
+/* 逐条比 id：新增 / 删除 / 内容变化，都能说清楚。
+   ⚠️ 前提是 id 唯一。历史数据里 id 可能重号（老备份补 id 时同毫秒撞车）——
+   那种情况下按 id 配对是「李冠张戴」：报出一条根本没发生的修改（见 loadExpenses 上方注释）。
+   所以先验重号：只要有一侧重号，就退化成「按内容做多重集比对」，
+   只报真的多出来 / 少掉的行，宁可说成"新增+删除"，也绝不硬配出一条假的"修改"。 */
+function _contentSig(x){ try{ return JSON.stringify(x); }catch(e){ return String(x); } }
+function _diffByContent(before, after, nameOf, label){
+  const cnt = (arr)=>{ const m = new Map(); (arr||[]).forEach(x=>{ if(!x) return; const k=_contentSig(x); m.set(k,(m.get(k)||0)+1); }); return m; };
+  const B = cnt(before), A = cnt(after), out = [];
+  A.forEach((n,k)=>{ const m0 = B.get(k)||0; for(let i=0;i<n-m0;i++){ let o; try{ o = JSON.parse(k); }catch(e){ o = {}; } out.push({k:'新增', s:label, t:nameOf(o)}); } });
+  B.forEach((n,k)=>{ const m0 = A.get(k)||0; for(let i=0;i<n-m0;i++){ let o; try{ o = JSON.parse(k); }catch(e){ o = {}; } out.push({k:'删除', s:label, t:nameOf(o)}); } });
+  return out;
+}
 function _diffById(before, after, nameOf, label){
-  const b = {}, a = {}, out = [];
-  (before||[]).forEach(x=>{ if(x && x.id!=null) b[x.id] = x; });
-  (after||[]).forEach(x=>{ if(x && x.id!=null) a[x.id] = x; });
+  const b = {}, a = {};
+  let dup = false;
+  (before||[]).forEach(x=>{ if(x && x.id!=null){ if(b[x.id] !== undefined) dup = true; b[x.id] = x; } });
+  (after ||[]).forEach(x=>{ if(x && x.id!=null){ if(a[x.id] !== undefined) dup = true; a[x.id] = x; } });
+  if(dup) return _diffByContent(before, after, nameOf, label); // 有重号 → 按内容比对，不按 id 硬配
+  const out = [];
   (after||[]).forEach(x=>{ if(x && x.id!=null && !b[x.id]) out.push({k:'新增', s:label, t:nameOf(x)}); });
   (before||[]).forEach(x=>{ if(x && x.id!=null && !a[x.id]) out.push({k:'删除', s:label, t:nameOf(x)}); });
   (after||[]).forEach(x=>{
@@ -9560,22 +9634,78 @@ function _diffById(before, after, nameOf, label){
   });
   return out;
 }
+/* 课表没有 id，早先按下标对齐比对 —— 只要中间插进 / 挪走一节，后面全部错位，
+   于是「撤销」面板会报出一堆根本没发生的修改（10-15 现场：09-03 第1节 WYS609 → 10-29 第1节 WLB205，
+   这两条日期差了快两个月，真实发生的事只是"10-29 多了一节"）。
+   现在改成按「内容签名」做多重集比对：先精确配平（完全相同的两两抵掉），
+   再把剩下的按科目配对、逐字段说明差异（日期/时间/课室/导师…），配不上的才报新增 / 删除。 */
+const _COURSE_FIELDS = [['date','日期'],['subj','科目'],['ses','节次'],['teacher','导师'],['room','课室'],['time','时间'],['tag','小标'],['note','备注']];
+function _courseSig(c){
+  return _COURSE_FIELDS.map(f=>{ const v = (c||{})[f[0]]; return (v==null ? '' : String(v)); }).join('\u0001');
+}
+function _courseChanged(before, after){
+  const b = before||{}, a = after||{}, parts = [];
+  _COURSE_FIELDS.forEach(f=>{
+    const bv = (b[f[0]]==null ? '' : String(b[f[0]])), av = (a[f[0]]==null ? '' : String(a[f[0]]));
+    if(bv !== av) parts.push(f[1] + ' ' + (bv||'（空）') + ' → ' + (av||'（空）'));
+  });
+  return parts.join('；');
+}
+function _courseBrief(c){
+  return {date: c.date||'', subj: c.subj||'', ses: c.ses||'', teacher: c.teacher||'', room: c.room||'', time: c.time||'', tag: c.tag||''};
+}
+function _diffCourses(before, after){
+  const out = [];
+  const bag = (arr)=>{ const m = new Map(); (arr||[]).forEach(c=>{ if(!c) return; const k=_courseSig(c); if(!m.has(k)) m.set(k, []); m.get(k).push(c); }); return m; };
+  const B = bag(before), A = bag(after);
+  const del = [], add = [];
+  const keys = [];
+  B.forEach((v,k)=>keys.push(k)); A.forEach((v,k)=>{ if(!B.has(k)) keys.push(k); });
+  // ① 精确配平：同一签名的两两抵掉，只看数量差
+  keys.forEach(k=>{
+    const b = B.get(k) || [], a = A.get(k) || [];
+    for(let i=0;i<b.length-a.length;i++) del.push(b[b.length-1-i]);
+    for(let i=0;i<a.length-b.length;i++) add.push(a[a.length-1-i]);
+  });
+  // ② 剩下的按「同一天 + 同科目」配对：能配上 = 「修改」，并逐字段说清差在哪。
+  //    ⚠️ 必须限定同一天：跨日期去配，就会重演「09-03 第1节 → 10-29 第1节」那种假修改
+  //    （何况 add_course 默认节次就是 1，撞上 09-03 的第1节毫不费力）。
+  //    真跨日期挪课（update_course 传了 new_date）→ 老实报成「删了一节 + 多了一节」，不乱猜。
+  const used = new Array(add.length).fill(false);
+  del.forEach(d=>{
+    let best = -1, bestScore = -1;
+    add.forEach((a,i)=>{
+      if(used[i]) return;
+      if(String(a.subj||'') !== String(d.subj||'')) return;
+      if(String(a.date||'') !== String(d.date||'')) return;
+      let sc = 1;
+      if(String(a.ses||'') === String(d.ses||'')) sc += 2;
+      if(String(a.teacher||'') === String(d.teacher||'')) sc += 1;
+      if(String(a.room||'') === String(d.room||'')) sc += 1;
+      if(sc > bestScore){ bestScore = sc; best = i; }
+    });
+    if(best >= 0){
+      used[best] = true;
+      const det = _courseChanged(d, add[best]);
+      // 日期/科目/节次没动的（绝大多数"改时间/换课室"）就不要再画一遍 箭头 + 一模一样的两串，
+      // 直接写「哪一节｜改了什么」，免得看着像换了节课。
+      const ident = (x)=>(x.date||'') + ' ' + (x.subj||'') + ' 第' + (x.ses||'') + '节';
+      const t = (ident(d) === ident(add[best]))
+        ? (ident(d) + '｜' + det)
+        : (_courseName(d) + ' → ' + _courseName(add[best]) + (det ? ('｜' + det) : ''));
+      out.push({k:'修改', s:'课表', t: t});
+    } else out.push({k:'删除', s:'课表', t:_courseName(d)});
+  });
+  add.forEach((a,i)=>{ if(!used[i]) out.push({k:'新增', s:'课表', t:_courseName(a)}); });
+  return out;
+}
 async function aiSnapDiff(snap){
   const s = _aiSnapParse(snap || (window.__aiSnap || {}));
   const out = [];
   out.push(..._diffById(s.expenses.items, (EXPENSES && EXPENSES.items) ? EXPENSES.items : [], _expName, '记账'));
   out.push(..._diffById(s.tasks, (typeof tasks !== 'undefined' ? tasks : []), _taskName, '任务'));
-  // 课表没有 id：按下标对齐，长度不同就说明有增删
-  try{
-    const cs = s.courses || [];
-    const cn = (typeof COURSES !== 'undefined' && COURSES) ? COURSES : [];
-    if(JSON.stringify(cs) !== JSON.stringify(cn)){
-      if(cn.length > cs.length) cn.slice(cs.length).forEach(c=>out.push({k:'新增', s:'课表', t:_courseName(c)}));
-      if(cs.length > cn.length) cs.slice(cn.length).forEach(c=>out.push({k:'删除', s:'课表', t:_courseName(c)}));
-      const n = Math.min(cs.length, cn.length);
-      for(let i=0;i<n;i++){ if(JSON.stringify(cs[i]) !== JSON.stringify(cn[i])) out.push({k:'修改', s:'课表', t:_courseName(cs[i]) + ' → ' + _courseName(cn[i])}); }
-    }
-  }catch(e){}
+  // 课表：没有 id，按内容签名做多重集比对（见 _diffCourses），不再按下标硬对
+  try{ out.push(..._diffCourses(s.courses, (typeof COURSES !== 'undefined' && COURSES) ? COURSES : [])); }catch(e){}
   // 心情：按日期键比对
   try{
     const nowMoods = {};
@@ -9748,6 +9878,26 @@ function aiTurnBar(n){
   wrap.scrollTop = wrap.scrollHeight;
 }
 function closeAiUndo(){ closeMask(document.getElementById('undoMask')); }
+/* 本轮 AI 真实调过的工具（第一手证据，来自 mhm_ai_tool_log，筛「快照之后」的那些）。
+   为什么必须露出来：对比清单（aiSnapDiff）是"推"出来的结论，可能因为数据本身的毛病而误报 / 漏报；
+   工具流水是"记"下来的事实。两者对不上时，一眼就能判断是模型办错事还是对比这一层出错。
+   10-15 叶子正是靠"面板说的跟实际不一样"才发现的假修改，索性把证据也摆在同一页。 */
+function _undoToolLogHtml(snap){
+  try{
+    const tl = JSON.parse(localStorage.getItem(AI_TOOL_LOG_KEY) || '[]');
+    const mine = Array.isArray(tl) ? tl.filter(e=>e && e.t >= ((snap && snap.t) || 0)) : [];
+    if(!mine.length) return '';
+    let h = '<div style="margin:10px 0;padding:10px 12px;border-radius:14px;background:rgba(145,180,200,.10);border:1px dashed var(--green-mid);">';
+    h += '<div style="font-weight:700;margin-bottom:6px;">🧰 本轮实际操作流水 <span style="color:var(--ink-soft);font-weight:400;">（'+mine.length+' 次工具调用）</span></div>';
+    mine.slice(-20).forEach(e=>{
+      const col = e.skipped ? '#8a7a5c' : (e.ok === false ? '#c0392b' : '#2e7d5b');
+      h += '<div style="padding:2px 0;color:'+col+';">' + escHtml(aiToolLogLine(e)) + '</div>';
+    });
+    h += '<div style="font-size:11px;color:var(--ink-soft);margin-top:4px;">上面是助理这一轮<b>真正执行过</b>的操作（含被闸门拦下的）。若它和上面的改动清单对不上，就是「对比」这一层的问题，把这一页发给 AI 即可。</div>';
+    h += '</div>';
+    return h;
+  }catch(e){ return ''; }
+}
 async function renderAiUndo(){
   const box = document.getElementById('undoList'), msg = document.getElementById('undoMsg');
   if(!box) return;
@@ -9760,7 +9910,8 @@ async function renderAiUndo(){
   const items = await aiSnapDiff(snap);
   window.__aiUndoItems = items;
   if(!items.length){
-    box.innerHTML = '<div style="padding:16px 6px;text-align:center;color:var(--ink-soft);line-height:1.7;">✅ 上次 AI 回复没有改动任何数据<br><span style="font-size:11px;">记账 / 任务 / 课表 / 心情 / 角色动态都没有变化。</span></div>';
+    box.innerHTML = '<div style="padding:16px 6px;text-align:center;color:var(--ink-soft);line-height:1.7;">✅ 上次 AI 回复没有改动任何数据<br><span style="font-size:11px;">记账 / 任务 / 课表 / 心情 / 角色动态都没有变化。</span></div>'
+      + _undoToolLogHtml(snap);
     if(msg) msg.textContent = '快照时间：' + new Date(snap.t).toLocaleString();
     return;
   }
@@ -9777,6 +9928,7 @@ async function renderAiUndo(){
     if(byStore[store].length > 40) html += '<div style="color:var(--ink-soft);">…还有 ' + (byStore[store].length-40) + ' 处</div>';
     html += '</div>';
   });
+  html += _undoToolLogHtml(snap);
   box.innerHTML = html;
   if(msg) msg.textContent = '共 ' + items.length + ' 处改动（快照 ' + new Date(snap.t).toLocaleString() + '）。撤销会把这些数据整包还原到那一刻。';
 }
@@ -14440,7 +14592,7 @@ function aiAddExpense(a){
     const amt = Math.round(parseFloat(amount)*100)/100;
     if(!amt || isNaN(amt) || amt<=0) return null;
     const c = EXPENSE_CATS.includes(cat) ? cat : '其他';
-    const rec = {id:'e'+Date.now()+Math.floor(Math.random()*1000), amount: amt, cat:c, note:String(note||'').trim(), date: date||todayStr(), ts: Date.now()};
+    const rec = {id:expNewId(), amount: amt, cat:c, note:String(note||'').trim(), date: date||todayStr(), ts: Date.now()};
     EXPENSES.items.push(rec);
     return rec.id;
   };
@@ -14743,32 +14895,56 @@ function aiCompareCourses(a){
 };
 }
 
-function findCourse(a){
+/* 定位一节课。返回 {item, matches, ambiguous}：
+   matches>1 时 ambiguous=true —— 调用方（update_course）必须把候选念给用户，不许自己挑一节改。
+   ★ 2026-10-15：以前只有 findCourse（返回第一个匹配），于是「改今天的食疗课」这种模糊说法一旦
+   没带日期，就会静默命中全表第一节食疗（可能是两个月前那节），改完还一本正经汇报"已改好"。
+   现在支持 find_ses（定位用节次），并提供候选列表。 */
+function findCourseHit(a){
+  a = a || {};
   const date = a.date ? normDate(a.date).date : null;
-  const subj = (a.subj||'').trim();
-  const kw = (a.keyword||'').trim();
+  const subj = String(a.subj||'').trim();
+  const kw = String(a.keyword||'').trim();
+  const ses = (a.find_ses !== undefined && a.find_ses !== null && String(a.find_ses).trim() !== '') ? String(a.find_ses).trim() : '';
   let pool = COURSES.slice();
   if(date) pool = pool.filter(c=>c.date===date);
+  if(ses) pool = pool.filter(c=>String(c.ses)===ses);
   if(subj){
-    const exact = pool.find(c=>c.subj===subj);
-    if(exact) return exact;
-    const inc = pool.find(c=>c.subj.includes(subj) || subj.includes(c.subj));
-    if(inc) return inc;
+    const exact = pool.filter(c=>c.subj===subj);
+    const inc = exact.length ? exact : pool.filter(c=>(c.subj||'').indexOf(subj)>=0 || subj.indexOf(c.subj||'')>=0);
+    if(inc.length) return {item: inc[0], matches: inc, ambiguous: inc.length > 1};
+    if(!kw) return {item:null, matches:[], ambiguous:false};
   }
   if(kw){
-    const hit = pool.find(c=>c.subj.includes(kw) || (c.time||'').includes(kw) || (c.tag||'').includes(kw) || (c.note||'').includes(kw));
-    if(hit) return hit;
+    const hit = pool.filter(c=>(c.subj||'').indexOf(kw)>=0 || (c.time||'').indexOf(kw)>=0 || (c.tag||'').indexOf(kw)>=0 || (c.note||'').indexOf(kw)>=0);
+    if(hit.length) return {item: hit[0], matches: hit, ambiguous: hit.length > 1};
+    return {item:null, matches:[], ambiguous:false};
   }
-  return null;
+  if(pool.length) return {item: pool[0], matches: pool, ambiguous: pool.length > 1};
+  return {item:null, matches:[], ambiguous:false};
 }
+// 兼容旧调用（batch_update_courses / remove_course 仍取第一个匹配）
+function findCourse(a){ const h = findCourseHit(a); return h.item; }
 
 function aiAddCourse(a){
   if(!a.date || !a.subj) return {ok:false, error:'add_course 需要 date 和 subj'};
   const date = normDate(a.date).date;
   if(!date) return {ok:false, error:'日期格式不对'};
+  const subj = String(a.subj).trim();
+  /* ★ 2026-10-15 防呆：同一天已有同科目的课 → 极可能你是想「改」而不是「加」。
+     现场教训：叶子的 10-29 本来只有一节食疗，AI 想"换成梁浩荣/WLB205"，用 add_course 硬插了一节，
+     于是那天变成两节课；而它嘴上说的是"改好了"。这一闸就是拦这个：宁可多问一句，不许默默插一节。 */
+  const same = COURSES.filter(c=>c.date===date && c.subj && (c.subj===subj || c.subj.indexOf(subj)>=0 || subj.indexOf(c.subj)>=0));
+  if(same.length && !a.force){
+    const s0 = same[0];
+    return {ok:false, need_confirm:true, existing: same.map(_courseBrief),
+      error:'没有新增。'+date+' 已经有一节「'+s0.subj+'」：第'+s0.ses+'节 · 导师'+(s0.teacher||'（空）')+' · 课室'+(s0.room||'（空）')+' · 时间'+(s0.time||'（默认晚课）')+'。\n'
+        + '① 如果你本意是「把这节课改成…」（换导师 / 换课室 / 改时间 / 改节次），请改用 update_course（date+subj 定位这一节），不要用 add_course。\n'
+        + '② 如果确实是同一天的第二节（补课 / 加课 / 加自习），带 force=true 再调一次。'};
+  }
   const c = {
     date: date,
-    subj: a.subj.trim(),
+    subj: subj,
     ses: a.ses!==undefined && a.ses!==null && String(a.ses).trim()!=='' ? String(a.ses).trim() : '1',
     teacher: (a.teacher||'').trim(),
     room: (a.room||'').trim(),
@@ -14779,13 +14955,19 @@ function aiAddCourse(a){
   };
   COURSES.push(c);
   refreshCourses();
-  return {ok:true, added: c.subj, date: date};
+  return {ok:true, added: c.subj, date: date, course: _courseBrief(c)};
 }
 
 function aiUpdateCourse(a){
   if(!a.date && !a.subj && !a.keyword) return {ok:false, error:'请提供 date+subj 或 keyword 定位要改的课'};
-  const c = findCourse(a);
-  if(!c) return {ok:false, error:'没找到对应的课（date:'+(a.date||'')+' subj:'+(a.subj||'')+' kw:'+(a.keyword||'')+'）'};
+  const hit = findCourseHit(a);
+  if(!hit.item) return {ok:false, error:'没找到对应的课（date:'+(a.date||'')+' subj:'+(a.subj||'')+' kw:'+(a.keyword||'')+'）'};
+  if(hit.ambiguous){
+    return {ok:false, need_confirm:true, candidates: hit.matches.slice(0,8).map(_courseBrief),
+      error:'匹配到 '+hit.matches.length+' 节课，不能自己挑一节改。请把候选逐条念给用户（日期 + 节次 + 导师 + 课室），或补上 date / find_ses 精确定位后再调一次。'};
+  }
+  const c = hit.item;
+  const before = _courseBrief(c);
   let changed = [];
   if(a.new_subj && a.new_subj.trim() && a.new_subj.trim()!==c.subj){ c.subj = a.new_subj.trim(); changed.push('科目'); }
   if(a.new_date){ const nd = normDate(a.new_date).date; if(nd){ c.date = nd; changed.push('日期'); } }
@@ -14796,9 +14978,12 @@ function aiUpdateCourse(a){
   if(a.note!==undefined && String(a.note).trim()!==(c.note||'')){ c.note = String(a.note).trim(); changed.push('备注'); }
   if(a.color!==undefined && sanitizeCourseColor(a.color)!==(c.color||'')){ c.color = sanitizeCourseColor(a.color); changed.push('颜色'); }
   if(a.tag!==undefined && String(a.tag).trim()!==(c.tag||'')){ c.tag = String(a.tag).trim(); changed.push('小标'); }
-  if(!changed.length) return {ok:true, updated:c.subj, changed:'无变化'};
+  if(!changed.length) return {ok:true, updated:false, changed:'无变化', before, note:'要改的字段和原值一样，没有实际改动。'};
   refreshCourses();
-  return {ok:true, updated:c.subj, changed:changed.join('、')};
+  /* ★ 2026-10-15：返回 before/after 原值 —— 让模型自己核对"改的确实是那一节"。
+     以前只回一句 {updated:'中医食疗'}，模型即使改错了也无从察觉，转头就向用户汇报"改好了"。 */
+  return {ok:true, updated:c.subj, changed:changed.join('、'), before, after:_courseBrief(c),
+    note:'以上是这一节改前 / 改后的原值。请对照确认改的确实是你要改的那一节；若发现改错了，立刻用 before 里的原值再调一次改回来，并在回复里说明。'};
 }
 
 // 批量更新课表：AI 一次性传入多节课的修改（如全部繁体→简体），一条工具调用改完，
