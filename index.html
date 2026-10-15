@@ -1358,11 +1358,18 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .cm-ops .btn{padding:10px;font-size:var(--fs-3);}
 .cm-adv{margin-top:12px;}
 .cm-adv-t{width:100%;text-align:left;font-size:var(--fs-2);font-weight:700;color:var(--ink-soft);background:transparent;border:none;padding:8px 2px;cursor:pointer;}
-/* 日历当天课程卡上的「改 / 删」：出问题的那节就在眼前，就地解决 */
-.cs-ops{display:flex;gap:8px;margin-top:9px;}
+/* 日历当天课程卡的「改 / 删」—— 叶子嫌常驻按钮多余又丑，改成**长按才出现**（10-16） */
+.cs-ops{display:flex;gap:8px;margin-top:9px;animation:csOpsIn .2s var(--ease) both;}
 .cs-ops button{flex:1;padding:7px 8px;border-radius:var(--radius-2xs);border:1px solid var(--green-mid);background:var(--green-soft);
   color:var(--green-dark);font-size:var(--fs-2);font-weight:800;cursor:pointer;}
 .cs-ops button:active{transform:scale(.97);}
+.cs-ops .cs-x{flex:0 0 46px;color:var(--ink-soft);background:rgba(255,255,255,.6);}
+@keyframes csOpsIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
+/* 长按期间的按压反馈：不按不出现，按满 550ms 才展开操作条 */
+.course-item.pressing{transform:scale(.985);}
+/* iOS 长按别弹系统的「拷贝/查询」菜单（桌面靠 courseBindLongPress 里的 contextmenu preventDefault） */
+.cal-detail .course-item{-webkit-touch-callout:none;}
+.when-tip{font-size:10px;font-weight:600;color:var(--ink-faint);margin-left:6px;letter-spacing:.2px;}
 /* 日历格子：同一天多节课的小角标 */
 /* 放左上角：右上角已被「有任务」的那个小圆点占了（.cal-cell.has .dot） */
 .cd-n{position:absolute;top:3px;left:3px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--green-deep);color:#fff;
@@ -6364,21 +6371,17 @@ function renderCalendar(){
     const dayCourses = getCoursesByDate(calSel);
     html += `<div class="cal-detail">`;
     if(dayCourses.length){
-      html += `<div class="when">${calSel} · 当日课程（${dayCourses.length} 节）</div>`;
-      window.__calDayCourses = dayCourses; // 「改 / 删」按钮按下标取原对象（课表没 id，只能这样定位）
+      html += `<div class="when">${calSel} · 当日课程（${dayCourses.length} 节）<span class="when-tip">长按一节可改 / 删</span></div>`;
+      window.__calDayCourses = dayCourses; // 「改 / 删」按下标取原对象（课表条目没 id，只能这样定位）
       html += dayCourses.map((c, ci)=>{
         const tp = courseType(c);
         const st = courseStyle(c);
         const fullRoom = c.room && c.room!=='待定' ? `${escHtml(c.room)}（<span class="cs-room-full">${escHtml(roomFull(c.room))}</span>）` : escHtml(c.room||'');
         const suspend = suspendClassTips(c);
-        return `<div class="course-item ${tp}" style="${st}">
+        return `<div class="course-item ${tp}" data-ci="${ci}" style="${st}">
           <div class="cs-top"><span class="cs-subj">${escHtml(c.subj)}</span><span class="cs-tag ${tp}" style="${st}">${escHtml(courseTag(c))}</span></div>
           <div class="cs-meta"><b>导师：</b>${escHtml(c.teacher)}　<b>课室：</b>${fullRoom}<br><b>时间：</b>${escHtml(courseTime(c))}${c.note?('　<b>备注：</b>'+escHtml(c.note)):''}</div>
           ${suspend}
-          <div class="cs-ops">
-            <button type="button" onclick="event.stopPropagation();courseOps(${ci})">✎ 改这一节</button>
-            <button type="button" onclick="event.stopPropagation();courseDel(${ci})">🗑 删这一节</button>
-          </div>
         </div>`;
       }).join('');
     }
@@ -6404,6 +6407,8 @@ function renderCalendar(){
     }));
   }
   if(calSel) renderCalJournal(calSel);
+  courseHideOps();     // 列表已重建，长按展开的操作条随之消失（含它记的当天序号）
+  courseBindLongPress();
 }
 function calMove(n){ calM+=n; if(calM<0){calM=11;calY--;} if(calM>11){calM=0;calY++;} calSel=undefined; calDir=n; updateRing(); renderCalendar(); }
 function calPick(ds){ calSel = (calSel===ds)?undefined:ds; renderCalendar(); }
@@ -6632,6 +6637,61 @@ function courseIndexOf(c){
   return COURSES.findIndex(x=>String(x.date||'')===String(c.date||'') && String(x.subj||'')===String(c.subj||'')
     && String(x.ses||'')===String(c.ses||'') && String(x.teacher||'')===String(c.teacher||'')
     && String(x.room||'')===String(c.room||'') && String(x.time||'')===String(c.time||'') && String(x.tag||'')===String(c.tag||''));
+}
+/* 长按一节 → 就地展开「改 / 删」（10-16 叶子拍板：常驻两个按钮太多余也太丑）。
+   手势与「长按圈选记记忆」同款 550ms，但绑在日历列表上（`#list` 事件委托），
+   和 `#aiMsgs` 上的记忆选择互不干扰；移动超过 10px 或抬起即取消（滚动不误触）。 */
+let coursePress = null;
+function courseBindLongPress(){
+  const list = document.getElementById('list');
+  if(!list || window.__courseLP) return;
+  window.__courseLP = true;
+  const cancel = ()=>{
+    if(coursePress && coursePress.timer){ clearTimeout(coursePress.timer); }
+    if(coursePress && coursePress.el) coursePress.el.classList.remove('pressing');
+    coursePress = null;
+  };
+  const cardOf = (t)=>(t && t.closest) ? t.closest('.cal-detail .course-item') : null;
+  list.addEventListener('pointerdown', (e)=>{
+    const el = cardOf(e.target);
+    if(!el) return;                       // 只认日历详情里的课程卡，格子与其它卡片不响应
+    const ci = parseInt(el.getAttribute('data-ci'), 10);
+    if(isNaN(ci)) return;
+    cancel();
+    el.classList.add('pressing');
+    const pt = {x:e.clientX, y:e.clientY, el:el, ci:ci};
+    pt.timer = setTimeout(()=>{
+      if(coursePress !== pt) return;
+      pt.el.classList.remove('pressing');
+      if(navigator.vibrate){ try{ navigator.vibrate(12); }catch(e2){} }   // 触感反馈：不然不知道按到了
+      if(window.__courseOpsCi === ci) courseHideOps();                    // 再长按一次 = 收起
+      else courseShowOps(pt.el, ci);
+      coursePress = null;
+    }, 550);
+    coursePress = pt;
+  });
+  list.addEventListener('pointermove', (e)=>{
+    if(!coursePress) return;
+    if(Math.abs(e.clientX-coursePress.x) > 10 || Math.abs(e.clientY-coursePress.y) > 10) cancel();
+  });
+  ['pointerup','pointercancel','pointerleave'].forEach(t=>list.addEventListener(t, cancel));
+  list.addEventListener('contextmenu', (e)=>{ if(cardOf(e.target)) e.preventDefault(); }); // 长按别弹系统菜单
+}
+function courseShowOps(el, ci){
+  courseHideOps();
+  const div = document.createElement('div');
+  div.className = 'cs-ops';
+  div.innerHTML = '<button type="button" onclick="event.stopPropagation();courseOps('+ci+')">✎ 改这一节</button>'
+                + '<button type="button" onclick="event.stopPropagation();courseDel('+ci+')">🗑 删这一节</button>'
+                + '<button type="button" class="cs-x" onclick="event.stopPropagation();courseHideOps()">✕</button>';
+  el.appendChild(div);
+  window.__courseOpsCi = ci;
+}
+function courseHideOps(){
+  window.__courseOpsCi = undefined;
+  const list = document.getElementById('list');
+  const n = list ? list.querySelector('.cs-ops') : null;
+  if(n) n.remove();
 }
 function courseOps(i){
   const c = (window.__calDayCourses||[])[i];
