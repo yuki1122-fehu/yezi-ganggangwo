@@ -1365,6 +1365,15 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .cs-ops button:active{transform:scale(.97);}
 .cs-ops .cs-x{flex:0 0 46px;color:var(--ink-soft);background:rgba(255,255,255,.6);}
 @keyframes csOpsIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
+/* ---------- 接口配置档（多套 URL+Key 存好，切换点一下） ---------- */
+.aip-row{position:relative;padding:9px 11px;margin-bottom:7px;border-radius:var(--radius-2xs);border:1px solid var(--green-mid);
+  background:rgba(255,255,255,.62);cursor:pointer;-webkit-touch-callout:none;transition:transform .12s var(--ease),background .2s var(--ease);}
+.aip-row:active{transform:scale(.985);}
+.aip-row.is-cur{border-color:var(--green-deep);background:var(--green-soft);}
+.aip-row.pressing{transform:scale(.98);}
+.aip-name{display:flex;align-items:center;gap:6px;font-size:var(--fs-2);font-weight:800;color:var(--ink);line-height:1.4;}
+.aip-badge{flex:0 0 auto;font-size:9px;font-weight:800;padding:1px 6px;border-radius:999px;background:var(--green-deep);color:#fff;letter-spacing:.3px;}
+.aip-meta{margin-top:3px;font-size:10px;font-weight:600;color:var(--ink-soft);line-height:1.5;word-break:break-all;}
 /* 长按期间的按压反馈：不按不出现，按满 550ms 才展开操作条 */
 .course-item.pressing{transform:scale(.985);}
 /* iOS 长按别弹系统的「拷贝/查询」菜单（桌面靠 courseBindLongPress 里的 contextmenu preventDefault） */
@@ -2722,6 +2731,16 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
     </details>
     <label>中转站地址（relay 模式填）</label>
     <input id="aiRelay" placeholder="https://你的中转.workers.dev" value="">
+    <!-- ============ 🔑 接口配置档：多套 URL+Key 预先存好，换的时候点一下 ============ -->
+    <div id="aiProfileCard" style="padding:13px 14px;margin:10px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(140,165,215,.16),rgba(165,192,162,.07));border:1px solid var(--green-mid);">
+      <div style="font-size:13px;font-weight:700;color:var(--green-dark);">🔑 接口配置档</div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 9px;line-height:1.6;">
+        把常用的 <b>URL + Key</b>（连模型一起）各存一份，以后要换就<b>点一下那一条</b>，不用再整串重粘。<span style="color:var(--ink-faint);">长按一条可改名 / 更新 / 删除。</span>
+      </p>
+      <div id="aiProfileList"></div>
+      <button class="btn ghost" type="button" onclick="aiProfileSaveAs()" style="width:100%;margin-top:9px;padding:8px;font-size:12px;">＋ 把当前这组存为配置档</button>
+    </div>
+
     <label>API Base URL</label>
     <select id="aiBaseSel" style="margin-bottom:6px;" onchange="document.getElementById('aiBase').value=this.value;">
       <option value="">—— 常用服务商（点选自动填入）——</option>
@@ -2732,7 +2751,10 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
     </select>
     <input id="aiBase" placeholder="或手动输入 Base URL" value="">
     <label>API Key</label>
-    <input id="aiKey" placeholder="API Key" type="password">
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input id="aiKey" placeholder="API Key" type="password" style="flex:1 1 auto;min-width:0;">
+      <button class="btn ghost" type="button" onclick="aiToggleKey('aiKey',this)" style="flex:0 0 auto;padding:8px 10px;font-size:13px;line-height:1;" aria-label="显示或隐藏 Key">👁</button>
+    </div>
     <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.6;">
       系统提示词、关系身份、音色协议、表情包协议、粤语模式等统一在顶部「✎ 提示词」页改，这里只保留连接与模型设置。
     </p>
@@ -2779,7 +2801,10 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         </select>
         <input id="aiVisionBase" placeholder="或手动输入 Base URL">
         <label>视觉 API Key <span style="font-size:11px;color:var(--ink-soft)">（留空＝复用主 Key）</span></label>
-        <input id="aiVisionKey" type="password" placeholder="百炼 sk-xxx / OpenRouter Key">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="aiVisionKey" type="password" placeholder="百炼 sk-xxx / OpenRouter Key" style="flex:1 1 auto;min-width:0;">
+          <button class="btn ghost" type="button" onclick="aiToggleKey('aiVisionKey',this)" style="flex:0 0 auto;padding:8px 10px;font-size:13px;line-height:1;" aria-label="显示或隐藏 Key">👁</button>
+        </div>
         <label>视觉模型名</label>
         <input id="aiVisionModel" list="visionModelList" placeholder="qwen3-vl-plus">
         <datalist id="visionModelList">
@@ -9410,6 +9435,8 @@ function initAISettingsFields(){
   document.getElementById('aiVisionKey').value = cfg.visionKey||'';
   document.getElementById('aiVisionModel').value = cfg.visionModel||'';
   document.getElementById('visionHint').textContent = '';
+  // 接口配置档（多套 URL+Key 一键切换）：第一次进来把当前这套自动存成第一份
+  try{ aiProfileSeed(); aiProfileRender(); aiProfileBindLongPress(); }catch(e){}
   // 助手语音
   document.getElementById('aiTtsOn').checked = (cfg.aiTts !== false);
   document.getElementById('aiTtsMode').value = (cfg.aiTtsMode === 'full' ? 'full' : 'brief');
@@ -10878,6 +10905,10 @@ function saveAISettings(){
     memOn: document.getElementById('aiMemOn').checked,
   });
   localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg));
+  try{
+    aiProfileSyncFromCfg(cfg);   // 手改过就同步回「当前配置档」，切换时不会变回旧值
+    aiProfileRender();           // 「当前」标记是比对内容得出的，保存后必须重画，否则会贴错档
+  }catch(e){}
   localStorage.setItem(MEM_ENABLED_KEY, document.getElementById('aiMemOn').checked ? '1' : '0');
   // 角色音色（多角色自动切换）
   const aEngine = document.getElementById('aiVoiceAEngine').value;
@@ -10917,6 +10948,268 @@ function saveAISettings(){
   if(!_setSaving) setTimeout(closeSettings, 1400); // 组合保存时由 saveSettings 统一收尾
   toast('助理配置已保存');
 }
+
+/* ===================== 接口配置档：多套 URL+Key 存好，切换点一下 =====================
+   2026-10-18 叶子提的痛点：Key 是密码框，改一个字都得整串重粘，换一家服务商特别麻烦。
+   做法：把「Base URL + Key + 模型（+ 视觉那套）」打包存成本机配置档，切换时点一下就写进输入框并落盘。
+   ⚠️ 独立键 mhm_ai_profiles，绝不并入 mhm_ai_cfg：后者是「当前生效值」，换档就被覆盖，存的档会全丢。
+      mhm_ 开头且不在 BK_SKIP_KEYS 里 ⇒ 自动进本机快照，随全量导出一起走。 */
+const AI_PROFILE_KEY = 'mhm_ai_profiles';
+const AI_PROFILE_CUR = 'mhm_ai_profile_cur';
+function aiProfiles(){
+  try{ const a = JSON.parse(localStorage.getItem(AI_PROFILE_KEY) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+function aiProfilesSave(list){
+  try{ localStorage.setItem(AI_PROFILE_KEY, JSON.stringify(list || [])); }
+  catch(e){ toast('配置档存不下（本机存储空间不足？）'); }
+}
+function aiProfileCurId(){ try{ return localStorage.getItem(AI_PROFILE_CUR) || ''; }catch(e){ return ''; } }
+function aiProfileSetCur(id){
+  try{ if(id) localStorage.setItem(AI_PROFILE_CUR, String(id)); else localStorage.removeItem(AI_PROFILE_CUR); }catch(e){}
+}
+function aiProfileEsc(s){
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function aiProfileMask(k){
+  k = String(k || '').trim();
+  if(!k) return '没填 Key';
+  if(k.length <= 10) return k.slice(0,3) + '…' + k.slice(-2);
+  return k.slice(0,5) + '…' + k.slice(-4);
+}
+function aiProfileHost(u){
+  return String(u || '').replace(/^https?:\/\//,'').replace(/\/+$/,'');
+}
+function aiProfileGuessName(u){
+  const s = String(u || '').toLowerCase();
+  if(s.indexOf('deepseek') >= 0) return 'DeepSeek';
+  if(s.indexOf('dashscope') >= 0 || s.indexOf('aliyuncs') >= 0) return '百炼';
+  if(s.indexOf('openrouter') >= 0) return 'OpenRouter';
+  if(s.indexOf('moonshot') >= 0) return 'Kimi';
+  if(s.indexOf('bigmodel') >= 0 || s.indexOf('zhipu') >= 0) return '智谱';
+  if(s.indexOf('siliconflow') >= 0) return '硅基流动';
+  const h = aiProfileHost(u).split('/')[0];
+  return h || '配置档';
+}
+function aiProfileNewId(){ return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function aiProfileField(id){ const e = document.getElementById(id); return e ? String(e.value || '').trim() : ''; }
+function aiProfileFromInputs(){
+  return { baseUrl: aiProfileField('aiBase'), apiKey: aiProfileField('aiKey'), model: aiProfileField('aiModel'),
+           visionBase: aiProfileField('aiVisionBase'), visionKey: aiProfileField('aiVisionKey'), visionModel: aiProfileField('aiVisionModel') };
+}
+/* 密码框看不清：点小眼睛切成明文，方便只改中间几位 */
+function aiToggleKey(id, btn){
+  const el = document.getElementById(id); if(!el) return;
+  const show = (el.type === 'password');
+  el.type = show ? 'text' : 'password';
+  if(btn){ btn.textContent = show ? '🙈' : '👁'; btn.style.borderColor = show ? 'var(--green-deep)' : ''; }
+}
+/* 第一次用：把现在正在跑的那套自动存成第一份（否则切走一次就找不回来） */
+function aiProfileSeed(){
+  try{
+    if(localStorage.getItem(AI_PROFILE_KEY)) return;          // 已有档（哪怕是空数组）就不再动
+    const cfg = getAiCfg();
+    if(!cfg.apiKey && !cfg.baseUrl) return;
+    aiProfileUpsert(null, aiProfileGuessName(cfg.baseUrl), {
+      baseUrl: cfg.baseUrl || '', apiKey: cfg.apiKey || '', model: cfg.model || '',
+      visionBase: cfg.visionBase || '', visionKey: cfg.visionKey || '', visionModel: cfg.visionModel || ''
+    }, true);
+  }catch(e){}
+}
+function aiProfileRender(){
+  const box = document.getElementById('aiProfileList');
+  if(!box) return;
+  aiProfileHideOps();
+  const list = aiProfiles();
+  if(!list.length){
+    box.innerHTML = '<div style="font-size:11px;color:var(--ink-faint);line-height:1.6;padding:2px 0 0;">'
+      + '还没存过配置档 —— 在下面填好 URL 和 Key，再回来点「＋ 把当前这组存为配置档」，以后换的时候点一下就行。</div>';
+    return;
+  }
+  box.innerHTML = list.map(function(p){
+    const isCur = aiProfileIsCur(p);
+    return '<div class="aip-row' + (isCur ? ' is-cur' : '') + '" data-id="' + aiProfileEsc(p.id) + '" onclick="aiProfileRowClick(\'' + aiProfileEsc(p.id) + '\')">'
+      + '<div class="aip-name">' + aiProfileEsc(p.name || aiProfileGuessName(p.baseUrl))
+      + (isCur ? '<span class="aip-badge">当前</span>' : '') + '</div>'
+      + '<div class="aip-meta">' + aiProfileEsc(aiProfileHost(p.baseUrl) || '没填 URL')
+      + ' · Key ' + aiProfileEsc(aiProfileMask(p.apiKey))
+      + (p.model ? ' · ' + aiProfileEsc(p.model) : '') + '</div>'
+      + '</div>';
+  }).join('');
+}
+/* 切换：写进输入框 + 直接落盘（不用再点保存），并把这一条标成「当前」 */
+function aiProfileApply(id){
+  const p = aiProfiles().filter(function(x){ return x.id === id; })[0];
+  if(!p){ toast('这份配置档已经不在了'); aiProfileRender(); return; }
+  const set = function(elId, v){ const e = document.getElementById(elId); if(e) e.value = (v == null ? '' : v); };
+  if(p.baseUrl) set('aiBase', p.baseUrl);
+  if(p.apiKey)  set('aiKey',  p.apiKey);
+  if(p.model)   set('aiModel', p.model);
+  set('aiVisionBase',  p.visionBase);
+  set('aiVisionKey',   p.visionKey);
+  set('aiVisionModel', p.visionModel);
+  aiSyncBaseSel('aiBaseSel', 'aiBase');
+  aiSyncBaseSel('aiVisionBaseSel', 'aiVisionBase');
+  const cfg = getAiCfg();
+  if(p.baseUrl) cfg.baseUrl = p.baseUrl;
+  if(p.apiKey)  cfg.apiKey  = p.apiKey;
+  if(p.model)   cfg.model   = p.model;
+  cfg.visionBase  = p.visionBase  || '';
+  cfg.visionKey   = p.visionKey   || '';
+  cfg.visionModel = p.visionModel || '';
+  try{ localStorage.setItem('mhm_ai_cfg', JSON.stringify(cfg)); }catch(e){}
+  aiProfileSetCur(p.id);
+  aiProfileRender();
+  try{ refreshModelBadge(); }catch(e){}
+  toast(p.apiKey ? ('已切到「' + p.name + '」，马上生效') : ('已切到「' + p.name + '」：这份没存 Key，记得补填'));
+}
+function aiSyncBaseSel(selId, inputId){
+  const s = document.getElementById(selId); if(!s) return;
+  const v = aiProfileField(inputId);
+  s.value = [].slice.call(s.options).some(function(o){ return o.value === v; }) ? v : '';
+}
+function aiProfileSaveAs(){
+  const cur = aiProfileFromInputs();
+  if(!cur.baseUrl && !cur.apiKey){ toast('先在下面填好 URL 和 Key，再存成配置档'); return; }
+  aiProfileAskName('存为配置档', aiProfileGuessName(cur.baseUrl), function(name){ aiProfileUpsert(null, name, cur); });
+}
+function aiProfileUpsert(id, name, data, makeCur){
+  const list = aiProfiles();
+  let p = id ? list.filter(function(x){ return x.id === id; })[0] : null;
+  if(!p){ p = { id: aiProfileNewId() }; list.push(p); }
+  p.name = name || aiProfileGuessName(data.baseUrl) || '配置档';
+  p.baseUrl = data.baseUrl || ''; p.apiKey = data.apiKey || ''; p.model = data.model || '';
+  p.visionBase = data.visionBase || ''; p.visionKey = data.visionKey || ''; p.visionModel = data.visionModel || '';
+  p.ts = Date.now();
+  aiProfilesSave(list);
+  // ⚠️ 只在「这份就是现在正在用的」时才挪「当前」标记：存一份备用档不该把正在用的那份顶掉
+  if(makeCur) aiProfileSetCur(p.id);
+  aiProfileRender();
+  toast(id ? ('已更新「' + p.name + '」') : ('已存为「' + p.name + '」，要用它点一下那一条就行'));
+}
+/* 「当前」按内容比对，不认 id：手改过输入框、或存了备用档之后，标记才不会贴错（贴错＝信错人） */
+function aiProfileIsCur(p){
+  try{
+    const c = getAiCfg();
+    const ck = String(c.apiKey || '').trim(), cb = String(c.baseUrl || '').trim();
+    if(!ck && !cb) return false;
+    return String(p.apiKey || '') === ck && String(p.baseUrl || '') === cb;
+  }catch(e){ return false; }
+}
+function aiProfileUpdate(id){
+  const list = aiProfiles(); const p = list.filter(function(x){ return x.id === id; })[0];
+  if(!p){ toast('这份配置档已经不在了'); aiProfileRender(); return; }
+  const cur = aiProfileFromInputs();
+  if(!cur.baseUrl && !cur.apiKey){ toast('下面的 URL 和 Key 都是空的，没更新'); return; }
+  aiProfileUpsert(id, p.name, cur);
+}
+function aiProfileRename(id){
+  const list = aiProfiles(); const p = list.filter(function(x){ return x.id === id; })[0];
+  if(!p) return;
+  aiProfileAskName('给这份改个名', p.name, function(name){ aiProfileUpsert(id, name, aiProfileFromInputs()); });
+}
+function aiProfileDel(id){
+  const p = aiProfiles().filter(function(x){ return x.id === id; })[0];
+  if(!p) return;
+  showDialog('删除配置档', '删掉「' + p.name + '」？\n只是删掉本机存的这份 URL+Key，正在用的那套不受影响。', [
+    { label:'取消', cls:'ghost' },
+    { label:'删除', cls:'primary', fn:function(){
+        aiProfilesSave(aiProfiles().filter(function(x){ return x.id !== id; }));
+        if(aiProfileCurId() === id) aiProfileSetCur('');
+        aiProfileRender();
+        toast('已删除「' + p.name + '」');
+      } }
+  ]);
+}
+/* 通用「问个名字」弹窗（showDialog 只支持按钮，这里塞一个输入框进去） */
+function aiProfileAskName(title, defVal, cb){
+  const def = defVal || '';
+  showDialog(title,
+    '<input id="__aipName" type="text" autocomplete="off" value="' + aiProfileEsc(def) + '" placeholder="起个名字，比如「百炼」「OpenRouter」"'
+    + ' style="width:100%;box-sizing:border-box;padding:10px 12px;border-radius:10px;border:1px solid var(--green-mid);background:#fff;color:var(--ink);font-size:14px;">'
+    + '<p style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.55;">名字只在本机显示，随便起，认得出是哪一家就行。</p>',
+    [ { label:'取消', cls:'ghost' },
+      { label:'保存', cls:'primary', fn:function(){
+          const el = document.getElementById('__aipName');
+          cb(((el && el.value) || '').trim() || def || '配置档');
+        } } ], true);
+  setTimeout(function(){ const el = document.getElementById('__aipName'); if(el){ try{ el.focus(); el.select(); }catch(e){} } }, 360);
+}
+/* 长按一条 → 浮出「改名 / 更新 / 删除」（和课表卡同款 550ms：一排常驻按钮太吵）
+   移动超过 10px 或抬手就取消（滑动不误触）；长按抬起会顺带触发 click ⇒ 用标志位吃掉那一下。 */
+let aiProfilePress = null;
+function aiProfileBindLongPress(){
+  const box = document.getElementById('aiProfileList');
+  if(!box || window.__aipLP) return;
+  window.__aipLP = true;
+  const cancel = function(){
+    if(aiProfilePress && aiProfilePress.timer) clearTimeout(aiProfilePress.timer);
+    if(aiProfilePress && aiProfilePress.el) aiProfilePress.el.classList.remove('pressing');
+    aiProfilePress = null;
+  };
+  const rowOf = function(t){ return (t && t.closest) ? t.closest('.aip-row') : null; };
+  box.addEventListener('pointerdown', function(e){
+    const el = rowOf(e.target);
+    if(!el) return;
+    const id = el.getAttribute('data-id');
+    if(!id) return;
+    cancel();
+    window.__aipSuppressClick = false;
+    el.classList.add('pressing');
+    const pt = { x:e.clientX, y:e.clientY, el:el, id:id };
+    pt.timer = setTimeout(function(){
+      if(aiProfilePress !== pt) return;
+      pt.el.classList.remove('pressing');
+      if(navigator.vibrate){ try{ navigator.vibrate(12); }catch(e2){} }
+      window.__aipSuppressClick = true;                       // 抬手那一下别当成「切换」
+      setTimeout(function(){ window.__aipSuppressClick = false; }, 800);
+      if(window.__aipOpsId === id) aiProfileHideOps();        // 再长按一次 = 收起
+      else aiProfileShowOps(pt.el, id);
+      aiProfilePress = null;
+    }, 550);
+    aiProfilePress = pt;
+  });
+  box.addEventListener('pointermove', function(e){
+    if(!aiProfilePress) return;
+    if(Math.abs(e.clientX - aiProfilePress.x) > 10 || Math.abs(e.clientY - aiProfilePress.y) > 10) cancel();
+  });
+  ['pointerup','pointercancel','pointerleave'].forEach(function(t){ box.addEventListener(t, cancel); });
+  box.addEventListener('contextmenu', function(e){ if(rowOf(e.target)) e.preventDefault(); });
+}
+function aiProfileRowClick(id){
+  if(window.__aipSuppressClick){ window.__aipSuppressClick = false; return; }
+  aiProfileApply(id);
+}
+function aiProfileShowOps(el, id){
+  aiProfileHideOps();
+  const div = document.createElement('div');
+  div.className = 'cs-ops';
+  div.innerHTML = '<button type="button" onclick="event.stopPropagation();aiProfileRename(\'' + id + '\')">✎ 改名</button>'
+    + '<button type="button" onclick="event.stopPropagation();aiProfileUpdate(\'' + id + '\')">🔄 更新</button>'
+    + '<button type="button" onclick="event.stopPropagation();aiProfileDel(\'' + id + '\')">🗑 删除</button>'
+    + '<button type="button" class="cs-x" onclick="event.stopPropagation();aiProfileHideOps()">✕</button>';
+  el.appendChild(div);
+  window.__aipOpsId = id;
+}
+function aiProfileHideOps(){
+  window.__aipOpsId = undefined;
+  const box = document.getElementById('aiProfileList');
+  const n = box ? box.querySelector('.cs-ops') : null;
+  if(n) n.remove();
+}
+/* 保存设置时，把当前生效的那套同步回「当前配置档」：免得手改过之后一切换又变回旧的 */
+function aiProfileSyncFromCfg(cfg){
+  const id = aiProfileCurId(); if(!id || !cfg) return;
+  const list = aiProfiles(); const p = list.filter(function(x){ return x.id === id; })[0];
+  if(!p) return;
+  // ⚠️ URL 换了就不动旧档：换了服务商说明这是另一家，自动覆盖会把上一家的 Key 抹掉。
+  //    只同步「同一家换了把新 Key」这种最常见的情况（Key 过期重贴 → 档里也跟着更新）。
+  if(String(p.baseUrl || '').trim() !== String(cfg.baseUrl || '').trim()) return;
+  p.baseUrl = cfg.baseUrl || ''; p.apiKey = cfg.apiKey || ''; p.model = cfg.model || '';
+  p.visionBase = cfg.visionBase || ''; p.visionKey = cfg.visionKey || ''; p.visionModel = cfg.visionModel || '';
+  p.ts = Date.now();
+  aiProfilesSave(list);
+}
+
 // 导出全部本地数据（任务/课表/配置/心情）为一个 JSON 文件
 // ===== 全量导出（2026-10-09 重写）=====
 // ⚠️ 旧版是「白名单制」：只导 keys 里写死的 11 个键 ⇒ 日记/记忆库/原始消息/角色设定全部丢失，
