@@ -1618,15 +1618,6 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 }
 .ai-chips button:active{transform:scale(.94);background:var(--green-soft);color:var(--green-dark);border-color:var(--green-mid);}
 
-/* 手势提示条（2026-10-18）：双击/长按都是隐藏手势，入口藏起来就必须留一个常驻可见标识，
-   否则功能等于不存在。极淡一行字，不抢输入区的注意力。 */
-.ai-gesture-tip{
-  flex:0 0 auto;padding:0 16px 7px;text-align:center;font-size:10.5px;line-height:1.4;
-  color:var(--ink-soft);opacity:.72;background:var(--glass-strong);
-  backdrop-filter:blur(var(--blur-max)) saturate(200%);-webkit-backdrop-filter:blur(var(--blur-max)) saturate(200%);
-  border-top:1px solid var(--line);
-}
-
 /* ---------- 顶部胶囊：备份小按钮 ---------- */
 .mini-backup{
   flex:0 0 auto;line-height:1.3;font-size:var(--fs-1);font-weight:700;
@@ -2618,7 +2609,6 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
     <button class="ai-send" id="aiSendBtn" onclick="sendAI()">发送</button>
   </div>
   <div class="ai-attach-bar" id="aiAttachBar" style="display:none;"></div>
-  <div class="ai-gesture-tip">长按气泡 → 圈选记为记忆 · 双击气泡 → 改内容 / 重新生成</div>
 </div>
 
 <!-- 统一设置中心（2026-10-14）：原「助理设置」「✎ 提示词中心」「番茄钟设置」三处整合为一块面板，
@@ -7369,8 +7359,16 @@ function toast(msg){
 
 /* ====== 弹窗退场：先播退场动画再隐藏（emil-design-eng 审查 P0-1） ====== */
 const closeTimers = {};
+/* ⚠️ 2026-10-18 修「弹窗接力被自己关掉」：
+   closeMask 会挂一个 animationend 监听，等出场动画播完再收掉弹窗。
+   而「弹窗里点按钮 → 弹下一个确认框」是先 close 再 open 的接力（showDialog 的按钮就是这么写的），
+   openMask 原先只 clearTimeout、**没清这个监听** ⇒ 新弹窗播完入场动画（.3s）时，
+   上一个弹窗遗留的监听照样触发 done() ⇒ 弹窗自己消失、用户点的操作根本没执行。
+   症状像"随机跳掉"，实则是每次都中。正解：监听句柄登记在册，openMask 时先摘掉。 */
+const _maskAnimH = {};
 function openMask(el){
   if(!el) return;
+  if(_maskAnimH[el.id]){ try{ el.removeEventListener('animationend', _maskAnimH[el.id]); }catch(e){} _maskAnimH[el.id] = null; }
   el.classList.remove('closing');
   clearTimeout(closeTimers[el.id]);
   el.classList.add('show');
@@ -7378,8 +7376,13 @@ function openMask(el){
 function closeMask(el){
   if(!el || el.classList.contains('closing')) return;
   el.classList.add('closing');
-  const done = ()=>{ el.classList.remove('closing'); el.classList.remove('show'); };
-  const h = (ev)=>{ if(ev.target===el){ el.removeEventListener('animationend', h); done(); } };
+  const done = ()=>{
+    if(_maskAnimH[el.id]){ try{ el.removeEventListener('animationend', _maskAnimH[el.id]); }catch(e){} _maskAnimH[el.id] = null; }
+    el.classList.remove('closing'); el.classList.remove('show');
+  };
+  if(_maskAnimH[el.id]){ try{ el.removeEventListener('animationend', _maskAnimH[el.id]); }catch(e){} _maskAnimH[el.id] = null; }
+  const h = (ev)=>{ if(ev.target===el){ el.removeEventListener('animationend', h); _maskAnimH[el.id] = null; done(); } };
+  _maskAnimH[el.id] = h;
   el.addEventListener('animationend', h);
   clearTimeout(closeTimers[el.id]);
   closeTimers[el.id] = setTimeout(done, 600);
