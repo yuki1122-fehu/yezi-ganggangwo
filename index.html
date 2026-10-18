@@ -1618,6 +1618,15 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 }
 .ai-chips button:active{transform:scale(.94);background:var(--green-soft);color:var(--green-dark);border-color:var(--green-mid);}
 
+/* 手势提示条（2026-10-18）：双击/长按都是隐藏手势，入口藏起来就必须留一个常驻可见标识，
+   否则功能等于不存在。极淡一行字，不抢输入区的注意力。 */
+.ai-gesture-tip{
+  flex:0 0 auto;padding:0 16px 7px;text-align:center;font-size:10.5px;line-height:1.4;
+  color:var(--ink-soft);opacity:.72;background:var(--glass-strong);
+  backdrop-filter:blur(var(--blur-max)) saturate(200%);-webkit-backdrop-filter:blur(var(--blur-max)) saturate(200%);
+  border-top:1px solid var(--line);
+}
+
 /* ---------- 顶部胶囊：备份小按钮 ---------- */
 .mini-backup{
   flex:0 0 auto;line-height:1.3;font-size:var(--fs-1);font-weight:700;
@@ -2609,6 +2618,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
     <button class="ai-send" id="aiSendBtn" onclick="sendAI()">发送</button>
   </div>
   <div class="ai-attach-bar" id="aiAttachBar" style="display:none;"></div>
+  <div class="ai-gesture-tip">长按气泡 → 圈选记为记忆 · 双击气泡 → 改内容 / 重新生成</div>
 </div>
 
 <!-- 统一设置中心（2026-10-14）：原「助理设置」「✎ 提示词中心」「番茄钟设置」三处整合为一块面板，
@@ -3122,7 +3132,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         </label>
       </div>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
-        助理会把你们的对话自动沉淀成带标签的记忆（关键词 / 情感 / 主题），你聊到某个词时，相关回忆会自动浮上来——陪伴生动感优先，固定代办不占记忆。打标在后台分批跑，不拖慢聊天。长按任意气泡可手动圈选对话、按你的要求写成一条记忆（总结只进记忆，不影响日记）。对哪条回复不满意，双击它就能重新生成。
+        助理会把你们的对话自动沉淀成带标签的记忆（关键词 / 情感 / 主题），你聊到某个词时，相关回忆会自动浮上来——陪伴生动感优先，固定代办不占记忆。打标在后台分批跑，不拖慢聊天。长按任意气泡可手动圈选对话、按你的要求写成一条记忆（总结只进记忆，不影响日记）。<b>双击任意气泡</b>可以「✏️ 修改内容」——只改那一段字、不动后面的对话（模型爱用「嗯？」之类口癖时特别顺手，改完它之后就会按你改过的语气来）；整段都不对味时才用「🔄 重新生成」。你自己的话也能双击改，改完可以让它按新问法重答。
         </p>
       <div id="memFields" style="transition:opacity .25s;">
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
@@ -3367,6 +3377,22 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
     <h3 id="dialogTitle">确认</h3>
     <p id="dialogMsg" style="white-space:pre-line;"></p>
     <div class="row" id="dialogBtns" style="flex-direction:column;gap:8px;"></div>
+  </div>
+</div>
+
+<!-- 双击气泡 → 手动改写内容（2026-10-18）。
+     存在的理由：模型有口癖（例如爱用「嗯？」收尾），而历史回复会一条条进入下一轮上下文，
+     模型照着学 ⇒ 口癖越滚越多。这种小毛病不值得为它作废整轮重来。 -->
+<div class="mask" id="msgEditMask" style="z-index:98;">
+  <div class="sheet glass-strong">
+    <h3 id="msgEditTitle">修改内容</h3>
+    <p id="msgEditHint" style="font-size:11.5px;color:var(--ink-soft);line-height:1.65;margin:2px 0 0;"></p>
+    <textarea id="msgEditText" style="width:100%;min-height:150px;resize:vertical;font-size:13px;line-height:1.7;margin-top:8px;padding:10px 12px;border:1px solid var(--ink-faint);border-radius:10px;background:rgba(255,255,255,.6);font-family:inherit;box-sizing:border-box;white-space:pre-wrap;"></textarea>
+    <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap;">
+      <button class="btn ghost" onclick="closeMsgEdit()">取消</button>
+      <button class="btn primary" onclick="saveMsgEdit(false)">保存</button>
+      <button class="btn primary" id="msgEditRerollBtn" onclick="saveMsgEdit(true)">保存并重新生成</button>
+    </div>
   </div>
 </div>
 
@@ -7387,6 +7413,7 @@ function hideDialog(){ closeMask(document.getElementById('dialogMask')); }
    Cordova / Capacitor 壳层可把返回键事件交给这个函数，实现「先关弹窗再退出」。 */
 function closeTopOverlay(){
   const stack = [
+    {id:'msgEditMask', close:closeMsgEdit},
     {id:'memJournalEditMask', close:closeJournalEdit},
     {id:'pomoEggMask', close:closePomoEgg},
     {id:'pomoPlantMask', close:closePomoPlant},
@@ -10078,6 +10105,17 @@ async function aiUndoRestore(){
 function askReroll(mid){
   if(typeof aiBusy !== 'undefined' && aiBusy){ toast('助理还在忙，等它说完再试'); return; }
   if(typeof memPickState !== 'undefined' && memPickState.active){ toast('先退出气泡选择模式'); return; }
+  // ★ 2026-10-18：也接受「双击自己那条消息」—— 转发给它后面那条 AI 回复。
+  //   场景：先微调自己问的话，再让它按新问法重答一遍。
+  if(mid && aiConv){
+    const ti = aiConv.findIndex(m=>m && m.id===mid);
+    if(ti >= 0 && aiConv[ti].role === 'user'){
+      let j = ti + 1;
+      while(j < aiConv.length && aiConv[j] && aiConv[j].role !== 'assistant') j++;
+      if(j >= aiConv.length){ toast('这句话后面还没有回复，无从重新生成'); return; }
+      mid = aiConv[j].id;
+    }
+  }
   const willUndo = !!window.__aiLastTurnTools;
   // 双击的是不是最后一条回复：是 → 只作废这一轮；不是 → 连它后面的对话一起作废
   let tail = 0;
@@ -10132,9 +10170,147 @@ async function doAiReroll(mid){
     await aiRun();
   }catch(e){ toast('重新生成失败：' + (e.message||'未知错误')); }
 }
-// 双击任意一条 AI 回复 → 重 roll（事件委托，只绑一次）。
-// ⚠️ 与「长按圈选记忆」的分工：长按 550ms 进选择模式（memPick 手势），双击弹重新生成确认框；
-//    选择模式进行中双击 = 切换选中，不弹框（下方 memPickState.active 判断）。
+/* ══════ ✏️ 手动改写某条气泡的内容（2026-10-18）══════
+   为什么需要：模型有口癖（比如爱用「嗯？」收尾），而历史回复会一条条进下一轮上下文，
+   模型照着学 ⇒ 越靠后越浓。这类小毛病犯不上为它作废整轮重来，
+   所以给一条「只改这段字、不动其他」的轻通道。
+   ⚠️ 三处必须同步，缺一个就会出现「界面改了、模型看到的还是旧的」：
+     ① aiConv 里的原始记录（发出去的上下文就是它）
+     ② 记忆库 messages 表的镜像（磁铁召回的原话从那里取）
+     ③ 气泡 DOM
+   ⚠️ 改 user 消息时不能碰 content 里的注入块（时间锚点/识图结果/附件原文都在里面，
+      覆盖会把图片信息弄丢）→ 只改展示用的 userText，并在保存时按需同步 content。 */
+let _msgEditTarget = null;
+function msgEditPlain(m){
+  if(!m) return '';
+  if(m.role === 'assistant'){
+    const raw = (typeof m.content === 'string') ? m.content : (Array.isArray(m.content) ? m.content.map(p=>p&&p.text?p.text:'').join(' ') : '');
+    return aiResolveVoice(raw).clean;  // 剥掉【角色名】标记再显示，保存时原样加回
+  }
+  return m.userText ? stripInjectedAnchor(m.userText) : convUserText(m.content);
+}
+function openMsgEdit(mid){
+  if(typeof memPickState !== 'undefined' && memPickState.active){ toast('先退出气泡选择模式'); return; }
+  if(!aiConv || !mid){ toast('找不到这条消息'); return; }
+  const i = aiConv.findIndex(m => m && m.id === mid);
+  if(i < 0){ toast('这条消息不在对话历史里（可能是提示气泡），改不了'); return; }
+  const m = aiConv[i];
+  if(m.role !== 'user' && m.role !== 'assistant'){ toast('这条消息改不了'); return; }
+  if(m.role === 'assistant' && Array.isArray(m.content)){ toast('这条是多模态回复，改不了'); return; }
+  if(m.role === 'user' && Array.isArray(m.content)){ toast('这条带图片，改文字会丢掉图片，请删掉重发'); return; }
+  const cur = msgEditPlain(m);
+  if(!cur || !cur.trim()){ toast('这条没有正文，改不了'); return; }
+  _msgEditTarget = { mid:mid, i:i, role:m.role };
+  const isUser = (m.role === 'user');
+  document.getElementById('msgEditTitle').textContent = isUser ? '修改你这句话' : '修改这条回复';
+  let hint = '改完点保存。后面的对话不动，助理之后也会按你改过的这句语气来。';
+  if(isUser){
+    hint = '改完点「保存并重新生成」＝ 它后面的回复会作废、按你新问的说法重答一遍；只点「保存」＝ 就改这句字，不重答。';
+    /* ⚠️ 重 roll 会连带作废这一句之后的全部对话（非末尾时）。这里必须提前讲清，
+       否则用户以为只是"重答这一轮"，结果后面几轮连带没了。
+       ⚠️ 计数基准是「它后面那条 assistant 气泡」而不是自己 —— 那条正是被重答的对象，
+       不算连带作废；早前按自己算，末尾那句也会误报 1 条。 */
+    let tail = 0;
+    try{
+      const all = Array.from(document.querySelectorAll('#aiMsgs .ai-msg[data-mid]'));
+      const me = all.findIndex(e => e.getAttribute('data-mid') === mid);
+      if(me >= 0){
+        let j = me + 1;
+        while(j < all.length && all[j].classList.contains('user')) j++;  // 找到要重答的那条 assistant
+        tail = all.length - 1 - j;
+        if(tail < 0) tail = 0;
+      }
+    }catch(e){}
+    if(tail > 0) hint += '\n⚠️ 这不是最后一句：重新生成会连它后面的 ' + tail + ' 条对话一起作废。若那些轮动过数据，请到记账 / 任务里核对一眼。';
+  }
+  document.getElementById('msgEditHint').textContent = hint;
+  const btn = document.getElementById('msgEditRerollBtn');
+  if(btn) btn.style.display = isUser ? '' : 'none';
+  document.getElementById('msgEditText').value = cur;
+  openMask(document.getElementById('msgEditMask'));
+  setTimeout(()=>{ const ta = document.getElementById('msgEditText'); if(ta){ ta.focus(); try{ ta.setSelectionRange(ta.value.length, ta.value.length); }catch(e){} } }, 120);
+}
+function closeMsgEdit(){ _msgEditTarget = null; closeMask(document.getElementById('msgEditMask')); }
+/* 改完把 messages 表里那条镜像一起改掉，否则磁铁召回还会把旧原话塞回上下文 —— 那等于没改。 */
+async function _memEditMirror(mid, text){
+  try{
+    if(!memEnabled() || !mid) return;
+    const rows = await memGetAll('messages');
+    for(const r of (rows||[])){
+      if(r && r.mid === mid && r.content !== text){
+        await memPut('messages', Object.assign({}, r, { content:text, edited_at:new Date().toISOString() }));
+      }
+    }
+  }catch(e){ console.warn('[mem] edit mirror', e); }
+}
+async function saveMsgEdit(andReroll){
+  const t = _msgEditTarget;
+  const ta = document.getElementById('msgEditText');
+  const val = ta ? String(ta.value||'').trim() : '';
+  if(!t){ toast('编辑已失效，请重新双击'); return; }
+  if(!val){ toast('内容不能为空（想删掉整条请用气泡上的 ×）'); return; }
+  const m = aiConv[t.i];
+  if(!m || m.id !== t.mid){ toast('这条消息已经变了，请重新双击'); closeMsgEdit(); return; }
+  let synced = true;
+  if(t.role === 'assistant'){
+    // 【角色名】是音色标记，改文字不该把它弄丢：按原样拼回去
+    const raw = String(m.content||'');
+    const mk = raw.match(/^\s*[【\[（〔]\s*([^】\]）〕]{1,12})\s*[】\]）〕]\s*[:：]?\s*/);
+    const vres = mk ? aiResolveVoice(raw) : null;
+    const head = (vres && vres.voice) ? mk[0] : '';
+    m.content = head + val;
+    await _memEditMirror(m.id, aiStickerPlain(val));
+  }else{
+    /* user 消息：content 里可能挂着图片识别结果 / 附件原文 / 时间锚点，
+       整体覆盖会把图片信息弄丢 ⇒ 只替换「属于用户自己的那句话」这一段，尾巴原样留着。
+       ⚠️ 匹配不到就是真的改不了（只能改界面、模型看到的还是旧话）＝ 假功能，
+          此时必须如实说，并且**不许继续重 roll**（那等于拿旧问法去重答，白折腾一轮）。 */
+    // 去掉展示用的 [图片] / [文件:xx] 标记 —— 它们不在 content 里，拿去匹配必然落空
+    const oldUser = String(msgEditPlain(m) || '').replace(/\s*(\[(图片|文件:[^\]]*)\])+\s*$/,'').trim();
+    synced = false;
+    if(typeof m.content === 'string' && oldUser){
+      const c = m.content;
+      const p = c.indexOf(oldUser);
+      if(p >= 0){ m.content = c.slice(0, p) + val + c.slice(p + oldUser.length); synced = true; }
+    }
+    // synced=false 时一个字都不改（含 userText）：宁可不做，也不能做出「界面变了、模型没变」的假象
+    if(synced){ m.userText = val; await _memEditMirror(m.id, val); }
+  }
+  // 气泡就地重画（不整页重渲：会跳滚动、也会打断正在读的其他气泡）
+  try{
+    const wrap = document.getElementById('aiMsgs');
+    const old = wrap ? wrap.querySelector('[data-mid="' + m.id + '"]') : null;
+    if(wrap && old){
+      const el = convBubbleEl(m);
+      if(el){ old.parentNode.replaceChild(el, old); }
+      memMarkBubbles().catch(()=>{});
+    }
+  }catch(e){ console.warn('重绘气泡失败', e); }
+  saveConv();
+  closeMsgEdit();
+  if(!synced){
+    toast('这条带图片/附件，改不了文字（怕把图片信息弄丢）· 请用 × 删掉后重发');
+    return;
+  }
+  if(andReroll){
+    toast('已改，正在按新内容重新生成…');
+    // user 消息：作废它之后的回复重答；assistant 消息：重 roll 这一轮
+    let target = m.id;
+    if(t.role === 'user'){
+      let j = t.i + 1;
+      while(j < aiConv.length && aiConv[j] && aiConv[j].role !== 'assistant') j++;
+      if(j < aiConv.length) target = aiConv[j].id;
+    }
+    setTimeout(()=>doAiReroll(target), 60);
+    return;
+  }
+  toast(t.role === 'user' ? '已改 · 再双击它可让助理按新问法重答' : '已改 · 这段话现在是改过的样子');
+}
+/* 双击任意气泡 → 菜单：改内容 / 重新生成（事件委托，只绑一次）。
+   ⚠️ 与「长按圈选记忆」的分工：长按 550ms 进选择模式（memPick 手势），双击弹本菜单；
+      选择模式进行中双击 = 切换选中，不弹框（下方 memPickState.active 判断）。
+   ⚠️ 2026-10-18 起 user 气泡也归双击管（以前只对 .ai-msg.ai 生效）——
+      「先微调自己问的话、再重 roll」是这个手势最自然的用法。 */
 function aiInitRerollDblclick(){
   if(window.__rerollBound) return;
   const wrap = document.getElementById('aiMsgs');
@@ -10144,8 +10320,19 @@ function aiInitRerollDblclick(){
     if(typeof memPickState !== 'undefined' && memPickState.active) return; // 选择模式下双击是切换选中
     const t = e.target;
     if(t && t.closest && t.closest('.del, .tts-btn, button, a')) return; // 点到气泡上的按钮（删除/朗读）不算
-    const el = t && t.closest ? t.closest('.ai-msg.ai[data-mid]') : null;
-    if(el) askReroll(el.getAttribute('data-mid'));
+    const el = t && t.closest ? t.closest('.ai-msg[data-mid]') : null;
+    if(!el) return;
+    const mid = el.getAttribute('data-mid');
+    const isUser = el.classList.contains('user');
+    showDialog(isUser ? '这句话' : '这条回复',
+      isUser
+        ? '只是措辞差一点 → 选「✏️ 修改」，改完它后面的回复会按新问法重答。\n（整段都不对味才选重新生成。）'
+        : '只是末尾口癖、个别措辞不满意 → 选「✏️ 修改」，只改这一段、不动后面的对话。\n整段都不对味、或它写错了数据 → 选「🔄 重新生成」。',
+      [
+        {label:'取消', cls:'ghost'},
+        {label:'✏️ 修改内容', cls:'primary', fn: ()=>openMsgEdit(mid)},
+        {label:'🔄 重新生成', cls:'ghost', fn: ()=>askReroll(mid)}
+      ]);
   });
 }
 
