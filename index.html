@@ -8418,13 +8418,30 @@ function getAiCfg(){
    ⚠️ 只加在**发送副本**上，一个字节都不写进 aiConv —— 否则气泡显示变脏，
       stripInjectedAnchor / saveMsgEdit 那一套全要跟着改。
    缓存：同一天内所有前缀稳定，只在跨天时断一次（每条 +14 字符左右）。 */
+/* 「昨天/前天/N天前」——模型算日期不可靠，但读"昨天"这种词几乎不会错。
+   10-21 补：光给 '10-20 周一' 还不够，它得自己跟今天的日期做比较；直接写出相对词更稳。 */
+function relDayWord(ts){
+  try{
+    const d0 = new Date(ts), now = new Date();
+    if(isNaN(d0.getTime())) return '';
+    const a = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate()).getTime();
+    const b = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const n = Math.round((b - a) / 86400000);
+    if(n <= 0) return '今天';
+    if(n === 1) return '昨天';
+    if(n === 2) return '前天';
+    if(n <= 30) return n + '天前';
+    return '';
+  }catch(e){ return ''; }
+}
 function convDayLabel(ts){
   const d = new Date(ts);
   const wd = ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()];
   const md = String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
   const hm = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
   const y = (d.getFullYear() !== new Date().getFullYear()) ? (d.getFullYear() + '-') : '';
-  return y + md + ' ' + wd + ' ' + hm;
+  const rel = relDayWord(ts);
+  return y + md + ' ' + wd + ' ' + hm + (rel ? (' · ' + rel) : '');
 }
 function stampConvDays(list){
   let lastDay = '';
@@ -8501,13 +8518,51 @@ function trimMessagesForSend(messages){
 // 移到 user 开头后，system + 历史消息全部稳定、命中缓存，只有这段"本就该变"的内容不命中，最大化省钱。
 // 关系现状·此刻 / 动作回执 / 近期回忆 / 磁铁记忆同样是动态内容，一并收拢到这里（原来嵌在 system 中部，每个都会打断前缀缓存）。
 let AI_MAGNET_BLOCK = ''; // 本轮磁铁召回结果，由 injectTimeAnchor 一次性并入发送副本，用后即清
-function buildLiveContext(){
+/* 【跨天播报】2026-10-21（叶子提议："每天的第一次对话自动扩个号：这是新的一天"）。
+   上一轮已经给历史消息标了日期（[10-20 周一 15:23 · 昨天]），但那仍然要求模型**自己比对两个日期**
+   再推出"已经换天了"——它时不时算错/懒得算，于是又把昨天的事当成此刻正在发生。
+   这里改成：只要上一条消息不在今天，就用一段大白话把它说死（隔了多久、今天是哪号、昨天已过去）。
+   只在新一天的第一轮出现 ⇒ 每天最多一次缓存 miss，代价可忽略。 */
+function dayRolloverBlock(){
+  try{
+    if(!Array.isArray(aiConv) || aiConv.length < 2) return '';
+    // 找「上一条真正发生过的消息」：跳过本轮刚 push 进去的当前用户消息
+    let prev = null;
+    for(let i = aiConv.length - 1; i >= 1; i--){
+      const m = aiConv[i];
+      if(!m || !m.ts) continue;
+      if(i === aiConv.length - 1 && m.role === 'user' && (Date.now() - Number(m.ts) < 180000)) continue;
+      prev = m; break;
+    }
+    if(!prev) return '';
+    const ts = Number(prev.ts) || 0;
+    if(!ts) return '';
+    const pd = new Date(ts), nd = new Date();
+    const pDay = pd.getFullYear() + '-' + pd.getMonth() + '-' + pd.getDate();
+    const nDay = nd.getFullYear() + '-' + nd.getMonth() + '-' + nd.getDate();
+    if(pDay === nDay) return '';                       // 同一天：不打扰（这是绝大多数轮次）
+    const ms = Math.max(0, Date.now() - ts);
+    const days = Math.floor(ms / 86400000), hrs = Math.floor(ms / 3600000);
+    const gap = days >= 1 ? (days + ' 天' + (hrs % 24 ? (' ' + (hrs % 24) + ' 小时') : '')) : (hrs + ' 小时');
+    return '<新的一天>\n'
+      + '上一条消息停在 ' + convDayLabel(ts) + '，到现在隔了约 ' + gap + '，日期已经翻篇：现在是 ' + convDayLabel(Date.now()) + '。\n'
+      + '判断口径：用户嘴里的"今天"只能是今天这个日期；上一条消息里的事、以及它所在的那天，都已经过去了，'
+      + '不许再当成"刚刚/现在/正在进行"（例如昨天说"我去游乐园了"，今天就是"昨天去的"，不是还坐在游乐园里）。'
+      + '跨天前那句"晚安/我先睡了"也不代表此刻还在夜里。\n'
+      + '</新的一天>';
+  }catch(e){ return ''; }
+}
+function buildLiveContext(opts){
   const ta = nowAnchor();
   const w = getWeatherSummary();
   const sc = aiScheduleSection();
   // 09-20：原 <天气警告> 独立块删除——警告名已由 getWeatherSummary() 的「生效警告：…」并入 <天气>，两处重复等于同一事实说两遍，
   // 还多带一句"如用户计划外出，请提醒注意安全"，同样助长每轮必提天气。删块后信息不丢（仍在 <天气> 里），只是不再重复。
-  let s = '<当前时间>\n'+ta+'\n</当前时间>\n<天气>\n'+w+'\n</天气>\n'+sc;
+  // ★ 2026-10-21：云端 /sync 上传的快照要**排除** <新的一天>（传 noRollover）——
+  //   那份快照会在 Worker 里躺到下次打开 App，Worker 自己的 pruneStaleLive 只认 <当前时间>/<此刻>，
+  //   不认识这个新块 ⇒ 隔天还在说"已经翻篇/隔了 12 小时"就自相矛盾。云端有 hktNowText 现算，不需要它。
+  const roll = (opts && opts.noRollover) ? '' : dayRolloverBlock();
+  let s = '<当前时间>\n'+ta+'\n</当前时间>\n' + (roll ? (roll + '\n') : '') + '<天气>\n'+w+'\n</天气>\n'+sc;
   // 关系现状 + 此刻：09-17 从末尾上移到课表之后（原来紧贴用户那句消息）。
   // 它们是**背景**，越贴近用户说的话，模型越容易把它当成本轮话题去复述（用户反馈"总在回复里提及"）。
   // 现在往下依次是动作回执与近期回忆（日记/周记/月记），让「近期回忆」成为紧贴用户消息的那一块——
@@ -8864,7 +8919,8 @@ async function syncCloudContext(){
     const sys = buildSystem(); // 角色设定稳定部分（含记忆常驻块/角色协议/粤语模式等，不含动态时间/天气/日程）
     if(!sys || sys.length < 40) return false;
     const sysCloud = buildCloudSys(); // 云端苏醒专用精简版：剔除<助手任务清单>/<行为规则>工具规范，防止模型在云端场景联想输出 <plans>/<tonight> 结构化标签（Worker 优先读此字段）
-    const live = buildLiveContext(); // 当天动态：时间/天气/警告/任务/课表/关系现状·此刻/回执/近期回忆
+    const live = buildLiveContext({noRollover:true}); // 当天动态：时间/天气/警告/任务/课表/关系现状·此刻/回执/近期回忆
+    //   （跨天播报 <新的一天> 不进快照：它说的是"此刻刚翻篇"，会在 Worker 里躺到下次打开 App 变成假话）
     const recent = cloudRecentText();
     const payload = { secret:PUSH_SECRET, sys, sysCloud, live, recent, ts: Date.now() };
     const r = await fetch(PUSH_WORKER + '/sync', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
