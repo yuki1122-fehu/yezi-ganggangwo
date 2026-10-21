@@ -7780,6 +7780,11 @@ const AI_TOOLS = [
 let aiConv = null;
 let aiBusy = false;
 let aiPendingFiles = []; // 待发送的图片/文件 {kind:'image'|'text', data, name}
+/* ★ 2026-10-21：本次启动的时刻。用途只有一个 —— 给旧存档反解 ts 时当护栏：
+   aiConvLoad 会给"本来就没 id"的老消息补一个**当下**的 id（'m'+Date.now()+…），
+   那批 id 里的毫秒串是加载时刻、不是创建时刻，不排除掉就会让整批旧对话伪装成"今天"。
+   判据：只有明显早于本次启动（>2 分钟）的 id 时间才采信。 */
+const AI_BOOT_TS = Date.now();
 
 function todayStr(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 // 当前时间锚点：日期 + 星期 + 时段 + 精确时分。每次发送都重新计算，让 AI 始终知道"现在"是哪天几点，
@@ -7948,6 +7953,13 @@ const COURSE_EDIT_RULE = [
 '- update_course 成功会返回 before / after 两份原值，请对照一遍再向用户汇报"改的是哪一节、改了什么"。若发现改到的不是你想改的那一节，立刻用 before 里的原值再调一次改回来，并在回复里说明——不许把"改错了"咽下去，也不许嘴上说改好了、实际没动。'
 ].join('\n');
 
+/* 【对话记录时间语义】单一事实源：DEFAULT_SYSTEM_TPL 与「已保存模板」的存量迁移都引用它。
+   10-21 起因：存档里的历史消息不带时间，只有最后一条 user 挂当前时间 → 模型把
+   「昨天去了游乐园」当成此刻正在发生。修法=发送副本给每天首条加 [日期 周X 时刻] 前缀，
+   这条规则负责告诉模型那个前缀是"发生时刻"，不是"现在"。 */
+const CONV_DATE_RULE = `<对话记录说明>系统消息之后的所有用户与助理往来消息都属于"对话记录"，是过去发生的事。每条记录开头若有 [日期 周X 时刻]，那是**这条消息真实发生的时刻**：用户话里的"今天/昨天/明天/上周"要按这条消息自己的日期换算成具体日子，据此判断那件事发生在哪天、是否已经过去，绝不把几天前的事当成此刻正在发生（昨天说"我去游乐园了"，今天就是"昨天去的"，不是还坐在游乐园里）。没有日期前缀的记录表示时间未知，不要替它编日期。判断"现在几点、今天几号、白天还是晚上"仍然只以<当前时间>标签为准，绝不拿历史里的时间当现在。
+</对话记录说明>`;
+
 // —— 新版默认提示词：补全工具总览（记账/批量改课/心情）、合并重复规则、强化防呆（日期金额逐字、相似候选确认）——
 const DEFAULT_SYSTEM_TPL = `<当前时间>
 {{TIME_ANCHOR}}
@@ -8016,8 +8028,7 @@ ${COURSE_EDIT_RULE}
 - 聊到自己正在做/最近做了具体的事（煮柠檬茶、整理旧书这类）时，先用 log_role_activity 登记主题。
 </角色生活留痕>
 {{SCHEDULE}}
-<对话记录说明>系统消息之后的所有用户与助理往来消息都属于"对话记录"，是过去发生的事，其中的时间、日期不代表现在。判断当前时间、今天几号、白天还是晚上，一律以<当前时间>标签为准，严禁根据对话记录里的旧时间推断当前时刻。
-</对话记录说明>`;
+${CONV_DATE_RULE}`;
 
 function buildSystem(){
   const cfg = getAiCfg();
@@ -8148,6 +8159,18 @@ function loadConv(){
   aiConv = arr;
   // 给旧存档里缺 id 的消息补上唯一 id（旧版对话也能逐条删除）
   aiConv.forEach(m=>{ if(!m.id) m.id = 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7); });
+  /* ★ 2026-10-21 给旧消息补 ts（发送时用它标日期）：
+     老存档没有 ts，但 id 是 'm'+Date.now()+'_xxx' 生成的，毫秒串就是创建时刻。
+     ⚠️ 上面那行恰好会给"本来没 id"的消息补一个当下的 id —— 那批 id 的时间=加载时刻，
+        绝不能当真，否则几十条旧对话会集体伪装成"今天"（比不打日期更糟）。
+        判据：只有早于本次启动 2 分钟以上的才采信，拿不准就留空。 */
+  aiConv.forEach(m=>{
+    if(m && !m.ts && m.id){
+      const mm = /^m(\d{13})_/.exec(String(m.id));
+      const t = mm ? Number(mm[1]) : 0;
+      if(t && t < AI_BOOT_TS - 120000) m.ts = t;
+    }
+  });
   // 重建 system（动态时间/天气/日程改在发送时注入 user 消息，见 injectTimeAnchor）。
   // ★ buildSystem 自身出问题也不能连累已读出来的历史：失败就退回占位 system。
   try{ aiConv[0] = {role:'system', content: buildSystem(), id: aiConv[0].id||('m'+Date.now()+'_sys')}; }
@@ -8360,6 +8383,25 @@ function getAiCfg(){
     else if(fallback >= 0) ls2.splice(fallback + 1, 0, COURSE_EDIT_RULE);
     if(hit2 >= 0 || fallback >= 0) cfg.systemTpl = ls2.join('\n');
   }
+  /* ★ 2026-10-21 对话记录时间语义（同样是逐块替换，理由同上：叶子手改过 systemTpl，
+     改源码默认值 ≠ 线上生效）。旧模板写「对话记录里的时间、日期不代表现在」，
+     而历史消息当时压根不带日期 ⇒ 模型只能把几天前的事当成此刻正在发生。
+     幂等判据：模板里已有新锚点（'没有日期前缀的记录表示时间未知'）就什么都不做；
+     只替换 <对话记录说明>…</对话记录说明> 这一段（单行或三行都吃得下）；
+     连这个标签都被删掉了就追加到模板末尾 —— 这条规则缺了，前缀就白打。 */
+  if(cfg.systemTpl && cfg.systemTpl.indexOf('没有日期前缀的记录表示时间未知') < 0){
+    const ls3 = String(cfg.systemTpl).split('\n');
+    const s3 = ls3.findIndex(l => l.indexOf('<对话记录说明>') >= 0);
+    if(s3 >= 0){
+      let e3 = s3;
+      while(e3 < ls3.length && ls3[e3].indexOf('</对话记录说明>') < 0) e3++;
+      if(e3 >= ls3.length) e3 = s3;             // 开标签有、闭标签丢了：只换这一行
+      ls3.splice(s3, e3 - s3 + 1, CONV_DATE_RULE);
+      cfg.systemTpl = ls3.join('\n');
+    } else {
+      cfg.systemTpl = String(cfg.systemTpl).replace(/\s*$/,'') + '\n\n' + CONV_DATE_RULE;
+    }
+  }
   if(cfg.aiTts === undefined) cfg.aiTts = true;
   if(cfg.aiTtsMode === undefined) cfg.aiTtsMode = 'full';
   // 2026-07-24 DeepSeek 正式废弃旧模型名 deepseek-chat / deepseek-reasoner（再调用会返回 400，用户实测"模型暂时抽风（400）"）。
@@ -8367,6 +8409,46 @@ function getAiCfg(){
   // 仅当 Base URL 指向 DeepSeek 官方时迁移（OpenRouter 等第三方不迁移，避免把别的供应商的模型名改坏）。
   if((String(cfg.baseUrl||'').toLowerCase().indexOf('deepseek')>=0) && (cfg.model==='deepseek-chat'||cfg.model==='deepseek-reasoner')) cfg.model='deepseek-v4-flash';
   return cfg;
+}
+/* ── 给历史消息标日期（2026-10-21）────────────────────────────────────────────
+   问题：存档里的消息只有 role/content，发送时原样拼进 messages ⇒ 模型根本不知道
+   "我昨天去了游乐园"那句是哪天说的。今天再开口，它只能把那句当成此刻的语境
+   （用户实测：「昨天去了游乐园，今天再发他以为还是昨天」）。
+   做法：每天的第一条消息前面加 '[10-20 周一 15:23] '，同一天其余消息不动。
+   ⚠️ 只加在**发送副本**上，一个字节都不写进 aiConv —— 否则气泡显示变脏，
+      stripInjectedAnchor / saveMsgEdit 那一套全要跟着改。
+   缓存：同一天内所有前缀稳定，只在跨天时断一次（每条 +14 字符左右）。 */
+function convDayLabel(ts){
+  const d = new Date(ts);
+  const wd = ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()];
+  const md = String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  const hm = String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  const y = (d.getFullYear() !== new Date().getFullYear()) ? (d.getFullYear() + '-') : '';
+  return y + md + ' ' + wd + ' ' + hm;
+}
+function stampConvDays(list){
+  let lastDay = '';
+  return list.map((m, i)=>{
+    if(!m || (m.role !== 'user' && m.role !== 'assistant')) return m;
+    if(i === list.length - 1) return m;                 // 最后一条由 injectTimeAnchor 带精确时刻，别重复标
+    if(m.tool_calls && m.tool_calls.length) return m;   // 工具调用轮次不加前缀，免得污染参数流
+    const ts = Number(m.ts) || 0;
+    if(!ts) return m;                                   // 时间未知就不猜（旧消息宁缺勿假）
+    const d = new Date(ts);
+    const day = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+    if(day === lastDay) return m;
+    lastDay = day;
+    const tag = '[' + convDayLabel(ts) + '] ';
+    if(typeof m.content === 'string') return Object.assign({}, m, {content: tag + m.content});
+    if(Array.isArray(m.content) && m.content.length){
+      const nc = m.content.slice();
+      const first = nc[0];
+      if(first && first.type === 'text' && typeof first.text === 'string') nc[0] = Object.assign({}, first, {text: tag + first.text});
+      else nc.unshift({type:'text', text: tag.trim()});
+      return Object.assign({}, m, {content: nc});
+    }
+    return m;
+  });
 }
 // 发送前裁剪上下文：保留 system + 最近若干条，并把历史中的图片 base64 替换为占位（保留本轮图片），
 // 避免对话用久了、图片/PDF 堆积导致免费模型上下文溢出、思考质量下降。
@@ -8410,7 +8492,7 @@ function trimMessagesForSend(messages){
     }
     return m;
   });
-  return injectTimeAnchor([sys, ...out]);
+  return injectTimeAnchor([sys, ...stampConvDays(out)]);
 }
 // 给 messages 里最新一条用户消息注入当前时间锚点（权重最高的对话末尾位置），
 // 压过历史消息（如昨晚"晚安"）的时段惯性；只作用于发送副本，不改本地记录。
@@ -8541,6 +8623,7 @@ async function maybeAutoAIProactive(){
          若模型仍惯性输出 <plans>，这里直接剥掉，不让它进正文。 */
       msg.content = String(msg.content || '').replace(/<plans>[\s\S]*?<\/plans>/g, '').replace(/\n{3,}/g, '\n\n').trim();
       msg.id = msg.id || 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+      if(!msg.ts) msg.ts = Date.now(); // 主动消息同样要留时间（云端合并进来的已带 ts）
       aiConv.push(msg);
       saveConv();
       /* ★ 2026-09-29 修「通知里漏出 <tonight>…</tonight>」：
@@ -8938,7 +9021,18 @@ async function aiSchedulePush(args){
 function injectTimeAnchor(result){
   const idx = result.length - 1;
   const last = result[idx];
-  if(!last || last.role!=='user') return result;
+  if(!last || last.role!=='user'){
+    /* ★ 2026-10-21：最后一条不是 user 时，旧版直接 return —— 这一轮连"现在几点"都没有
+       （模型只能在一堆无时间的文本里瞎猜，正是"分不清这天过没过"的另一半原因）。
+       这里改成把实时上下文补到 system 的副本末尾：宁可这一次断开前缀缓存，
+       也不能让模型在无时间状态下作答。极少数路径，代价可接受。 */
+    if(result[0] && result[0].role === 'system' && typeof result[0].content === 'string'){
+      const ctx0 = buildLiveContext();
+      const mb0 = AI_MAGNET_BLOCK; if(mb0) AI_MAGNET_BLOCK = '';
+      result[0] = Object.assign({}, result[0], {content: result[0].content + '\n\n' + ctx0 + (mb0 ? ('\n\n' + mb0) : '')});
+    }
+    return result;
+  }
   const ctx = buildLiveContext();
   const mb = AI_MAGNET_BLOCK; if(mb) AI_MAGNET_BLOCK = ''; // 磁铁块只随本轮首个请求注入，消费即清
   const full = ctx + (mb ? ('\n\n' + mb) : '');
@@ -14264,7 +14358,7 @@ async function sendAIInner(){
   // ───────── 路线 A：没有图片，直达大脑 ─────────
   if(!hasImage){
     showTyping();
-    aiConv.push({ role:'user', content: files.length ? buildTextContent(text, files) : text, userText: display.trim(), id: uid });
+    aiConv.push({ role:'user', content: files.length ? buildTextContent(text, files) : text, userText: display.trim(), id: uid, ts: Date.now() });
     memNoteUser(files.length ? buildTextContent(text, files) : text, uid);
     await aiRun();
     return;
@@ -14305,7 +14399,7 @@ async function sendAIInner(){
       if(f.kind !== 'image'){ pieces.push('[附件 ' + f.name + ']\n' + f.data); cacheDocText(f.data); }
     }
     showTyping();
-    aiConv.push({ role:'user', content: pieces.join('\n\n'), userText: display.trim(), id: uid });
+    aiConv.push({ role:'user', content: pieces.join('\n\n'), userText: display.trim(), id: uid, ts: Date.now() });
     memNoteUser(pieces.join('\n\n'), uid);
     await aiRun();
     finishSysStep(visionStep); // 这一步已完成：淡下去，别让它孤零零挂着像卡死
@@ -14318,7 +14412,7 @@ async function sendAIInner(){
       ? '👁 独立视觉模型失败，改由主模型直接看图。'
       : '👁 没配独立视觉模型，主模型本身能看图，直接发送。');
     showTyping();
-    aiConv.push({ role:'user', content: buildMultimodalContent(text, files), userText: display.trim(), id: uid });
+    aiConv.push({ role:'user', content: buildMultimodalContent(text, files), userText: display.trim(), id: uid, ts: Date.now() });
     memNoteUser(buildMultimodalContent(text, files), uid);
     await aiRun();
     return;
@@ -14342,7 +14436,7 @@ async function sendAIInner(){
     }
     pieces.push('（系统备注：用户同时发了 ' + images.length + ' 张图片，但当前没有可用的视觉模型，你完全看不到图片内容。请只根据上面的文字回应，如实说明你没看到图，绝对不要假装看过、更不要编造图上的金额或日期。）');
     showTyping();
-    aiConv.push({ role:'user', content: pieces.join('\n\n'), userText: display.trim(), id: uid });
+    aiConv.push({ role:'user', content: pieces.join('\n\n'), userText: display.trim(), id: uid, ts: Date.now() });
     memNoteUser(pieces.join('\n\n'), uid);
     await aiRun();
   } else {
@@ -14436,6 +14530,7 @@ async function aiRun(){
         break;
       }
       if(!msg.id) msg.id = 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+      if(!msg.ts) msg.ts = Date.now(); // 立此存照：这条回复发生在什么时候（发送时用来标日期）
       aiConv.push(msg);
       if(msg.tool_calls && msg.tool_calls.length){
         // agent 模式：模型请求调用工具（如查课表/建任务），执行后还要再问一轮。
@@ -14581,10 +14676,12 @@ async function aiCall(messages, cfg, attempt, opts){
   // （deepseek-reasoner 旧名已废弃；deepseek-v4-flash / deepseek-v4-pro 均支持工具）
   // opts.noTools 为 true 时也强制不传 tools（用于一次性纯文本生成）。
   const noToolsModel = /reasoner|o1|o3|thinking/i.test(modelName);
-  // 发送给模型前剥掉仅用于本地气泡展示的 userText 字段（避免多余字段进 API 请求）
+  // 发送给模型前剥掉仅用于本地气泡展示的 userText 字段（避免多余字段进 API 请求）；
+  // ts 是 10-21 新增的"消息发生时刻"，只在上一步 stampConvDays 里用过，同样不该出现在请求体里
   const cleanMsgs = trimMessagesForSend(messages).map(m=>{
     const c = Object.assign({}, m);
     if(c.userText !== undefined) delete c.userText;
+    if(c.ts !== undefined) delete c.ts;
     return c;
   });
   const payload = {
