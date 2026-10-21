@@ -13623,18 +13623,40 @@ async function memMagnetRecall(userText, k){
     if(!list.length) return [];
     // 原话回溯：只给真正命中的记忆去捞原文；没命中的一条 messages 都不碰
     const msgs = await memGetAll('messages');
+    /* ★ 2026-10-21 给每条记忆算出「它发生在哪天」：
+       created_at 是**最近一次写入/合并**的时间，对仍在推进的事件会偏新（今天刚更新 ⇒ 显示"今天"，
+       而它可能两个月前就开始了）。所以优先取 source_mids 里最早的原料消息时间（合并时 mid 是累加的，
+       最早那条≈事件起点），取不到再退回 created_at。宁可标早，不能标成"刚刚"。 */
+    const byMid = new Map();
+    for(const m of msgs){ if(m && m.mid) byMid.set(String(m.mid), m); }
+    const firstAtOf = e=>{
+      let t = new Date((e && e.created_at) || 0).getTime() || 0;
+      if(e && Array.isArray(e.source_mids)){
+        for(const mid of e.source_mids){
+          const m = byMid.get(String(mid));
+          const mt = m ? (new Date(m.created_at || 0).getTime() || 0) : 0;
+          if(mt && (!t || mt < t)) t = mt;
+        }
+      }
+      return t;
+    };
     // 挑原话时要「这条记忆自己的词」：命中标签 + 这条记忆的全部标签（都描述它，都能当取材线索）
     const tagMap = {};
     for(const tg of liveTags){ (tagMap[tg.entry_id] = tagMap[tg.entry_id] || []).push(tg.tag); }
-    return list.map(item=>({
-      id: item.e.id,
-      event: item.e.event || '',
-      status: item.e.status || 'done',
-      summary: item.e.summary || '',
-      score: Math.round(item.score * 1000) / 1000,
-      hits: item.hits,
-      quotes: memQuotesOf(item.e, msgs, item.hits.concat(tagMap[item.e.id] || []))
-    }));
+    return list.map(item=>{
+      const firstAt = firstAtOf(item.e);
+      return {
+        id: item.e.id,
+        event: item.e.event || '',
+        status: item.e.status || 'done',
+        summary: item.e.summary || '',
+        score: Math.round(item.score * 1000) / 1000,
+        hits: item.hits,
+        firstAt: firstAt,
+        when: memWhenLabel(firstAt),   // '10-18 · 3天前'，由 memFormatMagnetBlock 写进注入块
+        quotes: memQuotesOf(item.e, msgs, item.hits.concat(tagMap[item.e.id] || []))
+      };
+    });
   }catch(e){ console.warn('[mem] recall', e); return []; }
 }
 // 从原料气泡里回看原话（Stone Memory 的「摘要能走回原话」）。
@@ -13720,6 +13742,30 @@ function memQuotesOf(entry, allMsgs, focus){
     return out;
   }catch(e){ return []; }
 }
+/* 记忆的发生时间标签（2026-10-21）。起因=磁铁块挂在提示词最末尾（权重最高），
+   而它以前**一个日期都没有** ⇒ 模型把几个月前的旧事当成"刚刚发生的"，甚至当成本轮话题。
+   粒度：今天/昨天/前天/ N 天前（≤14 天）/ N 周前（≤60 天）/ N 个月前。 */
+function memWhenLabel(ts){
+  try{
+    if(!ts) return '';
+    const d = new Date(ts);
+    if(isNaN(d.getTime())) return '';
+    const now = new Date();
+    const md = String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    const y = (d.getFullYear() !== now.getFullYear()) ? (d.getFullYear() + '-') : '';
+    const a = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const b = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const n = Math.round((b - a) / 86400000);
+    let rel;
+    if(n <= 0) rel = '今天';
+    else if(n === 1) rel = '昨天';
+    else if(n === 2) rel = '前天';
+    else if(n <= 14) rel = n + '天前';
+    else if(n <= 60) rel = Math.max(2, Math.round(n / 7)) + '周前';
+    else rel = Math.max(2, Math.round(n / 30)) + '个月前';
+    return y + md + ' · ' + rel;
+  }catch(e){ return ''; }
+}
 // 组装注入块：摘要必留、原话让位 —— 先铺完全部摘要，再在剩余预算里塞原话（≤6 句 / ≤120 字），谁超谁停。
 function memFormatMagnetBlock(list, totalBudget){
   totalBudget = totalBudget || MEM_BUDGET;
@@ -13727,9 +13773,13 @@ function memFormatMagnetBlock(list, totalBudget){
   let used = 0, usedQ = 0, quoteCount = 0, keptCount = 0;
   // used 精确等于最终 join('\n') 出来的字符数（每多一行多一个换行）：预览面板报的数字才和真正注入的长度一致
   const push = t=>{ used += t.length + (lines.length ? 1 : 0); lines.push(t); };
+  /* ★ 2026-10-21 抬头一句：这段贴着用户消息，权重最高，必须先把"这是往事"钉死，
+     否则模型会把括号里的旧事当成正在发生的事，甚至当成本轮话题去追问。 */
+  push('（下面是你想起的往事，〔〕里是它发生的日子；都已经过去了，不是现在正在发生的事）');
   for(const it of list){
-    let head = '· ' + (it.summary || '');
-    if(head.length > 80) head = head.slice(0, 80) + '…';
+    const tag = it.when ? ('〔' + it.when + '〕') : '';
+    let head = '· ' + tag + (it.summary || '');
+    if(head.length > 92) head = head.slice(0, 92) + '…';
     if(used + head.length + (lines.length ? 1 : 0) > totalBudget) break;
     push(head); keptCount++;
     for(const q of (it.quotes || [])){
