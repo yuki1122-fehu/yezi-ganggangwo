@@ -12596,8 +12596,10 @@ async function memTagBatch(cfg, rows){
 // mids = 这条记忆的「原料气泡 mid 列表」（打标整批 / 手动圈选的那几条），用于气泡回溯与黄框判定。
 // 注意与 source_msg_id 区分：后者是 db 自增 id，只标记记忆的起点；mids 是气泡 mid 字符串，覆盖整段来源对话。
 async function memSaveEntryAndTags(msgId, t, eid, mids){
+  /* 返回值（2026-10-21 起）：'new' 新条目 / 'updated' 并入已有事件 / null 没东西可存。
+     用途只有一个 —— 让「立即打标」能如实说出"新增了几条"，而不是笼统的"完成"。 */
   const newMids = Array.isArray(mids) ? mids.filter(Boolean).map(String) : [];
-  if(!t.summary && !t.keyword.length && !t.emotion.length && !t.topic.length) return;
+  if(!t.summary && !t.keyword.length && !t.emotion.length && !t.topic.length) return null;
   const now = new Date().toISOString();
   if(eid){
     // 事件聚合更新：同一 event 的后续进展 → 覆盖 summary/status、刷新 created_at（保持时近衰减）、重建标签
@@ -12605,7 +12607,7 @@ async function memSaveEntryAndTags(msgId, t, eid, mids){
     try{
       const rows = await memGetAll('entries');
       const cur = rows.find(x=>x && x.id === eid);
-      if(!cur) return;
+      if(!cur) return null;
       const mergedMids = Array.from(new Set((Array.isArray(cur.source_mids) ? cur.source_mids.map(String) : []).concat(newMids)));
       await memPut('entries', Object.assign({}, cur, { summary: t.summary, event: t.event || cur.event || '', status: t.status || cur.status || 'done', source_mids: mergedMids, created_at: now }));
       const tags = await memGetAll('tags');
@@ -12615,16 +12617,17 @@ async function memSaveEntryAndTags(msgId, t, eid, mids){
       (t.emotion||[]).forEach(k=>{ if(k && k.trim()) nt.push({entry_id:eid, axis:'emotion', tag:k.trim(), weight:1.3}); });
       (t.topic||[]).forEach(k=>{ if(k && k.trim()) nt.push({entry_id:eid, axis:'topic', tag:k.trim(), weight:1.1}); });
       for(const tag of nt){ await memPut('tags', tag).catch(()=>{}); }
-      return;
+      return 'updated';
     }catch(e){ console.warn('[mem] update entry', e); }
   }
   const nid = await memPut('entries', { source_msg_id: msgId, source_mids: newMids, summary: t.summary, event: t.event || '', status: t.status || 'done', detail: '', active: 1, created_at: now });
-  if(!nid) return;
+  if(!nid) return null;
   const tags = [];
   (t.keyword||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'keyword', tag:k.trim(), weight:1}); });
   (t.emotion||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'emotion', tag:k.trim(), weight:1.3}); });
   (t.topic||[]).forEach(k=>{ if(k && k.trim()) tags.push({entry_id:nid, axis:'topic', tag:k.trim(), weight:1.1}); });
   for(const tag of tags){ await memPut('tags', tag).catch(()=>{}); }
+  return 'new';
 }
 // 一次性迁移：给缺 active 字段的旧条目补回 1（详见 MEM_ACTIVE_MIGRATE_KEY 处的说明）。
 // ⚠️ 只补 undefined / null，绝不动 active===0 —— 那会把用户已淡出的条目全部复活。
@@ -12693,15 +12696,22 @@ async function memPurgeGemEntries(){
     return gemIds.length;
   }catch(e){ console.warn('[mem] purge gems', e); return 0; }
 }
-async function memRunTagger(){
-  if(!memEnabled()) return 0;
+/* 打标。返回值 2026-10-21 起从「剩余条数」改成报告对象：
+   起因=叶子连点几次「⚡ 立即打标」，一条新的都没有，而界面每次都只写「✅ 打标完成」。
+   三种完全不同的情况（真的没料可扫 / AI 判定不值得记 / AI 全部调用失败）当时长得一模一样。
+   ⚠️ 顺带修掉一个真 bug：旧版无论"AI 判定为空"还是"整批调用失败"，水位都照样前进 ⇒
+      这段对话永远退出队列，之后再点也永远"没有新的"。现在只有「AI 真给了答案（哪怕空数组）」
+      或「至少存下一条」才推水位；整批失败原地不动，下次还能重试。 */
+async function memRunTagger(opts){
+  const rep = { left:0, processed:0, made:0, merged:0, empty:false, failed:0, forced:false, reason:'' };
+  if(!memEnabled()){ rep.reason = '记忆功能是关着的'; return rep; }
   const cfg = getAiCfg();
-  if(!cfg.apiKey) return 0;
+  if(!cfg.apiKey){ rep.reason = '还没配置 API Key'; return rep; }
   try{
     await memPruneNoEvent(); // 先清理老流水账，避免继续参与后续召回
     await memPurgeGemEntries(); // 一次性：清掉拆桥前由日记 gems 写进来的历史记忆条目
     const msgs = await memGetAll('messages');
-    if(!msgs.length) return 0;
+    if(!msgs.length){ rep.reason = '记忆库里还没有对话记录（这段对话可能发生在开启记忆之前）'; return rep; }
     const wm = await memKvGet('tagger_watermark') || 0;
     // 手动已圈选为记忆的对话：自动打标永久跳过，绝不重复加工（手动优先）
     const manualMids = new Set();
@@ -12726,7 +12736,15 @@ async function memRunTagger(){
       const keepRaw = await memKvGet(MEM_KEEP_SCANNED_KEY) || [];
       if(Array.isArray(keepRaw)){ for(const k of keepRaw){ const n = Number(k); if(!isNaN(n)) keepDbIds.add(n); } }
     }catch(e){}
-    const rows = msgs.filter(m=>m.id > wm && !manualMids.has(String(m.mid)) && !keepDbIds.has(Number(m.id))).sort((a,b)=>a.id-b.id);
+    let rows = msgs.filter(m=>m.id > wm && !manualMids.has(String(m.mid)) && !keepDbIds.has(Number(m.id))).sort((a,b)=>a.id-b.id);
+    /* ★ 手动点了「立即打标」＝用户明确要干活，不该被水位永久挡住：
+       队列空了就把最近 40 条原地重扫一遍（模型会拿到【已有记忆】并强制复用 event 原名，
+       同事件走合并更新，只补出新事件，不会刷出重复条目）。 */
+    if(!rows.length && opts && opts.force){
+      rows = msgs.filter(m=>m && Number(m.id) > 0 && !manualMids.has(String(m.mid)) && !keepDbIds.has(Number(m.id)))
+                 .sort((a,b)=>a.id-b.id).slice(-40);
+      rep.forced = rows.length > 0;
+    }
     // 墓碑清单（tagger_retag）：删除记忆时登记的批首消息 id → 优先重新打标（用户删了 = 这段默认没打过标）
     let retag = (await memKvGet(MEM_RETAG_KEY)) || [];
     if(!Array.isArray(retag)) retag = [];
@@ -12744,11 +12762,18 @@ async function memRunTagger(){
     const tail = rows.filter(m=>!have.has(Number(m.id)));
     // batch = 墓碑源（按时间序）+ 增量补足：保证被删的那段一定进本批
     const batch = [...head, ...tail].slice(0, BATCH_MAX);
-    if(!batch.length) return 0;
-    let tagged = 0, skipped = 0;
+    if(!batch.length){
+      rep.reason = '没有待打标的对话（已经扫到最新，共 ' + msgs.length + ' 条）';
+      return rep;
+    }
+    const batchIds = new Set(batch.map(m=>Number(m.id)));
+    rep.processed = batch.length;
+    let tagged = 0, skipped = 0, aiOk = false, errMsg = '';
     // 批量打标优先：只有「值得日后的回忆」才生成条目（可为 0 条）；同 event 的直接合并更新，跨批跨天收敛成一条
     try{
       const segs = await memTagBatch(cfg, batch);
+      aiOk = true; // 模型回了合法数组（含空数组）＝这次判定有效，可以推水位
+      if(!segs.length) rep.empty = true;
       const all = await memGetAll('entries');
       // 本批全部气泡 mid：整段对话都是这批记忆的原料，用于气泡回溯（黄框）与以后按需复查
       const batchMids = batch.map(m=>String((m && m.mid) || '')).filter(Boolean);
@@ -12759,33 +12784,47 @@ async function memRunTagger(){
         }
         let target = null;
         if(t.event){ target = all.find(e=>e && e.active === 1 && e.event && e.event === t.event && !e.manual); }
-        await memSaveEntryAndTags(batch[0].id, t, target ? target.id : null, batchMids); // 溯源挂批首消息；更新路径走 eid
+        const rs = await memSaveEntryAndTags(batch[0].id, t, target ? target.id : null, batchMids); // 溯源挂批首消息；更新路径走 eid
+        if(rs === 'new') rep.made++;
+        else if(rs === 'updated') rep.merged++;
         tagged++;
       }
     }catch(e){
+      errMsg = (e && (e.message || e)) || '未知错误';
       console.warn('[mem] 批量打标失败，回退逐条（宁缺毋滥版）', e);
       for(const r of batch){
         try{
           const t = await memTagOne(cfg, r.content);
-          await memSaveEntryAndTags(r.id, t, null, r.mid ? [String(r.mid)] : []);
-          tagged++;
-        }catch(e2){ skipped++; } // MUST：单条失败隔离，不连累同批
+          const rs = await memSaveEntryAndTags(r.id, t, null, r.mid ? [String(r.mid)] : []);
+          if(rs){ aiOk = true; tagged++; if(rs === 'new') rep.made++; else rep.merged++; }
+        }catch(e2){ skipped++; rep.failed++; } // MUST：单条失败隔离，不连累同批
       }
     }
-    // 水位线只进不退（墓碑源的 id 可能早于当前水位，回退会破坏"已消费"语义）
-    const lastId = Number(batch[batch.length-1].id) || 0;
-    await memKvSet('tagger_watermark', Math.max(Number(wm)||0, lastId));
-    // 本批已处理的墓碑源出队（无论是否产出——AI 判无价值也尊重，避免无限重试）
-    const batchIds = new Set(batch.map(m=>Number(m.id)));
-    const retag2 = (await memKvGet(MEM_RETAG_KEY)) || [];
-    const nextRetag = (Array.isArray(retag2) ? retag2 : []).filter(id=>!batchIds.has(Number(id)));
-    await memKvSet(MEM_RETAG_KEY, nextRetag);
-    if(batch.length && tagged === 0) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
+    /* 水位线只进不退（墓碑源的 id 可能早于当前水位，回退会破坏"已消费"语义）。
+       ★ 但「整批全失败」绝不能推：那样这批对话会被静默判死，用户再点多少次都是"没有新的"。 */
+    if(aiOk || tagged > 0){
+      const lastId = Number(batch[batch.length-1].id) || 0;
+      await memKvSet('tagger_watermark', Math.max(Number(wm)||0, lastId));
+      // 本批已处理的墓碑源出队（无论是否产出——AI 判无价值也尊重，避免无限重试）
+      const retag2 = (await memKvGet(MEM_RETAG_KEY)) || [];
+      const nextRetag = (Array.isArray(retag2) ? retag2 : []).filter(id=>!batchIds.has(Number(id)));
+      await memKvSet(MEM_RETAG_KEY, nextRetag);
+    }else{
+      rep.reason = 'AI 调用全部失败：' + String(errMsg).slice(0, 90) + '（水位没动，等会儿再点一次即可重试）';
+      window.__memTagLastErr = { at: new Date().toISOString(), msg: errMsg, n: batch.length };
+    }
+    if(batch.length && tagged === 0 && !rep.empty && !rep.reason) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
     memJournalMaintain(cfg).catch(()=>{}); // 打标后顺手归档日记分层（关系摘要已于 09-17 删除）
     memJournalRefreshCtx().catch(()=>{}); // 与注入快照同步
     memMarkBubbles().catch(()=>{}); // 打标后刷新气泡状态记号
-    return rows.filter(m=>!batchIds.has(Number(m.id))).length; // 剩余待打条数：本批已处理（含墓碑重打）的不再计入
-  }catch(e){ console.warn('[mem] tagger', e); return 0; }
+    rep.left = rows.filter(m=>!batchIds.has(Number(m.id))).length; // 剩余待打条数：本批已处理（含墓碑重打）的不再计入
+    window.__lastTaggerReport = rep;
+    return rep;
+  }catch(e){
+    console.warn('[mem] tagger', e);
+    rep.reason = '打标异常：' + ((e && e.message) || e);
+    return rep;
+  }
 }
 // ---- 关系摘要：09-17 整块删除（用户拍板）----
 // 旧的 memRelRefresh() 每次打标（每 24 条消息）都额外调一次 AI 生成「最近的我们」2-3 句，
@@ -13725,7 +13764,11 @@ async function memRefreshStats(){
     const msgs = await memGetAll('messages');
     const live = entries.filter(e=>e && e.active === 1).length;
     const faded = entries.length - live;
-    el.textContent = '对话 ' + msgs.length + ' 条 · 记忆 ' + live + ' 条' + (faded ? '（淡出 ' + faded + '）' : '') + ' · 标签 ' + tags.length + ' 个';
+    // ★ 2026-10-21：把「打标水位」也显示出来 —— 否则用户没法判断"是没料了还是打标坏了"
+    let wm = 0;
+    try{ wm = Number(await memKvGet('tagger_watermark')) || 0; }catch(e){}
+    const unscanned = msgs.filter(m=>Number(m.id) > wm).length;
+    el.textContent = '对话 ' + msgs.length + ' 条（待打标 ' + unscanned + '）· 记忆 ' + live + ' 条' + (faded ? '（淡出 ' + faded + '）' : '') + ' · 标签 ' + tags.length + ' 个';
   }catch(e){ el.textContent = ''; }
 }
 async function memView(){
@@ -13827,15 +13870,36 @@ function memProbeOpen(){
     setTimeout(()=>{ try{ el.focus(); }catch(e){} }, 120);
   }).catch(()=>{});
 }
+/* ★ 2026-10-21：修「连点几次一条新的都没有」。
+   旧版这里只有一句「✅ 打标完成」，于是三种情况看起来一模一样：
+   ① 队列早就扫完（水位盖住了所有消息）② AI 判定这批不值得记 ③ AI 全部调用失败。
+   现在逐个如实说；并且**连点第二次会自动强制重扫最近 40 条** —— 手动点了按钮就是
+   用户明确要它干活，不该被水位永久挡住。 */
+let _memTagQueueEmpty = false; // 上一次点击时队列已空 → 下一次点击升级为「强制重扫」
 async function memTagNow(){
   const hint = document.getElementById('memTagHint');
-  if(hint) hint.textContent = '正在后台打标…';
-  const left = await memRunTagger();
+  const force = _memTagQueueEmpty;
+  if(hint) hint.textContent = force ? '队列已扫完，正在重扫最近 40 条…' : '正在后台打标…';
+  let rep;
+  try{ rep = await memRunTagger({ force }); }
+  catch(e){ rep = { reason: '打标异常：' + ((e && e.message) || e), processed:0, made:0, merged:0, empty:false, left:0 }; }
+  _memTagQueueEmpty = !!rep.reason || (rep.empty && !rep.left);
   await memMarkBubbles(); // 打标后即时刷新气泡记号
   await memRefreshStats();
-  if(hint) hint.textContent = left>0
-    ? ('✅ 本批打标完成，还有 '+left+' 条对话待处理，可再点一次继续。')
-    : '✅ 打标完成（失败的单条会跳过，不影响其他）。';
+  if(hint){
+    if(rep.reason){
+      hint.textContent = '⚠️ ' + rep.reason + (force ? '' : '　→ 再点一次可强制重扫最近 40 条。');
+    }else if(rep.empty){
+      hint.textContent = '本批 ' + rep.processed + ' 条对话：AI 判定没有值得记的事件（这是正常结果，不是故障——打标规则本身是「宁缺毋滥」）。'
+        + '确实想记某一段：长按那条气泡 → ⭐ 记为记忆 → ✨ AI 提炼，手动那条会强制产出。';
+    }else{
+      let s = '✅ 本批 ' + rep.processed + ' 条对话 → 新增 ' + rep.made + ' 条记忆';
+      if(rep.merged) s += '，合并更新 ' + rep.merged + ' 条';
+      s += rep.left > 0 ? ('；还有 ' + rep.left + ' 条待处理，可再点一次') : '；已扫到最新';
+      if(rep.forced) s += '（这次是强制重扫最近 40 条）';
+      hint.textContent = s;
+    }
+  }
 }
 // ---- 气泡状态标记：极淡光晕=AI已扫过；右上角小星=从这里产出过记忆（手动/自动都可） ----
 async function memMarkBubbles(){
@@ -13938,10 +14002,41 @@ function openMemPick(){
   openMask(document.getElementById('memPickMask'));
 }
 function closeMemPick(){ closeMask(document.getElementById('memPickMask')); }
+/* 圈选的气泡 → 记忆原料行。
+   ★ 2026-10-21 兜底修：旧版只认记忆库 messages 里的镜像行，取不到就报「所选气泡没有对应的记忆原料」。
+   但**云端主动消息**（id=`cloud:<ts>`）和「开启记忆功能之前」的老对话根本没有镜像行 ⇒ 长按记记忆
+   对它们彻底失效，用户看到的就是「手动打标一点反应都没有」。aiConv 才是界面上真实看到的内容，
+   缺镜像就用它补一条（id 记 -1，绝不用 0 —— 0 是历史 gem 条目的判据，会被 memPurgeGemEntries 清掉）。 */
 async function memPickRows(){
   const msgs = await memGetAll('messages');
-  const mids = new Set(Array.from(memPickState.mids));
-  return msgs.filter(m=>m && m.mid && mids.has(String(m.mid))).sort((a,b)=>a.id-b.id);
+  const byMid = new Map();
+  for(const m of (msgs || [])){ if(m && m.mid) byMid.set(String(m.mid), m); }
+  const order = [];
+  if(Array.isArray(aiConv)) for(const m of aiConv){ if(m && m.id) order.push(String(m.id)); }
+  const picked = Array.from(memPickState.mids);
+  const out = [];
+  for(const mid of picked){
+    const mirror = byMid.get(String(mid));
+    if(mirror){ out.push(mirror); continue; }
+    const idx = order.indexOf(String(mid));
+    if(idx < 0) continue;                       // 气泡已经被删了，真的没有内容
+    const m = aiConv[idx];
+    if(!m || (m.role !== 'user' && m.role !== 'assistant')) continue;
+    let txt = '';
+    try{
+      txt = m.role === 'user'
+        ? String(stripInjectedAnchor(m.userText || convUserText(m.content)) || '').trim()
+        : String(aiResolveVoice(String(m.content || '')).clean || '').trim();
+    }catch(e){ txt = String(m.content || '').trim(); }
+    if(!txt) continue;
+    out.push({ id: -1, mid: String(mid), role: m.role, content: txt.slice(0, 400) });
+  }
+  // 尽量按对话时间顺序排（提示词里 1./2./3. 的顺序会影响模型理解起承转合）
+  out.sort((a,b)=>{
+    const ia = order.indexOf(String(a.mid)), ib = order.indexOf(String(b.mid));
+    return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
+  });
+  return out;
 }
 async function memPickSummarize(cfg, rows, hint){
   let existLines = '（无）';
@@ -14122,11 +14217,12 @@ async function memRescueNow(){
     await memRefreshStats();
     return;
   }
-  const left = await memRunTagger(); // 回灌后立即打标一批（话题段聚合）
+  const rep = await memRunTagger(); // 回灌后立即打标一批（话题段聚合）
+  const left = rep && rep.left ? rep.left : 0;
   await memRefreshStats();
   if(hint) hint.textContent = left > 0
-    ? ('✅ 已恢复 ' + added + ' 条对话并完成本批打标，还有 ' + left + ' 条待处理，可再点一次继续。')
-    : ('✅ 已恢复 ' + added + ' 条对话并完成打标。');
+    ? ('✅ 已恢复 ' + added + ' 条对话并完成本批打标' + (rep && rep.made ? ('（新增 ' + rep.made + ' 条记忆）') : '') + '，还有 ' + left + ' 条待处理，可再点一次继续。')
+    : ('✅ 已恢复 ' + added + ' 条对话并完成打标' + (rep && rep.made ? ('（新增 ' + rep.made + ' 条记忆）') : (rep && rep.empty ? '（AI 判定这批不值得记）' : '')) + '。');
 }
 /* ---- 反向救火：从记忆库重建对话记录（2026-09-11 新增） ----
    记忆库的 messages 表是对话的「全文镜像」：每条 user/assistant 消息发送/回复时都记了
