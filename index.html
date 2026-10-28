@@ -18214,13 +18214,16 @@ function godPhase(hour){
 /* 场景池：按「角色位」分池——A 位默认零落（狼，闷骚寡言、动手派），B 位默认沈容（狐狸，克制、文书与应酬）。
    09-16 改：原先两人共用一个通用池，结果谁都像谁，读起来像样板间。
    现在 A/B 各一套，地点也分开（r:[A的地点, B的地点]）。世界元素沿用他们既有的：长庚书局、落落甜、家。
-   ⚠️ 角色名可在设置里改，改了之后「气质」可能与位置对调，但场景本身仍是可信的日常。 */
+   ⚠️ 角色名可在设置里改，改了之后「气质」可能与位置对调，但场景本身仍是可信的日常。
+   ⚠️ 10-28 修 OOC：**沈容对鲜花生理过敏**（设定明写），所以池子里不能有「买花 / 收花 / 家里摆花」，
+      阳台那几盆也改成绿植；他也没有抽烟这个习性（设定里没有的习性一律不许凭空加，加了就是换人）。
+      以后往池子里添条目，先对着两份记忆档案核一遍「他会不会做这件事」。 */
 const GOD_SCENES = {
   0:{r:['卧室','卧室'],
      a:[['睡得正沉，一只手搭在被子上','安宁'],['翻了个身，把被子卷了过去','沉静'],['呼吸又长又匀，脸埋在枕头里','沉酣']],
      b:[['睡得很沉，一只手还搭在她那边','沉静'],['半梦半醒间把被子往她身上推了推','安然'],['眉心松着，睡得比平时沉','平稳']]},
   1:{r:['厨房 / 阳台','书房 / 窗边'],
-     a:[['已经在灶台前忙着，头发随手扎起来','专注'],['晨跑回来，额发还湿着，在门口压腿','清爽'],['把晾了一夜的衣服收进来，抖开一件件叠','平静'],['蹲在阳台给那几盆花浇水，水声很轻','柔和'],['砧板上剁得笃笃响，没回头也知道谁进来了','利落'],['把今天要穿的衬衫熨好挂上，顺手拽平了领口','仔细']],
+     a:[['已经在灶台前忙着，头发随手扎起来','专注'],['晨跑回来，额发还湿着，在门口压腿','清爽'],['把晾了一夜的衣服收进来，抖开一件件叠','平静'],['蹲在阳台给那几盆绿植浇水，水声很轻','柔和'],['砧板上剁得笃笃响，没回头也知道谁进来了','利落'],['把今天要穿的衬衫熨好挂上，顺手拽平了领口','仔细']],
      b:[['系到一半的领带停在那儿，在看窗外的天色','沉静'],['对着一份文件看了很久，笔尖一直没动','专注'],['把凉掉的茶换掉，重新冲了一杯','平和'],['晨间新闻放着，他没在看，手里在削一个苹果','出神'],['在便签上写了两行又划掉，重新写','斟酌'],['外套搭在臂弯，临出门前回头看了眼餐桌','克制']]},
   2:{r:['长庚书局','办公室 / 会议室外'],
      a:[['在长庚书局理货，把一摞书按高矮重新码过','安定'],['蹲着整理最下层那排，起来时扶了一下腰','踏实'],['给窗边那盆绿萝换水，顺手擦了擦叶面','柔和'],['在柜台后面啃半个饭团，眼睛还盯着门口','随意'],['把一本翻旧的书塞回原位，指腹蹭过书脊','专注'],['有人问路，抬手往街口一指，只说了两个字','淡然']],
@@ -18230,10 +18233,10 @@ const GOD_SCENES = {
      b:[['被酸得皱了下眉，还是把那一小块柠檬塔吃完了','认命'],['在店角落看文件，汤凉了也没动勺','专注'],['把盒饭里那块肉夹给了她，说自己不饿','温柔'],['饭后把餐具摆整齐，才拿出手机看消息','规矩'],['就着温水咽了口什么，眉头松开些','隐忍']]},
   4:{r:['长庚书局 / 街市','议会 / 办公室'],
      a:[['在市场挑肉，指节敲了敲，跟摊主比了个手势','利落'],['把一箱书从车上搬下来，抱着没让人帮忙','沉稳'],['在旧货摊前停下，拿起一个铜件翻来覆去看','兴致'],['坐在店门槛上磨刀，一下一下，声音很匀','沉静'],['给一位老人把重袋子拎到了路口','平实'],['趴在柜台上打了个盹，脸侧压着一小页纸','松弛']],
-     b:[['在议会走廊跟人简短交谈，笑意浅而标准','得体'],['把发言稿折了一角收进内袋，步子没停','从容'],['看完一份材料，在末尾签了字，笔压得很重','决断'],['接到临时会议通知，看了眼时间，改了行程','沉稳'],['站在窗前抽完半支烟，把剩下的摁灭了','压抑'],['把桌上一堆文件按顺序归好，边角对齐','条理']]},
+     b:[['在议会走廊跟人简短交谈，笑意浅而标准','得体'],['把发言稿折了一角收进内袋，步子没停','从容'],['看完一份材料，在末尾签了字，笔压得很重','决断'],['接到临时会议通知，看了眼时间，改了行程','沉稳'],['在窗边站着，手里的便签被折成了个小方块','压抑'],['把桌上一堆文件按顺序归好，边角对齐','条理']]},
   5:{r:['菜场 / 回家路上','回家路上 / 玄关'],
      a:[['挑了几棵青菜，又抓了把葱，往回走','踏实'],['在路口等灯，顺手把外套拉链拉到顶','平静'],['闻见路边饭香，脚步顿了一下，又快了些','期待'],['提着一袋东西，另一只手插在兜里晃着','散漫'],['在楼下停住，抬头看见自家那扇窗亮着','安稳']],
-     b:[['在街角的花店停了一下，买了一小束','克制'],['把领带松开塞进兜里，长长吐了口气','卸下'],['拎着两盒点心，走得比平时慢','从容'],['在门口站定，先把表情整理好才推门','谨慎'],['边走边回最后一条消息，到楼下才收起手机','疲倦']]},
+     b:[['在街角的面包店停了一下，买了两个还热的','寻常'],['把领带松开塞进兜里，长长吐了口气','卸下'],['拎着两盒点心，走得比平时慢','从容'],['在门口站定，先把表情整理好才推门','谨慎'],['边走边回最后一条消息，到楼下才收起手机','疲倦']]},
   6:{r:['家 · 厨房 / 阳台','家 · 书房 / 客厅'],
      a:[['在厨房炖东西，锅盖掀开一角看火候','安定'],['洗完澡头发还滴着水，蹲在阳台上发呆','松弛'],['把明天要穿的衬衫拿出来挂好','仔细'],['窝在沙发一角翻一本翻了很多遍的旧书','餍足'],['一边擦桌子一边听他说今天的事，没接话','温和'],['把晾干的衣服叠好，一件件摞齐','平静']],
      b:[['书房灯还亮着，一份文件看到第三遍','专注'],['泡了壶茶，两人各倒一杯，她那杯没加糖','周到'],['靠在沙发上闭目养神，领口已经松开了','倦怠'],['把明天要用的东西装进包里，一样样核对','严谨'],['在阳台站了会儿，回来时把她的杯子续满','温柔'],['看完一段新闻，把平板扣在了一边','思量']]},
@@ -18453,7 +18456,12 @@ function godSince(rng){
    mhm_oc_world = { rel:{state,note,since,updatedAt,lastEventAt,seed}, days:{'MM-DD':[{t,src}]} }
    ocRelNow 是关系演化的唯一 tick：90 分钟窗口确定性伪随机；48h 内不反复争吵；
    上帝视角本地引擎与 AI 旁白都读这份世界；AI 旁白是唯一编剧入口（可写回关系+共同事件）。
-   对话注入的只有关系状态 + 今天共同事件摘要（让三块不拆台、问起彼此接得住）；即时镜头细节不进对话。 */
+   对话注入的只有关系状态 + 今天共同事件摘要（让三块不拆台、问起彼此接得住）；即时镜头细节不进对话。
+   ⚠️ 10-28 重调比例（用户：他们是真的很恩爱，闹矛盾看着偏多）。旧参数实测 60 万步仿真：
+      cool 6.0% + cold 6.4% = 12.4% 的帧在闹别扭/冷战（每 8 帧就有 1 帧），难怪看着累。
+      现参数实测 ≈ warm 60% / hot 38% / cool 1.1% / cold 0.4%，折合每 30 天约 4.7 次小别扭、0.7 次冷战，
+      每次一两小时就过去。另外旧代码写 1440（24h）却注释「48h」，这里统一成 2880。
+      再动这几个数字，先把同一套分支逻辑跑一遍仿真，别凭手感加。 */
 const OC_WORLD_KEY = 'mhm_oc_world';
 function ocWorldGet(){
   const fallback = {rel:{state:'warm',note:'',since:Date.now(),updatedAt:Date.now(),seed:0}, days:{}};
@@ -18465,12 +18473,14 @@ function ocWorldGet(){
 function ocWorldSave(w){
   try{ localStorage.setItem(OC_WORLD_KEY, JSON.stringify(w)); }catch(e){}
 }
+/* 关系描述：10-28 重写措辞。旧版把「偶尔斗嘴」写进 warm 的定义里，等于每帧都在暗示他们爱拌嘴；
+   现在 warm 的默认色是「安稳」，cool/cold 也压低了烈度（他们的别扭一向很短、很轻）。 */
 function ocRelDesc(state){
   return (
-    {hot:'关系正热络：黏黏糊糊，恨不得总是呆在一起。',
-     warm:'关系稳定日常：偶尔斗嘴，但马上就会和好。',
-     cool:'闹小别扭中：话变少了，问起对方会先哼一声。',
-     cold:'在冷战：谁都不先开口，情绪明显比平时低。'}[state] || ''
+    {hot:'关系正热络：这两天黏得厉害，做什么都想挨在一起。',
+     warm:'关系安稳：各干各的事也自在，随时搭得上话。',
+     cool:'有点小别扭：话比平时少，但也没真生气。',
+     cold:'罕见地僵着：谁都不先开口，但都等着台阶。'}[state] || ''
   );
 }
 function ocRelNow(){
@@ -18481,27 +18491,41 @@ function ocRelNow(){
     const minAgo = ts => (now-(ts||0))/60000;
     if(minAgo(rel.updatedAt) < 90) return rel; // 防抖：90 分钟窗口内不动
     const p = ocRand('rel|' + Math.floor(now/(90*60000)) + '|' + (rel.seed||0))();
+    const seed = (rel.seed||0)+1;
     let next = Object.assign({}, rel), changed = false;
+    // 刚吵完 / 刚和好的 48 小时：只禁再吵，不禁热络（和好那两天本来就该更黏）
+    const fightCooling = !!(rel.lastEventAt && minAgo(rel.lastEventAt) < 2880);
+    const bump = (state, note)=>{
+      next = {state:state, note:note, since:now, updatedAt:now,
+        lastEventAt:((state==='cool'||state==='cold') ? now : (rel.lastEventAt||0)), seed:seed};
+      changed = true;
+    };
     if(rel.state==='hot'){
-      if(p<0.06){ next={state:'cool',note:'因为一件小事拌了几句，谁都不太高兴',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; changed=true; }
-      else if(rel.note!=='黏糊糊的一天，做什么都想挨在一起'){ next.note='黏糊糊的一天，做什么都想挨在一起'; changed=true; }
+      const longEnough = minAgo(rel.since) > 360;   // 热络至少撑 6 小时再回落，别一天跳三回
+      if(p < 0.02) bump('cool','因为一件小事拌了几句，谁都不太高兴');
+      else if(longEnough && p < 0.45) bump('warm','');   // 热度退回来，回到安稳的日常
+      else if(rel.note !== '黏糊糊的一天，做什么都想挨在一起'){
+        next.note = '黏糊糊的一天，做什么都想挨在一起'; changed = true;
+      }
     } else if(rel.state==='warm'){
-      const sinceEv = minAgo(rel.lastEventAt||0);
-      if(!(rel.lastEventAt && sinceEv<1440)){
-        if(p<0.05){ next={state:'cool',note:'因为一件小事拌了几句，谁都不太高兴',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; changed=true; }
-        else if(p<0.22 && minAgo(rel.since)>600){ next={state:'hot',note:'最近几天黏得厉害，舍不得分开',since:now,updatedAt:now,lastEventAt:(rel.lastEventAt||0),seed:(rel.seed||0)+1}; changed=true; }
+      if(fightCooling){
+        // 和好后的两天：不吵，可以直接热回去
+        if(p < 0.35 && minAgo(rel.since) > 600) bump('hot','刚和好，这两天反而黏得厉害');
+      } else if(p < 0.005){
+        bump('cool','因为一件小事拌了几句，谁都不太高兴');
+      } else if(p < 0.31 && minAgo(rel.since) > 600){
+        bump('hot','最近几天黏得厉害，舍不得分开');
       }
       if(!changed && rel.note){ next.note=''; changed=true; }
     } else if(rel.state==='cool'){
-      if(minAgo(rel.since)>120){
-        if(p<0.5){
-          if(p<0.25){ next={state:'cold',note:'那件事还没过去，谁都不肯先低头',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; }
-          else { next={state:'warm',note:'吵完自己消了气，早上和好了',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; }
-          changed=true;
-        }
+      // 闹小别扭就当一段，一小时上下也就过去了；走到冷战是少数（12%），真到了也撑不过半天
+      if(minAgo(rel.since) > 60){
+        if(p < 0.12) bump('cold','那件事还没过去，谁都不肯先低头');
+        else if(p < 0.85) bump('warm','拌了两句，转头又一起吃饭了');
       }
     } else if(rel.state==='cold'){
-      if(minAgo(rel.since)>360 && p<0.42){ next={state:'warm',note:'冷战没撑太久，先开口的那方道了歉',since:now,updatedAt:now,lastEventAt:now,seed:(rel.seed||0)+1}; changed=true; }
+      // 冷战很少见，也撑不过半天
+      if(minAgo(rel.since) > 180 && p < 0.9) bump('warm','冷战没撑多久，先开口的那方道了歉');
     }
     if(changed){ w.rel = next; ocWorldSave(w); }
     return next;
@@ -18643,7 +18667,8 @@ function godViewState(who, idx, salt, rel, plan){
       : godInner(rng, idx, state, other, real);
     return {who:who, idx:idx, place:'家', doing:d[0], mood:d[1], inner:innerUp, since:godSince(rng)};
   }
-  const cuddleP = (ph===0 || ph===7) ? (state==='hot' ? 0.28 : 0.16) : 0;
+  // 夜里窝在一起的概率：10-28 调高一点（关系稳、腻是常态；旧值 0.28/0.16 看着太生分）
+  const cuddleP = (ph===0 || ph===7) ? (state==='hot' ? 0.34 : 0.20) : 0;
   if(state!=='cold' && rng() < cuddleP){
     const s = [
       '和' + other + '窝在一起，灯压得很低，谁也没说话',
@@ -18717,7 +18742,10 @@ function godRender(){
       prevDoing = s.doing; prevPlace = s.place;
     }
     frames.push({who:s.who, place:s.place, doing:s.doing, mood:s.mood, priv:!!s.priv, asleep:!!s.asleep});
-    const tagTxt = (s.asleep ? '<span class="god-tag sleep"><svg class="ico" style="width:11px;height:11px;"><use href="#i-moon"/></svg>已睡</span>' : '')
+    // 午后打盹 ≠ 到点就寝（10-28 修：13-15 点曾显示「作息按时 · 已就寝」，看着像 bug）
+    const sleepWord = godNapHour(new Date().getHours()) ? '小憩' : '已睡';
+    const sleepSub  = godNapHour(new Date().getHours()) ? '午后小憩' : '作息按时 · 已就寝';
+    const tagTxt = (s.asleep ? '<span class="god-tag sleep"><svg class="ico" style="width:11px;height:11px;"><use href="#i-moon"/></svg>' + sleepWord + '</span>' : '')
       + (s.priv ? '<span class="god-tag priv"><svg class="ico" style="width:11px;height:11px;"><use href="#i-flame"/></svg>私密</span>' : '');
     return '<div class="god-card">'
       + '<div class="god-head"><span class="god-avatar' + (i===1?' b':'') + '">'
@@ -18725,19 +18753,38 @@ function godRender(){
         ? '<svg class="ico" style="width:19px;height:19px;"><use href="#i-leaf"/></svg>'
         : '<svg class="ico" style="width:19px;height:19px;"><use href="#i-blossom"/></svg>')
       + '</span>'
-      + '<div class="god-who"><b>' + ocEsc(s.who) + '</b><small>' + ocEsc((s.asleep ? '作息按时 · 已就寝' : (s.since ? ('大约从 ' + s.since + ' 起') : '此刻'))) + '</small></div>'
+      + '<div class="god-who"><b>' + ocEsc(s.who) + '</b><small>' + ocEsc((s.asleep ? sleepSub : (s.since ? ('大约从 ' + s.since + ' 起') : '此刻'))) + '</small></div>'
       + '<span class="god-mood">' + ocEsc(s.mood) + '</span></div>'
       + '<div class="god-state"><div class="gs-main">' + tagTxt + '<svg class="ico" style="width:13px;height:13px;vertical-align:-2px;margin-right:3px;"><use href="#i-pin"/></svg>' + ocEsc(s.place) + ' · ' + ocEsc(s.doing) + '</div>'
       + (s.inner ? ('<div class="gs-inner">“' + ocEsc(s.inner) + '”</div>') : '')
       + '</div></div>';
   }).join('');
-  const sleepNote = (plan && (plan.asleep[0] || plan.asleep[1])) ? ' · 到点就寝' : '';
+  const sleepNote = (plan && (plan.asleep[0] || plan.asleep[1]))
+    ? (godNapHour(new Date().getHours()) ? ' · 午后小憩' : ' · 到点就寝') : '';
   list.innerHTML = '<div class="god-time">' + phLabel + sleepNote + (useAI ? ' · AI 旁白' : ' · 此刻的他们') + '</div>' + cards;
   // 把这一帧交给对话侧：用户看完镜头转头去聊天时，角色知道自己手还搭在对方身上
   if(frames.length === 2) ocNowSave({ts:Date.now(), salt:_godSalt, relState:relState, relNote:'', roles:frames});
 }
 // AI 旁白：唯一编剧入口。带世界状态去写，写回关系与共同事件。
-const DEFAULT_GOD_SYS_TPL = '你是「他们的世界」的编剧与旁白。用户打开上帝视角，想看到两个情境角色此刻的生活切片，以及两人之间的关系状态。你用第三人称含蓄、留白地叙述，有真实生活的质感；不夸张、不解释自己在叙述、不出戏。';
+const DEFAULT_GOD_SYS_TPL = '你是「他们的世界」的编剧与旁白。用户打开上帝视角，想看到两个情境角色此刻的生活切片，以及两人之间的关系状态。你用第三人称含蓄、留白地叙述，有真实生活的质感；不夸张、不解释自己在叙述、不出戏。他们是一对感情极深的夫妻，日子过得很稳——这个世界不是靠冲突推动的，值得看的是细节，不是戏。';
+/* 关系基调 + 人设红线（10-28 加，**常驻注入，不走用户可编辑模板**）
+   ⚠️ 为什么做成常量：用户手改过 godSysTpl / godUserTpl 时，改源码里的默认值对线上不生效
+      （同 systemTpl 那个老坑）。所以「恩爱基调」和「别把沈容写成会买花的人」这类防线
+      必须在 godAskAI 里无条件拼进去——无论她怎么改模板，这一块都在。
+   ⚠️ 写法遵守既有铁律：能正向写就正向写（"心意靠折纸、熨衣、留一盏灯"），不堆「不要……」。
+      只有「设定里根本没有的习性」才明确挡一句，否则模型会自己加戏。 */
+const GOD_REL_BASELINE = '【关系基调·默认就是这样】他们是婚后第六年的夫妻，感情极深，日子安稳。'
+  + '绝大多数时候关系是 hot 或 warm：各干各的事也自在，说话不用铺垫，拌嘴只有一句半句，当天就过去了。'
+  + 'cool 罕见，cold 更罕见；没有新的具体事由，就延续上面给的状态，不要换一帧就动一次关系。'
+  + '真要写别扭，也只能是生活里的小摩擦（谁忘了关窗、谁又把东西放错了地方），不写原则性冲突、不翻旧账、不写隔夜仇。'
+  + '\n【他们怎么表达在意】两人都不肉麻，不说漂亮话，糖藏在具体的事里：'
+  + '沈容熨衬衫会顺手把她的也熨了、留饭会留她那份、夜里睡不着就折纸；'
+  + '零落给咖啡多压一份浓缩装作手抖、烤了曲奇会留一盒、有事不先说，办妥了才淡淡补一句。'
+  + '零落的话短、常省主语，关心藏在「事办好了 + 一句附带说明」里；沈容的话完整、先安排再商量，提到零落时语气会不自觉软下来。'
+  + '\n【人设红线·写错就出戏】沈容对鲜花生理过敏：家里不摆花，他不买花也不收花，心意靠折纸、熨衣、留一盏灯；'
+  + '他夜里醒着就是在看文件、折纸、给她续水，没有抽烟这回事。'
+  + '零落厌恶鱼虾蟹和软体虫，别让她吃或做这些；她手上常年是冰柠檬茶。沈容不喜欢柠檬茶，但零落递过来的那杯会安静喝完。'
+  + '两人没有孩子（狼与狐有生殖隔离），不写孩子、不写怀孕。';
 /* 作息约束块（每次旁白实时拼进 user）：他们有自己的作息，不陪用户熬夜。
    夜里默认睡，只有写出了具体事由才允许醒着——这条高于剧情需要。 */
 function godScheduleBlock(){
@@ -18763,7 +18810,7 @@ const DEFAULT_GOD_USER_TPL = '请输出两个角色的「此刻切片」和「�
   + '{"rel":{"state":"hot|warm|cool|cold","note":"一句当下关系说明","changed":true或false,"events":["0~2条今天发生的共同事件短句；没有就空数组"]},"roles":[{"who":"{{ROLE_A}}","place":"他现在在哪","doing":"正在做什么","mood":"心情词","inner":"一句内心话","priv":true或false},{"who":"{{ROLE_B}}","place":"...","doing":"...","mood":"...","inner":"...","priv":true或false}]}\n'
   + '要求：①状态要符合当前时段，并严格遵守上面的【他们的作息】——到点该睡就睡；②关系要有连续性——除非 changed=true 且 note 写清发生了什么，否则必须延续上面给的关系与共同事件，不要凭空反转；③events 优先承接上面已存在的共同事件，安排新事要自然合理；④内心话含蓄真实，睡着的人 inner 留空；⑤私密/卧室内容只能按【亲密尺度】给的档位写，说停在哪就停在哪，超档一步都不行；写不出合适的就写日常，不要硬凑。\n'
 + '⑥priv：这一帧是卧室里的亲密（两人贴在一起、正在做那件事或刚做完）就填 true，其余一律 false——它决定用户那边会不会把这一刻带进对话，别漏填也别乱填。⑦不要为了"避开尴尬"而把亲密改写成别的事（临时变成一个人在洗澡、一个人在收拾书房都算回避）：尺度允许就照实写，尺度不允许就写睡前相拥这类日常。\n'
-+ '【金规·金线】⑧{{ROLE_A}}和{{ROLE_B}}的"生活"完全独立于用户。用户有自己的课表/任务/账单/复诊/出行/心情……这些**只属于叶子本人**——不要把它们套用到角色身上。{{ROLE_A}}不会替用户去上课、复诊、买菜、上班、出差。⑨不要安排与用户相关的虚构互动（用户没参与的事，别写进角色的世界里）。这是当年删除 buildDayTraces 的根本原因，**禁止重蹈**。';
++ '【金规·金线】⑧{{ROLE_A}}和{{ROLE_B}}的"生活"完全独立于用户。用户有自己的课表/任务/账单/复诊/出行/心情……这些**只属于叶子本人**——不要把它们套用到角色身上。{{ROLE_A}}不会替用户去上课、复诊、买菜、上班、出差。⑨不要安排与用户相关的虚构互动（用户没参与的事，别写进角色的世界里）。这是当年删除 buildDayTraces 的根本原因，**禁止重蹈**。⑩关系要守住【关系基调】给的默认值：没有新的具体事由就不要写 changed=true，别把"拌几句"当成每帧的看点；平常的一天才占多数，而平常本身就值得写。';
 
 // 全局常量（必须定义在顶层：提示词中心 renderPromptCenter/pcResetCompanionRules 与陪伴模块 IIFE 都要引用它）
 const DEFAULT_COMPANION_RULES = '你是用户的实时陪伴伙伴，正通过摄像头看着用户。专注模式下你话不多，只在真正值得时说一句：看到用户发呆/走神/明显疲惫/完成一个节点/遇到卡顿时，可以给一句轻轻的提醒或鼓励；用户主动说话时你正常接话。不要每轮都开口，不要念叨，不要反复提醒同一件事。看不到画面（uncertain）时如实说看不清，绝不编造。回复口语化、简短，像真朋友在身边。\n你有本次会话的记忆：下方对话记录里能看到你们之前聊过什么（包括你自己说过的话），主动开口前先回想自己刚才说过什么——已经提醒过的事不要重复说，换个时机或换个说法；用户主动接话时基于上下文自然延续，而不是每次都像第一次见面。\n重要：基于画面的主动开口只能是一句话（十几个字以内），轻轻的，不要展开、不要反问、不要连续说；只有用户主动开口时你才可以多聊几句。';
@@ -18792,6 +18839,7 @@ async function godAskAI(){
       + '<他们此刻的世界>\n关系：' + ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '')
       + (days.length ? '\n今天他们之间发生过：' + days.map(e=>'『'+e.t+'』').join('、') : '')
       + '\n最近生活痕迹：' + (OC_FEED_CTX || '（暂未留下痕迹）')
+      + '\n' + GOD_REL_BASELINE        // 常驻：约束贴着数据放（放末尾会被模型当成"补充说明"漏掉）
       + '\n</他们此刻的世界>\n'
       + godScheduleBlock() + '\n'
       + godHeatBlock() + '\n'
