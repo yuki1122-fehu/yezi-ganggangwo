@@ -9991,6 +9991,10 @@ async function collectDiag(){
      现在能直接分辨：被输出上限截断 / 模型只想没答 / 只调工具不回头说话。 */
   const lr = window.__lastAIResp;
   L('最近响应体检', lr ? (lr.at + ' · HTTP ' + lr.status + ' · finish=' + lr.finish_reason + ' · 正文' + lr.content_len + '字 · 思考' + lr.reasoning_len + '字 · 工具' + lr.tool_calls + '次') : '(无)');
+  /* 2026-10-28：思维链清洗留痕 —— 换模型后想知道"到底剥掉了没有"，看这一行就够，
+     不用再靠肉眼翻气泡。剥掉 0 字 = 这个模型没有往正文里塞思考，属正常。 */
+  const cd = window.__lastCoT;
+  L('思维链清洗', cd ? (new Date(cd.at).toLocaleTimeString() + ' · 已剥 ' + (cd.from - cd.to) + ' 字（' + cd.from + '→' + cd.to + '）' + (cd.to === 0 ? ' · 整段都是思考，正文为空' : '') + (cd.tag ? ' · 来源' + cd.tag : '')) : '最近一次响应没有可剥的思考标签');
   // 2026-10-14：工具闸门现场——模型有没有刷重复调用、拦了多少，一眼可见（比“记账里莫名多出几十条”好查）
   const tg = window.__lastToolGuard;
   if(tg) L('最近工具闸门', new Date(tg.at).toLocaleString() + ' · 已执行 ' + tg.done + ' · 已拦截 ' + tg.skipped + (tg.names && tg.names.length ? (' · ' + tg.names.join('、')) : ''));
@@ -14847,6 +14851,63 @@ async function aiRun(){
   }
 }
 
+/* ── 思维链（CoT）清洗（2026-10-28）─────────────────────────────────────────
+   症状：换了模型之后，气泡里直接出现一整段"思考过程"，语音还照着念了一遍。
+   三个来源，只堵一个必漏：
+     ① reasoning_content 字段 —— 本程序从来没显示过它（只在诊断里数字数），不是它；
+     ② 半兼容供应商把思考塞进 content，用标签包住：<think…>…</think…> / <thinking> / <analysis>；
+     ③ 中转把开标签裁掉了，正文里只剩一个 </think…> —— 这种最阴，它前面那一大段全是思考。
+   策略：
+     · 成对标签 → 整段丢弃；孤立闭标签 → 丢掉它之前的一切；
+     · 开标签没闭合（被输出上限截断 / 还在流式途中）→ 整段判为思考，返回空串。
+       宁可走「空回复」兜底（会明确告诉用户这轮没说出话），也绝不把内心独白当台词念出来。
+   ⚠️ 挂四道闸（取正文 aiCall / 流式增量 / 气泡渲染 / 朗读清洗），不针对某个功能单独打补丁 ——
+      漏一处就前功尽弃（云端主动消息是服务端写好的，只有渲染和朗读那两道能管到它）。
+   ⚠️ 入参可能是半截流式文本，必须容忍未闭合标签（见上）。 */
+function stripCoT(text){
+  let t = (text == null) ? '' : String(text);
+  if(!t || t.indexOf('<') < 0) return t;            // 快路：绝大多数正常回复里没有尖括号
+  const before = t;
+  /* ②-a 特殊 token 形态：<|begin_of_thought|>…<|end_of_thought|>
+     也见过全角 ｜ 与 ▁ 分隔的变体（<｜end▁of▁thinking｜>），所以分隔符放宽成 [▁_\s]*。 */
+  const SP_OPEN  = /<[|｜]\s*(?:begin|start)[▁_\s]*of[▁_\s]*thought[▁_\s]*[|｜]>/i;
+  /* 闭 token 的斜杠位置各家不同（<|end…|> / </|end…|> / <|/end…|> 都见过），一律放行 */
+  const SP_CLOSE = /<\/?[|｜]\/?\s*end[▁_\s]*of[▁_\s]*(?:thought|thinking|thoughts)[▁_\s]*[|｜]>/i;
+  for(let g = 0; g < 20; g++){
+    const o = t.search(SP_OPEN);
+    if(o < 0) break;
+    const m = t.slice(o).match(SP_CLOSE);
+    if(!m){ t = t.slice(0, o); break; }             // 开 token 没闭合 → 后面全是思考
+    t = t.slice(0, o) + t.slice(o).slice(t.slice(o).indexOf(m[0]) + m[0].length);
+  }
+  const spc = t.match(SP_CLOSE);
+  if(spc) t = t.slice(t.indexOf(spc[0]) + spc[0].length); // 只剩闭 token：它之前一定是思考
+  /* ②-b 标签形态：... / <thinking>…</thinking> / <analysis>…</analysis> */
+  t = t.replace(/<(think|thinking|reasoning|thought|thoughts|analysis|scratchpad)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '');
+  const cm = t.match(/<\/(?:think|thinking|reasoning|thought|thoughts|analysis|scratchpad)\s*>/i);
+  if(cm) t = t.slice(t.indexOf(cm[0]) + cm[0].length);   // ③ 孤立闭标签：前面一定是思考
+  if(/<(?:think|thinking|reasoning|thought|thoughts|analysis|scratchpad)\b[^>]*>/i.test(t)) return ''; // 没闭合 → 全判思考
+  if(t !== before) t = t.replace(/^\s*\n+/, '').replace(/\n{3,}/g, '\n\n').trim();
+  return t;
+}
+/* 在 aiCall 出口统一洗一次：对话/日记/打标/旁白/语音播报全走这条路，一处改好处处干净 */
+function aiScrubReasoning(data){
+  const msg = data && data.choices && data.choices[0] && data.choices[0].message;
+  if(!msg) return;
+  if(typeof msg.content === 'string'){
+    const raw = msg.content, clean = stripCoT(raw);
+    if(clean !== raw){
+      msg.content = clean;
+      window.__lastCoT = { at: Date.now(), from: raw.length, to: clean.length, tag: (window.__aiTag || '') };
+    }
+  } else if(Array.isArray(msg.content)){
+    msg.content = msg.content.map(p=>{
+      if(p && typeof p.text === 'string'){ const c = stripCoT(p.text); return (c === p.text) ? p : Object.assign({}, p, {text: c}); }
+      return p;
+    });
+  }
+}
+
 async function aiCall(messages, cfg, attempt, opts){
   attempt = attempt || 1;
   opts = opts || {};
@@ -14974,6 +15035,7 @@ async function aiCall(messages, cfg, attempt, opts){
     if(attempt>=2) msg = '（已重试 '+attempt+' 次）'+msg;
     return {error: msg};
   }
+  aiScrubReasoning(data); // ★ 2026-10-28：思维链在出口就地剥掉（详见 stripCoT 注释）
   if(data && data.usage) logAIUsage(data.usage, {model: cfg && cfg.model, tag: (opts && opts.__tag) || aiTagInfer(messages)}); // 台账：来源自动推断
   // ★ 2026-09-17：记下这一次响应的体检数据（诊断面板直读）。空回复判定原因全靠它：
   //   finish_reason=length → 被输出上限截断；reasoning 有值而 content 空 → 模型只想没答。
@@ -15324,6 +15386,7 @@ async function streamAICallText(messages, cfg, opts, onDelta){
   if(!reader){ clearTimeout(timer); return {error:'当前浏览器/环境不支持流式读取'}; }
   const dec = new TextDecoder();
   let buf = '', text = '', usage = null, evData = null;
+  let visSent = ''; // ★ CoT 闸：已经外发给 onDelta 的「可见文本」，用来只推增量尾巴
   const handleDataLine = (data)=>{
     if(data === '[DONE]') return true;
     let j;
@@ -15331,7 +15394,23 @@ async function streamAICallText(messages, cfg, opts, onDelta){
     if(j && j.usage){ usage = j.usage; logAIUsage(j.usage, {model: cfg && cfg.model, tag: (opts && opts.__tag) || aiTagInfer(messages)}); } // 台账：流式同样记
     const delta = j && j.choices && j.choices[0] && j.choices[0].delta;
     const piece = (delta && typeof delta.content === 'string') ? delta.content : '';
-    if(piece){ text += piece; try{ if(onDelta) onDelta(piece, text); }catch(e){} }
+    if(piece){
+      text += piece;
+      /* ★ 2026-10-28：流式也必须过 CoT 闸，而且不能「攒完再洗」——
+         陪伴模式是边收流边切句边念的，攒完再洗等于思考已经被念出去了。
+         做法：每收一段就算一次「可见投影」，只把新增的尾巴推给 onDelta；
+         思考标签没闭合时投影是空串，一个字都不外发（不显示、不朗读）。 */
+      const vis = stripCoT(text);
+      if(vis !== visSent){
+        if(vis.indexOf(visSent) === 0){
+          const add = vis.slice(visSent.length);
+          visSent = vis;
+          if(add){ try{ if(onDelta) onDelta(add, vis); }catch(e){} }
+        } else {
+          visSent = vis; // 投影回退（极少见：闭标签晚到把前面判成思考）→ 不重发，避免重复念
+        }
+      }
+    }
     return false;
   };
   try{
@@ -15353,10 +15432,10 @@ async function streamAICallText(messages, cfg, opts, onDelta){
     if(evData !== null) handleDataLine(evData); // 流结束前的残留事件
   }catch(err){
     clearTimeout(timer);
-    return {error: '流式中断：' + ((err && err.message) || '未知'), part: text};
+    return {error: '流式中断：' + ((err && err.message) || '未知'), part: stripCoT(text)};
   }
   clearTimeout(timer);
-  return {ok: true, text: text, usage: usage};
+  return {ok: true, text: stripCoT(text), usage: usage};
 }
 
 async function execTool(name, argsStr){
@@ -17765,7 +17844,9 @@ function aiStickerPlain(text){
   return String(text || '').replace(/\[([^\]\n]{1,12})\]/g, (mm, tag)=>map[tag.trim()] ? '' : mm);
 }
 function appendAiBubbleText(d, text, seed){
-  const t = String(text || '');
+  // ★ 2026-10-28：气泡渲染这一道闸专门管「已经在库里的脏消息」——
+  //   云端主动消息是服务端写好的、本地存档里也可能留着换模型那几天的思考文本，取正文时洗不到它们。
+  const t = stripCoT(String(text || ''));
   const map = aiStickerMap();
   const re = /\[([^\]\n]{1,12})\]/g;
   let last = 0, m;
@@ -18790,6 +18871,10 @@ function aiTtsReplay(){
 }
 function aiTtsClean(text){
   let t = String(text||'');
+  /* ★ 2026-10-28：朗读前再剥一次思维链。必须放在最前面 ——
+     下面那句 /<[^>]+>/ 会把 <thinking> 这类标签本身删掉、只留下里面的思考正文，
+     于是语音就把整段内心独白念了一遍（用户听到的正是这个）。 */
+  t = stripCoT(t);
   t = t.replace(/```[\s\S]*?```/g, '。代码部分省略。');
   t = t.replace(/`([^`]*)`/g, '$1');
   // 粤语练习模式：剥离「〔普通：…〕」「（普通：…）」「（译：…）」等翻译标注，翻译只给用户看、不朗读
