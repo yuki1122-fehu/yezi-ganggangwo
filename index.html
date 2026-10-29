@@ -1201,9 +1201,11 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
   padding:14px 15px calc(30px + env(safe-area-inset-bottom));
 }
-.alb-month{display:flex;align-items:center;gap:9px;margin:16px 3px 13px;font-size:10.5px;font-weight:700;
+/* 月份标不是段落头，而是"贴在那个月第一张照片上"的小标签。
+   ⚠️ 不按月分块：每块单独两列时，只有三五张的那个月必然有一列空出一大截（墙上一块窟窿）。
+      整面墙一路排下去，只在换月的那张照片头上加一条标签。 */
+.alb-month{display:flex;align-items:center;gap:8px;margin:0 3px 9px;font-size:10px;font-weight:700;
   letter-spacing:2px;color:var(--ink-soft);}
-.alb-month:first-child{margin-top:2px;}
 .alb-month::before{content:"";flex:0 0 auto;width:5px;height:5px;border-radius:50%;background:rgba(140,155,135,.55);}
 .alb-month::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(140,155,135,.26),rgba(140,155,135,0));}
 /* 两列各自累加：每张照片放进「当前较矮的那一列」才算真瀑布流。
@@ -9027,21 +9029,22 @@ async function albumRenderGrid(){
   grid.innerHTML = '';
   /* 分月贴：同一个月一个瀑布流容器，照片按画幅顺流排下去（column-count），
      空位被下一张填上 —— 等高网格的留白是它最大的破绽。 */
-  let curKey = null, curCols = null;
+  const curCols = albNewCols(grid);
+  let curKey = null;
   rows.forEach(function(r, idx){
     const ts = r.created || r.starAt;
     const key = albMonthKey(ts);
-    if(key !== curKey){
-      curKey = key;
-      const head = document.createElement('div');
-      head.className = 'alb-month';
-      head.textContent = albMonthLabel(ts);
-      grid.appendChild(head);
-      curCols = albNewCols(grid);
-    }
+    const newMonth = key !== curKey;
+    curKey = key;
     const it = document.createElement('div');
     it.className = 'alb-item v' + (idx % 4) + (idx % 3 === 0 ? ' tape' : '');
     it.style.animationDelay = Math.min(idx, 8) * 40 + 'ms';
+    if(newMonth){
+      const head = document.createElement('div');
+      head.className = 'alb-month';
+      head.textContent = albMonthLabel(ts);
+      it.appendChild(head);
+    }
 
     const ph = document.createElement('div');
     ph.className = 'alb-photo';
