@@ -8688,6 +8688,18 @@ function imgSyntaxClean(txt){
    按 `^nai-diffusion-4` 判断会直接判成"不是 V4" ⇒ **双人坐标整条通道丢失**，两个人会糊在一起。
    现在拆成独立的布尔位 `cfg.v4`（跟站点档走），模型名只负责传给站方 / 显示。 */
 function imgUseV4(){ return imgCfg().v4 !== false; }
+/* 但**用户开关只是一半**，另一半是站点到底吃不吃（2026-10-29 傍晚实锤）。
+   柏宝绘（PixAI 底座）把 `v4_prompt.char_captions` 整段丢掉 —— 只发 base 的话，
+   **两个人的外观一个字都没过去**，于是：丸子头随机长到谁头上 / 两个人一起盘起来 /
+   「女生自拍」被站点自己的 LoRA 带成男的。这三件事其实是同一个病。
+   ⇒ 底座是 pixai 时无条件走「锚点写进主提示词」，不再看开关（她开着 V4 也照样生效）。 */
+function imgUseV4Structured(){
+  const cfg = imgCfg();
+  if(cfg.v4 === false) return false;
+  const s = imgSiteOf(cfg.siteId);
+  if(s && s.backend === 'pixai') return false;
+  return true;
+}
 function imgBuildBody(cfg, prompt, negative, w, h, seed, opt){
   opt = opt || {};
   /* ⚠️ 净化放在这个**唯一出口**上：input / v4 base_caption / char_captions / 两组 negative
@@ -8701,7 +8713,7 @@ function imgBuildBody(cfg, prompt, negative, w, h, seed, opt){
     negative_prompt: neg, sm: false, sm_dyn: false, cfg_rescale: 0
   };
   // V4 / V4.5 必须带结构化 caption，否则上游只按 input 理解、人物常崩
-  if((cfg.v4 !== false)){
+  if(imgUseV4Structured()){
     const chars = Array.isArray(opt.chars) ? opt.chars.filter(function(c){ return c && String(c.caption||'').trim(); }) : [];
     const charCaps = chars.map(function(c){
       return { char_caption: imgSyntaxClean(String(c.caption).trim()),
@@ -8919,13 +8931,30 @@ function imgShotChars(shot, who, withWho){
 }
 /* 拼装：画风 → 镜头语言 → 画面内容 → 尾部约束。外观锚点只走 char_captions，绝不重复写进 base
    （两边都写会打架，把角色特征糊成一团）。非 V4 模型没有 char_captions 通道，才退回写 base。 */
+/* ⚠️ 「只有一个人束发」时必须给另一个人补上「头发散着」（2026-10-29 叶子报的：
+   丸子头要么跑到男的头上、要么两个人都盘起来）。
+   原因很朴素：沈容的锚点对头发只写了「长黑发 / 中分」，**等于什么都没说** ——
+   模型于是把零落那颗丸子当成本场的共同发型，或者顺手也给男方盘一个。
+   修法不是加负面词（这站不支持每角色独立 uc，已实测；NAI 系虽然支持，但两人共用的
+   发型词照样会互相串），而是**把对比写死在正面**：一个「单颗丸子」，另一个「头发散着」。
+   ⚠️ 只有「恰好一个人束发」时才补 —— 两人都扎马尾时乱补会自相矛盾。 */
+const IMG_TIE_RE = /(hair bun|updo|ponytail|twin ?tails|tied hair|braids?|hair stick)/i;
+function imgCharsDeconflict(chars){
+  if(!Array.isArray(chars) || chars.length < 2) return chars;
+  const tied = chars.filter(function(c){ return IMG_TIE_RE.test(String(c && c.caption || '')); }).length;
+  if(tied !== 1) return chars;
+  return chars.map(function(c){
+    if(IMG_TIE_RE.test(String(c && c.caption || ''))) return c;
+    return Object.assign({}, c, { caption: String(c.caption || '').trim() + ', hair down, loose hair' });
+  });
+}
 function imgComposeShot(shot, prompt, who, withWho){
   const cfg = imgCfg();
   const spec = IMG_SHOTS[shot] || IMG_SHOTS.selfie;
   const style = String(cfg.styleDraw || '').trim() || 'best quality, highly detailed';
   const body = String(prompt || '').trim();
-  const chars = imgShotChars(shot, who, withWho);
-  const isV4 = (cfg.v4 !== false);
+  const chars = imgCharsDeconflict(imgShotChars(shot, who, withWho));
+  const isV4 = imgUseV4Structured();
   const bits = [style, spec.lead];
   if(!isV4 && chars.length){
     /* 非 V4 的站没有 char_captions 通道 ⇒ 锚点只能写进主提示词。
@@ -8936,7 +8965,7 @@ function imgComposeShot(shot, prompt, who, withWho){
       bits.push(chars.map(function(c){
         const x = (typeof c.x === 'number') ? c.x : 0.5;
         const side = x < 0.45 ? 'left' : (x > 0.55 ? 'right' : 'center');
-        return side + ': ' + c.caption;
+        return side + ': ' + String(c.caption || '').trim();
       }).join('; '));
     } else {
       bits.push(chars[0].caption);
