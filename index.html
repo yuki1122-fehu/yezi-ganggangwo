@@ -1719,6 +1719,26 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .ai-gen-img-box{margin-top:8px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);background:rgba(255,255,255,.35);}
 .ai-gen-img{display:block;width:100%;max-width:260px;height:auto;cursor:zoom-in;}
 .ai-gen-img-box.lost{padding:10px 12px;font-size:var(--fs-2);color:var(--ink-soft);}
+/* 生图失败的重试卡（2026-10-29）：提示词还在，点一下直接重画，不用模型重写一份。
+   虚线框 = 「这张还没成」，跟实线的气泡区分开；只在刚失败那段时间存在，用完就没。 */
+.ai-msg.retry{
+  align-self:stretch;max-width:100%;box-sizing:border-box;
+  padding:11px 13px 10px;border-radius:14px;white-space:normal;
+  background:rgba(255,255,255,.66);border:1px dashed rgba(140,155,135,.55);
+  box-shadow:0 4px 14px rgba(92,115,89,.10);
+  font-size:var(--fs-2);line-height:1.55;
+}
+.ai-msg.retry .ir-head{display:flex;align-items:center;gap:5px;color:var(--green-dark);font-weight:700;}
+.ai-msg.retry .ir-why{margin-top:3px;color:var(--ink-soft);font-size:var(--fs-1);line-height:1.55;word-break:break-word;}
+.ai-msg.retry .ir-tip{margin-top:4px;color:var(--ink-faint);font-size:var(--fs-1);}
+.ai-msg.retry .ir-row{display:flex;align-items:center;gap:8px;margin-top:9px;}
+.ai-msg.retry .ir-go{
+  flex:0 0 auto;border:none;border-radius:999px;padding:7px 15px;font-family:inherit;
+  font-size:var(--fs-2);font-weight:700;color:#fff;cursor:pointer;-webkit-tap-highlight-color:transparent;
+  background:linear-gradient(135deg,var(--green-deep),var(--green));box-shadow:0 4px 12px rgba(130,160,126,.34);
+}
+.ai-msg.retry .ir-go:disabled{background:rgba(150,165,148,.55);box-shadow:none;cursor:default;}
+.ai-msg.retry .ir-x{border:none;background:none;color:var(--ink-faint);font-size:var(--fs-1);font-family:inherit;cursor:pointer;padding:6px 2px;}
 .ai-img-zoom{position:fixed;inset:0;z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(12,14,18,.86);padding:16px;backdrop-filter:blur(6px);}
 .ai-img-zoom.on{display:flex;}
 .ai-img-zoom>img{max-width:100%;max-height:calc(100% - 72px);min-height:0;object-fit:contain;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5);}
@@ -9059,7 +9079,7 @@ async function imgGenerate(prompt, negative, opt){
   opt = opt || {};
   const cfg = imgCfg();
   const gate = imgGateCheck({ manual: !!opt.manual });
-  if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait };
+  if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait, blocked: true };
   const origin = String(cfg.origin || '').replace(/\/+$/, '');
   if(!/^https:\/\//i.test(origin)) return { ok:false, error:'生图接口地址必须是 https 开头' };
   const wh = String(cfg.size || '832x1216').split('x');
@@ -9302,25 +9322,172 @@ function imgNegFor(shot){
 /* 本轮刚生成、还没挂到气泡上的图。挂载点在 aiRun 的最终回复处，
    这样「台词 + 图」在同一条气泡里（图先出现、话跟上来，最像真发照片）。 */
 let _pendingPhoto = null;
-async function aiSendPhoto(args){
-  args = args || {};
+
+/* ★ 2026-10-29 夜 · 生图失败后「提示词还在」 ─────────────────────────────
+   叶子报的问题：提示词写得好好的，图被闸门拦下 / 站点报错，下一轮只能**从头再写一份提示词**
+   —— 白花一次 AI 调用，而且新写的那份跟刚才那张已经不是同一个画面了。
+   做法：把这一张要用的东西整包留一份（模型给的原始 prompt + 谁 + 镜头 + 有没有被要求），
+   失败后在聊天流里挂一张卡，点「重试」就走**同一条**出图路径重画，一个字都不再问模型。
+   ⚠️ 只留「输入」不留「拼好的结果」：重试时重跑 imgComposeShot，画风/坐标/负面词永远跟当前设置一致
+      （存旧成品的话，她改过画风之后重试还会按老词出图 —— 那才是真的错）。
+   ⚠️ 不进 aiConv：它是「刚刚那张」的临时状态，不该被当成上下文发给模型（否则模型会看到一份自己没写过的 prompt）。
+   ⚠️ 重试沿用第一次的 asked 判定：不然 AI 主动发的那张，重试会被「主动发图每日上限」再拦一次。
+   ⚠️ localStorage 只存这一小包（无 blob），24 小时内有效 —— 等冷却的十几分钟里 PWA 被杀也不丢。 */
+let _imgRetry = null;
+let _imgRetryBusy = false;
+let _imgRetryTick = null;
+let _imgRetryLoaded = false;
+const IMG_RETRY_KEY = 'mhm_img_retry';
+
+function imgRetrySave(){
+  try{
+    if(!_imgRetry){ localStorage.removeItem(IMG_RETRY_KEY); return; }
+    localStorage.setItem(IMG_RETRY_KEY, JSON.stringify(_imgRetry));
+  }catch(e){}
+}
+function imgRetryLoad(){
+  _imgRetryLoaded = true;
+  if(_imgRetry) return;
+  try{
+    const raw = localStorage.getItem(IMG_RETRY_KEY);
+    if(!raw) return;
+    const o = JSON.parse(raw);
+    if(!o || !o.args || !String(o.args.prompt || '').trim() || (Date.now() - (Number(o.at) || 0) > 24 * 3600 * 1000)){
+      localStorage.removeItem(IMG_RETRY_KEY); return;
+    }
+    _imgRetry = o;
+  }catch(e){}
+}
+/* 报错太长（网络那条一口气列了四种原因），卡上只放第一句；完整原因留在 aiToolLog 与诊断里 */
+function imgRetryWhy(s){
+  const t = String(s || '').replace(/\s+/g, ' ').trim();
+  if(!t) return '站点那边没给原因，过一会儿再试。';
+  const first = t.split('。')[0];
+  return first.length > 92 ? (first.slice(0, 90) + '…') : first;
+}
+function imgRetryArm(args, r){
+  const a = args || {};
+  const wait = Number((r && r.wait) || 0) | 0;
+  const reason = String((r && r.error) || '未知错误');
+  let readyAt = wait > 0 ? (Date.now() + wait * 1000) : 0;
+  /* 额度用完没有「还要等几秒」——它按天重置，直接指到明天零点（否则按钮亮着，点一次吃一次拒绝） */
+  if(!readyAt && /额度/.test(reason) && /用完/.test(reason)){
+    const d = new Date(); d.setHours(24, 0, 0, 0); readyAt = d.getTime();
+  }
+  _imgRetry = {
+    args: { prompt:String(a.prompt || '').trim(), who:String(a.who || ''), with:String(a.with || ''),
+            shot:String(a.shot || ''), note:String(a.note || '') },
+    reason: reason,
+    wait: wait,
+    readyAt: readyAt,
+    asked: (r && typeof r.asked === 'boolean') ? r.asked : null,
+    at: Date.now(),
+    turn: window.__aiRunAt || 0
+  };
+  imgRetrySave();
+  imgRetryPaint();
+}
+function imgRetryClear(){
+  _imgRetry = null;
+  _imgRetryBusy = false;
+  imgRetrySave();
+  imgRetryPaint();
+}
+/* 重试卡：挂在聊天流最底下（谁来重绘都跟着走，见 renderConvFromState 末尾的调用）。
+   ⚠️ 不用常驻按钮：只有「刚刚失败过」这一小段时间存在，用完 / 点「不用了」就消失。 */
+function imgRetryPaint(){
+  if(_imgRetryTick){ clearInterval(_imgRetryTick); _imgRetryTick = null; }
+  const wrap = document.getElementById('aiMsgs');
+  if(!wrap) return;
+  const old = document.getElementById('imgRetryCard');
+  if(old && old.parentNode) old.parentNode.removeChild(old);
+  if(!_imgRetry) return;
+  const r = _imgRetry;
+  const d = document.createElement('div');
+  d.className = 'ai-msg retry';
+  d.id = 'imgRetryCard';
+  d.innerHTML = '<div class="ir-head"><svg class="ico" style="width:14px;height:14px;"><use href="#i-image"/></svg><b>这张没画出来</b></div>'
+    + '<div class="ir-why"></div>'
+    + '<div class="ir-tip">提示词还留着 —— 重试直接重画，不用再让模型写一遍。</div>'
+    + '<div class="ir-row"><button type="button" class="ir-go"></button>'
+    + '<button type="button" class="ir-x">不用了</button></div>';
+  d.querySelector('.ir-why').textContent = imgRetryWhy(r.reason);
+  const go = d.querySelector('.ir-go');
+  const paintBtn = function(){
+    if(_imgRetryBusy){ go.disabled = true; go.textContent = '重画中…（20-40 秒）'; return; }
+    const left = r.readyAt ? Math.ceil((r.readyAt - Date.now()) / 1000) : 0;
+    if(left > 0){
+      go.disabled = true;
+      go.textContent = '重试 · 还要等 ' + (left >= 3600 ? (Math.ceil(left / 3600) + ' 小时')
+        : (left >= 60 ? (Math.ceil(left / 60) + ' 分钟') : (left + ' 秒')));
+      return;
+    }
+    go.disabled = false;
+    go.textContent = '重试这张';
+  };
+  paintBtn();
+  /* 冷却中：每秒改一次按钮上的等待秒数（不倒数的话人会一直点，点一次吃一次拒绝） */
+  if(r.readyAt && !_imgRetryBusy){
+    _imgRetryTick = setInterval(function(){
+      if(!document.getElementById('imgRetryCard')){ clearInterval(_imgRetryTick); _imgRetryTick = null; return; }
+      paintBtn();
+      if((r.readyAt - Date.now()) <= 0){ clearInterval(_imgRetryTick); _imgRetryTick = null; }
+    }, 1000);
+  }
+  go.onclick = function(){ imgRetryNow(); };
+  d.querySelector('.ir-x').onclick = function(){ imgRetryClear(); };
+  wrap.appendChild(d);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+/* 点「重试」：不出 AI、不写提示词，直接拿刚才那份重新出图；成了就补一条只带图的气泡 */
+async function imgRetryNow(){
+  if(!_imgRetry || _imgRetryBusy) return;
+  const rec = _imgRetry;
+  if(rec.readyAt && Date.now() < rec.readyAt) return;
+  _imgRetryBusy = true;
+  imgRetryPaint();
+  let r;
+  try{
+    r = await imgSendCore(rec.args, { asked: (rec.asked !== false), silent: true });
+  }catch(e){
+    r = { ok:false, error: (e && e.message) || '出错' };
+  }
+  _imgRetryBusy = false;
+  if(!r.ok){ imgRetryArm(rec.args, r); return; }   // 又失败：提示词继续留着
+  imgRetryClear();
+  try{ memResolveActionFail('send_photo'); }catch(e){}   // 上一轮记的「发图失败」账销掉，免得下轮又让它补发
+  const pmid = aiMsgId();
+  const imgObj = { id:r.id, w:r.w, h:r.h, alt:'照片' };
+  // 存档里留一句说明（content 不能空：空 content 的 assistant 消息下一轮发给接口可能被判非法）
+  try{ aiConv.push({ role:'assistant', content:'（补上一张照片）', id:pmid, ts:Date.now(), img:imgObj }); }catch(e){}
+  addAIMsg('ai', '', pmid, imgObj);   // 界面上只有图，不替角色写台词
+  try{ saveConv(); }catch(e){}
+  try{ toast('画好了 🌿'); }catch(e){}
+}
+
+/* 出图主流程（对话 / 重试 共用一条）：只负责「拼词 → 出图 → 落库记账」，不碰 _pendingPhoto。 */
+async function imgSendCore(argsIn, opts){
+  opts = opts || {};
+  const args = argsIn || {};
   const prompt = String(args.prompt || '').trim();
   if(!prompt) return { ok:false, error:'prompt 是空的，没法生成' };
   const who = (args.who === '零落' || args.who === '沈容') ? args.who : 'none';
   /* 双人同框：args.with 指「另一个人」。等于自己或不是这两位就忽略，退回单人。 */
   const withWho = ((args.with === '零落' || args.with === '沈容') && args.with !== who) ? args.with : '';
-  /* 先定镜头（纯逻辑，不花额度）：镜头与人数不自洽时直接报错让模型改，别烧一张额度换错图 */
+  /* 先定镜头（纯逻辑，不花额度）：镜头与人数不自洽时直接报错让模型改，别烧一张额度换错图。
+     ⚠️ 这一类**不挂重试卡**：错的是参数不是提示词，重试一百次也一样。 */
   const rs = imgResolveShot(args.shot, who, withWho);
   if(rs.err) return { ok:false, error: rs.err };
   const shot = rs.shot;
-  const gate = imgGateCheck();
-  if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait || 0, blocked: true };
   /* 两条路：你开口要了 → 放行；你没开口 → 走「主动发图」额度（每天上限，设置里可关）。
-     prompt 里写「只在对方要求时调用」管不住模型，判据必须在代码里。 */
-  const asked = imgUserAsked();
+     prompt 里写「只在对方要求时调用」管不住模型，判据必须在代码里。
+     ⚠️ 先算 asked 再查闸门：失败返回时要把它带出去，重试才能沿用（否则主动发的那张会被算两遍）。 */
+  const asked = (opts.asked != null) ? !!opts.asked : imgUserAsked();
+  const gate = imgGateCheck();
+  if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait || 0, blocked: true, asked: asked };
   if(!asked){
     const pa = imgProactiveAllow();
-    if(!pa.ok) return { ok:false, error: pa.reason };
+    if(!pa.ok) return { ok:false, error: pa.reason, asked: asked };
   }
   const cfg = imgCfg();
   const plan = imgComposeShot(shot, prompt, who, withWho);
@@ -9331,7 +9498,7 @@ async function aiSendPhoto(args){
     : shot === 'pov' ? '🎨 正在拍你看到的画面…'
     : shot === 'pov_focus' ? '🎨 正在拍下眼前的画面…'
     : '🎨 正在生成自拍…';
-  const step = (typeof addSysStep === 'function') ? addSysStep(stepTxt + '（约 20-40 秒）') : null;
+  const step = (!opts.silent && typeof addSysStep === 'function') ? addSysStep(stepTxt + '（约 20-40 秒）') : null;
   let r;
   try{
     r = await imgGenerate(full, neg, opt);
@@ -9344,8 +9511,9 @@ async function aiSendPhoto(args){
        冷却永远从此刻重算 800 秒，人怎么等都是「还差十分钟」（2026-10-29 叶子实测，就是这条）。
        撞真 429 时也不该从此刻重算：服务器说「还要等 X 秒」，就按 X 反推上一次成功的真实时刻。 */
     if(!r.blocked && (Number(r.wait) > 0 || /429|限速/.test(String(r.error || '')))) imgQuotaMarkRateLimited(r.wait || 0);
-    // 被闸门拦下不是故障：别在模型面前说「生成失败」，否则它会跟人解释成「系统坏了」
-    return { ok:false, error: (r.blocked ? '' : '生成失败：') + (r.error || '未知错误') };
+    /* ⚠️ 这里**不加「生成失败：」前缀**：前缀由调用方（aiSendPhoto）统一加，加两遍会变成「生成失败：生成失败：…」 */
+    return { ok:false, error: (r.error || '未知错误'),
+             wait: r.wait || 0, blocked: !!r.blocked, asked: asked, attempted: true };
   }
   const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   const rec = { id:id, blob:r.blob, prompt:prompt, full:full, neg:neg, who:who, withWho:withWho, shot:shot,
@@ -9358,7 +9526,6 @@ async function aiSendPhoto(args){
   if(!asked) q.pro = (q.pro|0) + 1;
   q.lastShot = shot;
   imgQuotaSave(q);
-  _pendingPhoto = { id:id, w:rec.w, h:rec.h, note:String(args.note || '').trim(), who:who, prompt:prompt, shot:shot };
   const lim = cfg.dailyLimit|0;
   let tip = '图片已经发给对方，会跟你的下一句话一起显示。用你自己的语气说一句短的就行（不要描述画面、不要复述提示词、不要说"已生成"）。';
   if(!asked) tip = '这张是你主动发的（没等对方开口）。那句话要自然带出「刚拍的/顺手拍的」这种口吻，最好接着上一句里提到的场景说，不要解释为什么发、不要让照片变成话题中心。';
@@ -9367,7 +9534,30 @@ async function aiSendPhoto(args){
   tip += '今日已用 ' + q.used + (lim > 0 ? ('/' + lim) : '') + ' 张'
     + (capP > 0 ? ('，其中主动 ' + (q.pro|0) + '/' + capP + '（今天还能主动发 ' + Math.max(0, capP - (q.pro|0)) + ' 张）') : '')
     + '。';
-  return { ok:true, note: tip };
+  return { ok:true, note: tip, id:id, w:rec.w, h:rec.h, shot:shot, asked:asked, prompt:prompt };
+}
+
+/* 模型调 send_photo 的入口：跑核心流程 + 挂待发图 + 失败时保留提示词。
+   ⚠️ 同一轮里刚失败过就直接劝退：模型被拒之后最常见的动作是「换个说法再写一份提示词」，
+      那正是要省掉的那次调用，而且新写的跟刚才那张已经不是同一个画面了。 */
+async function aiSendPhoto(args){
+  if(_imgRetry && window.__aiRunAt && _imgRetry.turn === window.__aiRunAt){
+    return { ok:false, error:'这一张刚刚已经失败了（' + imgRetryWhy(_imgRetry.reason) + '）。'
+      + '不要再写一份新提示词重试，这一轮用文字回对方就好。' };
+  }
+  const r = await imgSendCore(args, {});
+  if(!r.ok){
+    /* 「被闸门拦住」和「真出过请求但失败」都值得把提示词留着；
+       「prompt 空 / 镜头与人数不自洽」是模型写错了参数，重试一百次也一样，不挂卡。
+       （主动发图撞每日上限也不挂：那张本来就不该发，留个重试按钮只是噪音） */
+    if(r.attempted || r.blocked) imgRetryArm(args, r);
+    return { ok:false, error: (r.blocked ? '' : '生成失败：') + (r.error || '未知错误') };
+  }
+  imgRetryClear();   // 新的图出来了，旧的重试卡就该退场
+  const a = args || {};
+  _pendingPhoto = { id:r.id, w:r.w, h:r.h, note:String(a.note || '').trim(),
+                    who:(a.who === '零落' || a.who === '沈容') ? a.who : 'none', prompt:r.prompt, shot:r.shot };
+  return { ok:true, note: r.note };
 }
 
 const AI_TOOLS = [
@@ -10108,7 +10298,8 @@ function renderConvFromState(){
   aiInitRerollDblclick(); // ★ 必须在空对话提前 return 之前：按钮已隐化，双击是唯一入口，页面一加载就得能用
   wrap.innerHTML='';
   convShown = CONV_RENDER_INIT;
-  if(!aiConv || aiConv.length<=1) return;
+  if(!_imgRetryLoaded) { try{ imgRetryLoad(); }catch(e){} } // 第一次进对话：把「上次没画出来的那张」捞回来
+  if(!aiConv || aiConv.length<=1){ try{ imgRetryPaint(); }catch(e){} return; }
   const start = Math.max(1, aiConv.length - convShown);
   const frag = document.createDocumentFragment();
   let drawn = 0, failed = 0;
@@ -10124,6 +10315,8 @@ function renderConvFromState(){
   if(!drawn && failed) frag.appendChild(convFailNotice(failed));
   wrap.appendChild(frag);
   wrap.scrollTop = wrap.scrollHeight;
+  // 重绘会把重试卡一起冲掉（它是 DOM 不是 aiConv 消息），这里补回来
+  try{ imgRetryPaint(); }catch(e){}
   memMarkBubbles().catch(()=>{}); // 重进渲染后补气泡状态记号（已打标光晕 + 记忆小星）
 }
 // 单条消息 → 气泡 DOM；不可显示（system/tool/带 tool_calls 的中间消息/空文本）返回 null
@@ -17190,6 +17383,7 @@ function aiToolSig(name, argsStr){
 async function aiRun(){
   const cfg = getAiCfg();
   window.__aiTurnSaid = false; // ★ 本轮是否产出过可见回复（addAIMsg('ai'…) 会置 true）；末尾兜底用
+  window.__aiRunAt = Date.now(); // ★ 本轮编号：生图失败后的「同轮别再试」靠它判定（见 aiSendPhoto）
   aiConvStripToolMsgs(); // 上一轮残留的工具流水先清掉（异常退出时才会留下）
   if(!cfg.apiKey){
     addAIMsg('ai','还没配置 API Key，点右上角 ⚙ 填一下（推荐 DeepSeek：国内可直连、注册送免费额度；也可填 OpenRouter / opencode）。', aiMsgId());
@@ -17363,6 +17557,9 @@ async function aiRun(){
     pullCloudMsgs().catch(()=>{}); // 云端主动消息回填：聊完也拉一次（云端可能刚好推了新消息）
     setAIBusy(false);
     hideTyping(); // 双保险：任何路径结束都确保三点气泡被移除，绝不残留
+    /* 生图失败的重试卡在工具调用那一刻就挂上了，会被角色随后那句「没发出去」压在上面。
+       轮末重挂一次 = 挪到最底下（她读完那句话正好看到按钮），顺便把倒计时重新对一次表。 */
+    try{ if(_imgRetry) imgRetryPaint(); }catch(e){}
   }
 }
 
@@ -21603,6 +21800,30 @@ let _godAiBusy = false;
 /* 当前这一帧的帧数据（godRender 每渲染一次就写一份）。
    「看这一刻」要拿它去写画面标签 —— 帧数据原本是 godRender 的局部变量，不留一份就摸不到。
    ⚠️ 存的是**已渲染出来的那一帧**，不是重新摇一次：看到的和画出来的必须是同一刻。 */
+/* ★ 2026-10-29 夜 · 「画面已经写好了，别再写一遍」
+   上帝视角点「看这一刻」是两步：先让 AI 把帧数据翻成英文标签（花一次调用），再出图（花额度）。
+   出图这一步失败（站点报错 / 限速 / 额度满）时，第一步写好的标签如果跟着退回，下次点又得重写一遍。
+   所以这里留一份：**只要这一帧没变，失败后再点就跳过第一步直接重画**。
+   ⚠️ 只认 failed 的那一份：成功之后正常点还是重新写（她可能想要另一种构图）；
+      失败再重画必须沿用原词，否则「重试」等于换了个画面。
+   ⚠️ 判据是帧内容的签名（谁/在哪/在做什么/心情/心里话），不是「有没有点过」——
+      帧换了还拿旧标签出图，画出来的人跟卡上写的不是一回事。 */
+let _godSnapCache = null;   // { sig, tags, plan, neg, failed, at }
+function godShotFrames(){
+  const fr = (_godFrames || []).filter(function(f){ return f && f.who; });
+  const n = Math.min(2, fr.length);
+  if(!n) return { fr: [], use: [], both: false };
+  /* 同一处、或有一个标了 priv，才是同框 */
+  const samePlace = n === 2 && String(fr[0].place || '') === String(fr[1].place || '');
+  const anyPriv = fr.some(function(f){ return f && f.priv; });
+  const both = n === 2 && (samePlace || anyPriv);
+  return { fr: fr, use: both ? [fr[0], fr[1]] : [fr[0]], both: both };
+}
+function godSnapSig(use, both){
+  return (both ? '2|' : '1|') + (use || []).map(function(f){
+    return [f.who, f.place, f.doing, f.mood, f.inner || '', f.priv ? 1 : 0, f.asleep ? 1 : 0].join('~');
+  }).join('|');
+}
 let _godFrames = [];
 let _godSnapBusy = false;
 function godOpen(){
@@ -21837,6 +22058,11 @@ function godShotPaint(){
   else if(allAsleep) t = '看他们睡着的样子';
   else if(samePlace) t = '看他们此刻这一格';
   else t = '看 ' + fr[0].who + ' 这一刻';
+  /* 上一次没画成、画面标签还留着 ⇒ 按钮改成「重画」，让她一眼看出这一次不会再花一次写画面的调用 */
+  try{
+    const F = godShotFrames();
+    if(_godSnapCache && _godSnapCache.failed && _godSnapCache.sig === godSnapSig(F.use, F.both)) t = '重画这一刻';
+  }catch(e){}
   if(txt) txt.textContent = t;
   btn.disabled = !!_godSnapBusy;
 }
@@ -21914,8 +22140,8 @@ async function godSnap(){
       }, 1000);
     }
   };
-  const fr = (_godFrames || []).filter(function(f){ return f && f.who; });
-  if(!fr.length){ fail('等「此刻的他们」出来一帧再说'); return; }
+  const F = godShotFrames();
+  if(!F.fr.length){ fail('等「此刻的他们」出来一帧再说'); return; }
   /* ① 先查闸门：给的是人话，不是给模型看的那套说辞 */
   const g = imgGateCheck({});
   if(!g.ok){
@@ -21932,39 +22158,46 @@ async function godSnap(){
   if(btn) btn.disabled = true;
   godShotMsg('');   // 上一次的报错先清掉
   try{
-    /* ② 决定画几个人：同一处、或有一个标了 priv，才是同框 */
-    const n = Math.min(2, fr.length);
-    const samePlace = n === 2 && String(fr[0].place||'') === String(fr[1].place||'');
-    const anyPriv = fr.some(function(f){ return f.priv; });
-    const both = n === 2 && (samePlace || anyPriv);
-    const use = both ? [fr[0], fr[1]] : [fr[0]];
+    /* ② 决定画几个人：同一处、或有一个标了 priv，才是同框（判据在 godShotFrames，和按钮文案同源） */
+    const both = F.both;
+    const use = F.use;
+    const sig = godSnapSig(use, both);
     const lines = use.map(function(f){
       return f.who + '：在' + f.place + '，' + f.doing
         + '（心情：' + f.mood + (f.asleep ? '；已经睡着了' : '') + '）'
         + (f.inner ? ('\n　　心里：「' + f.inner + '」') : '');
     });
-    /* ③ 帧数据 → 英文标签（一次小 AI。提示词在提示词中心第 18 块，可看可改） */
-    setStage('正在写画面', '正在写画面…');
-    const rel = ocRelNow();
-    const askTxt = imgGodSnapTpl()
-      .replace(/\{\{TIME\}\}/g, nowAnchor())
-      .replace(/\{\{REL\}\}/g, ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : ''))
-      .replace(/\{\{FRAME\}\}/g, lines.join('\n'))
-      .replace(/\{\{MODE\}\}/g, both ? '他们两个（同框）' : ('只有' + use[0].who + '一个人'));
-    let r1;
-    try{
-      r1 = await godSnapTimeout(aiCall([{role:'user', content:askTxt}], cfgAi, 1, {noTools:true}), 70000, '写画面');
-    }catch(e){
-      fail('画面没写出来：' + String((e && e.message) || e) + '。检查一下 AI 设置里的接口和 Key（旁白能用这条就能用）。');
-      return;
-    }
-    if(r1 && r1.error){ fail('画面没写出来：' + String(r1.error).slice(0, 120) + '（再点一次按钮可重试）'); return; }
-    const m1 = r1 && r1.data && r1.data.choices && r1.data.choices[0] && r1.data.choices[0].message;
-    const raw1 = (m1 && typeof m1.content === 'string') ? m1.content : '';
-    const tags = imgTagsExtract(raw1);
-    if(!tags){
-      fail('这次没写出可用的画面标签（模型回的是：' + (raw1.slice(0, 60) || '空') + '）。再点一次按钮试试，或去提示词中心第 18 块改改。');
-      return;
+    /* ③ 帧数据 → 英文标签（一次小 AI。提示词在提示词中心第 18 块，可看可改）
+       ★ 上一次就是「这一步写完之后、出图那一步失败了」⇒ 这一帧没变就**沿用**，不再花这次调用。
+         沿用的只有标签本身，拼装（imgComposeShot）照样现在重跑 —— 她要是刚改过画风，重画出来就得是新画风。 */
+    let tags = '';
+    const cached = _godSnapCache;
+    if(cached && cached.failed && cached.sig === sig && cached.tags){
+      tags = cached.tags;
+      setStage('沿用上次写好的画面', '沿用上次画面…');
+    }else{
+      setStage('正在写画面', '正在写画面…');
+      const rel = ocRelNow();
+      const askTxt = imgGodSnapTpl()
+        .replace(/\{\{TIME\}\}/g, nowAnchor())
+        .replace(/\{\{REL\}\}/g, ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : ''))
+        .replace(/\{\{FRAME\}\}/g, lines.join('\n'))
+        .replace(/\{\{MODE\}\}/g, both ? '他们两个（同框）' : ('只有' + use[0].who + '一个人'));
+      let r1;
+      try{
+        r1 = await godSnapTimeout(aiCall([{role:'user', content:askTxt}], cfgAi, 1, {noTools:true}), 70000, '写画面');
+      }catch(e){
+        fail('画面没写出来：' + String((e && e.message) || e) + '。检查一下 AI 设置里的接口和 Key（旁白能用这条就能用）。');
+        return;
+      }
+      if(r1 && r1.error){ fail('画面没写出来：' + String(r1.error).slice(0, 120) + '（再点一次按钮可重试）'); return; }
+      const m1 = r1 && r1.data && r1.data.choices && r1.data.choices[0] && r1.data.choices[0].message;
+      const raw1 = (m1 && typeof m1.content === 'string') ? m1.content : '';
+      tags = imgTagsExtract(raw1);
+      if(!tags){
+        fail('这次没写出可用的画面标签（模型回的是：' + (raw1.slice(0, 60) || '空') + '）。再点一次按钮试试，或去提示词中心第 18 块改改。');
+        return;
+      }
     }
     /* ④ 拼装 + 出图。manual:true = 刚才已经按用户手动触发的规矩查过闸门，别查第二遍 */
     const shot = both ? 'godframe' : 'godself';
@@ -21972,17 +22205,20 @@ async function godSnap(){
     const withWho = both ? use[1].who : '';
     const plan = imgComposeShot(shot, tags, who, withWho);
     const neg = imgNegFor(shot);
+    /* 出图之前先把标签压进缓存：从这一刻起的任何失败（站点报错 / 限速 / 额度满 / 存库失败），
+       再点一次都还能用同一份标签重画，不用重新写一遍。 */
+    _godSnapCache = { sig: sig, tags: tags, failed: true, at: Date.now() };
     setStage('正在生成图片', '正在生成…');
     let out;
     try{
       out = await godSnapTimeout(imgGenerate(plan.base, neg, { chars:plan.chars, aspect:plan.aspect, manual:true }), 200000, '出图');
     }catch(e){
-      fail('生成失败：' + String((e && e.message) || e) + '（再点一次按钮可重试）');
+      fail('生成失败：' + String((e && e.message) || e) + '（画面标签已经留着，再点一次直接重画，不会再写一遍）');
       return;
     }
     if(!out || !out.ok){
       if(out && !out.blocked && (Number(out.wait) > 0 || /429|限速/.test(String(out.error || '')))) imgQuotaMarkRateLimited(out.wait || 0);
-      fail('生成失败：' + ((out && out.error) || '未知错误'));
+      fail('生成失败：' + ((out && out.error) || '未知错误') + '（画面标签已经留着，再点一次直接重画）');
       return;
     }
     /* ⑤ 落库 + 记额度，然后开看图页（她能当场看到用了什么词、改着重生成） */
@@ -21997,7 +22233,9 @@ async function godSnap(){
        `aiImgZoom` 里 url 为空时会**静默 return**（一个字都不报），
        于是「出图成功 + 存库失败 + 看图页不开」在用户眼里和「没反应」完全一样。 */
     const u = await imgUrlOf(id).catch(function(){ return ''; });
-    if(!u){ fail('图生成好了，但从本地库读不回来（可能没存住）。再点一次按钮。'); return; }
+    if(!u){ fail('图生成好了，但从本地库读不回来（可能没存住）。画面标签已经留着，再点一次直接重画。'); return; }
+    /* 真的成了：标签缓存退役（下次点是「再画一张新的」，不是沿用旧词） */
+    if(_godSnapCache) _godSnapCache.failed = false;
     const q2 = imgQuota();
     q2.used = (q2.used|0) + 1;
     q2.lastAt = Date.now();
