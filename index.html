@@ -2993,7 +2993,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         <div style="display:flex;gap:8px;">
           <div style="flex:1 1 0;min-width:0;">
             <label>每日上限（张）</label>
-            <input id="imgDaily" type="number" min="0" max="70" step="1" inputmode="numeric">
+            <input id="imgDaily" type="number" min="0" max="999" step="1" inputmode="numeric" placeholder="0 = 不限">
           </div>
           <div style="flex:1 1 0;min-width:0;">
             <label>冷却（秒）</label>
@@ -3001,7 +3001,8 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           </div>
         </div>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 10px;line-height:1.6;">
-          按站点公告填：有的站每 800 秒只允许一张、每天 20 张；有的站<b>不限速、每天 50 张</b>（那就把冷却填 <b>0</b>、上限填 50）。<b>每个站点档各算各的</b>：A 站用满了切到 B 站照样能出。上限填 0 = 不限（不建议，会把额度烧光）。
+          <b>上限留 0（不限）就行</b>：站点自己每天重置额度，我们在本地再压一道，只会出现「站里明明还有、App 先拦了」。<br>
+          真正管速度的是<b>冷却</b>：不限速的站填 0；每 800 秒只给一张的站填 800。<b>每个站点档各算各的</b>（A 站用完切 B 站照样能出）。
         </p>
         <label>AI 主动发图（张/天） <span style="font-size:11px;color:var(--ink-soft)">（你没开口也能发）</span></label>
         <input id="imgProactive" type="number" min="0" max="6" step="1" inputmode="numeric">
@@ -4541,6 +4542,7 @@ function enterApp(){
   try{ imgCfgMigrate(); }catch(e){ console.error(e); } // 生图配置迁移（外观锚点/主动发图数，2026-10-29）
   // 站点档位兜底：必须赶在第一次 imgQuota() 之前，否则旧额度会被记到 'default' 名下（2026-10-29）
   try{ imgSiteEnsure(); }catch(e){ console.error(e); }
+  try{ imgUnlimitedMigrate(); }catch(e){ console.error(e); } // 去掉本地每日上限（只迁旧默认值 8/10）
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
   try{ setTimeout(()=>{ convSelfHeal(); }, 1800); }catch(e){ console.error(e); } // 对话存档没读出来但记忆库有原文 → 主动问一句要不要重建（2026-09-11）
@@ -7848,7 +7850,11 @@ const IMG_CFG_DEFAULT = {
   scale: 5,
   sampler: 'k_euler_ancestral',
   noise: 'karras',
-  dailyLimit: 8,
+  /* 每日上限（2026-10-29 深夜改）：**默认 0 = 不限制**。
+     叶子原话：「这个 10 张的限定额度，我觉得不要限制了吧，因为这个是每天更新的，用完就算了」。
+     站点自己每天重置额度，我们本地再压一道只会「明明站里还有，App 先拦了」。
+     ⚠️ 0 = 不限；填了就按填的算。真限速靠 cooldownSec，别两个都填 0。 */
+  dailyLimit: 0,
   cooldownSec: 800,
   /* AI 主动发图（没等你开口就发）：0 = 不允许，只有你提了才发。
      它是「每日上限」里的一个子集，不是额外额度 —— 主动发多了，你主动要的那张就没了。 */
@@ -8012,6 +8018,20 @@ function imgSiteSyncFromCfg(){
   });
   imgSitesSave(list);
 }
+/* 去掉本地「每日上限」（2026-10-29 深夜，叶子：「这个是每天更新的，用完就算了」）。
+   **只改我们历史上塞给她的默认值 8 和 10**，她自己填过的数字（20 / 50 …）一个都不碰 ——
+   判据照抄 imgCfgMigrate 里 proactivePerDay 2→4 那套：认「代码给过的值」，不认"看起来像默认的值"。
+   幂等：改完就变 0，再跑不会命中。 */
+function imgUnlimitedMigrate(){
+  let dirty = false;
+  const c = imgCfg();
+  if(c.dailyLimit === 8 || c.dailyLimit === 10){ imgCfgSave({ dailyLimit: 0 }); }
+  const list = imgSites();
+  list.forEach(function(s){
+    if(s.dailyLimit === 8 || s.dailyLimit === 10){ s.dailyLimit = 0; dirty = true; }
+  });
+  if(dirty) imgSitesSave(list);
+}
 /* 一个档位 → 要写进 cfg 的那一整包字段（切站/新增/删档三处共用，避免漏字段） */
 function imgCfgFromSite(s){
   return {
@@ -8160,7 +8180,7 @@ function imgSiteValuesFromForm(){
     origin: g('imgOrigin').trim() || IMG_CFG_DEFAULT.origin,
     key: g('imgKey').trim(),
     model: g('imgModel') || IMG_CFG_DEFAULT.model,
-    dailyLimit: Math.max(0, Math.min(70, parseInt(g('imgDaily'), 10) || 0)),
+    dailyLimit: Math.max(0, Math.min(999, parseInt(g('imgDaily'), 10) || 0)),
     cooldownSec: Math.max(0, Math.min(3600, parseInt(g('imgCooldown'), 10) || 0)),
     styleDraw: g('imgStyle').trim(),
     negPrompt: g('imgNeg').trim(),
@@ -11376,6 +11396,7 @@ function initImgSettingsFields(){
   // 必须在读 cfg 之前迁：否则填进去的是旧锚点，用户一按「保存本页」就把旧值又写回去了
   try{ imgCfgMigrate(); }catch(e){}
   try{ imgSiteEnsure(); }catch(e){}
+  try{ imgUnlimitedMigrate(); }catch(e){}
   const cfg = imgCfg();
   imgFillSelects();
   try{ imgPaintSiteSel(); }catch(e){}
@@ -11435,7 +11456,7 @@ function saveImgCfg(){
     key: g('imgKey').trim(),
     model: g('imgModel') || IMG_CFG_DEFAULT.model,
     size: g('imgSize') || IMG_CFG_DEFAULT.size,
-    dailyLimit: Math.max(0, Math.min(70, parseInt(g('imgDaily'), 10) || 0)),
+    dailyLimit: Math.max(0, Math.min(999, parseInt(g('imgDaily'), 10) || 0)),
     cooldownSec: Math.max(0, Math.min(3600, parseInt(g('imgCooldown'), 10) || 0)),
     proactivePerDay: Number.isFinite(pv) ? Math.max(0, Math.min(6, pv)) : IMG_CFG_DEFAULT.proactivePerDay,
     anchorA: g('imgAnchorA').trim(),
