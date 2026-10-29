@@ -1507,6 +1507,11 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .switch .switch-slider{box-shadow:var(--shadow-inset);}
 .switch .switch-slider::before{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;left:3px;transition:.25s;transition-timing-function:var(--ease);box-shadow:0 1px 3px rgba(0,0,0,.2);}
 .switch input:checked + .switch-slider{background:var(--green-deep);box-shadow:inset 0 2px 4px rgba(0,0,0,.16),0 0 12px var(--green-glow);}
+/* ★ 2026-10-29：滑块 span 上带内联 background:var(--ink-faint)，类选择器永远压不过内联
+   ⇒ 全站开关「开」和「关」长得一模一样（实测 9 个开关开/关都是 rgb(176,181,165)）。
+   这两条用 !important 把状态写死，开关才会真的变色。 */
+.switch input:not(:checked) + .switch-slider{background:var(--ink-faint) !important;}
+.switch input:checked + .switch-slider{background:var(--green-deep) !important;}
 .switch input:checked + .switch-slider::before{transform:translateX(20px);animation:switchPop .36s var(--ease);box-shadow:0 2px 6px rgba(0,0,0,.24),0 0 10px rgba(255,255,255,.5);}
 @keyframes switchPop{0%{transform:translateX(20px) scale(1);}45%{transform:translateX(20px) scale(1.22);}100%{transform:translateX(20px) scale(1);}}
 .switch input:disabled + .switch-slider{opacity:.5;cursor:not-allowed;}
@@ -1568,6 +1573,13 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .ai-msg.user{align-self:flex-end;background:linear-gradient(135deg,var(--green-deep),var(--green));color:#fff;border-bottom-right-radius:6px;box-shadow:0 6px 18px rgba(130,160,126,.34);}
 .ai-msg.ai{align-self:flex-start;background-color:var(--glass-strong);color:var(--ink);border-bottom-left-radius:6px;border:1px solid var(--glass-line);box-shadow:var(--shadow-sm);}
 .ai-msg .ai-sticker{display:inline-block;max-width:132px;max-height:118px;width:auto;height:auto;margin:2px 4px 0 0;vertical-align:middle;border-radius:var(--radius-2xs);box-shadow:0 3px 10px rgba(0,0,0,.14);object-fit:contain;background:#fff;}
+/* 生图气泡（2026-10-29）：图在气泡里，点一下全屏看。max-width 跟着气泡走，别撑破 82% 的限制 */
+.ai-gen-img-box{margin-top:8px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);background:rgba(255,255,255,.35);}
+.ai-gen-img{display:block;width:100%;max-width:260px;height:auto;cursor:zoom-in;}
+.ai-gen-img-box.lost{padding:10px 12px;font-size:var(--fs-2);color:var(--ink-soft);}
+.ai-img-zoom{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(12,14,18,.86);padding:16px;backdrop-filter:blur(6px);}
+.ai-img-zoom.on{display:flex;}
+.ai-img-zoom img{max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5);}
 .sticker-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--radius-2xs);background:rgba(255,255,255,.5);border:1px solid var(--glass-line);font-size:var(--fs-2);min-width:0;}
 .sticker-row img{width:34px;height:34px;object-fit:contain;border-radius:var(--radius-2xs);background:#fff;border:1px solid var(--glass-line);flex:0 0 auto;}
 .sticker-badge{flex:0 0 auto;font-size:var(--fs-1);padding:2px 6px;border-radius:var(--radius-pill);background:var(--green-soft);color:var(--green-dark);font-weight:700;white-space:nowrap;}
@@ -2857,6 +2869,56 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
     </div>
 
     <button class="btn ghost" type="button" onclick="testAIConn()" style="width:100%;margin-bottom:8px;">测试连接</button>
+
+    <!-- ===================== 生图（角色发照片 · 2026-10-29） ===================== -->
+    <div style="padding:14px 16px;margin:14px 0 14px;border-radius:var(--radius);background:linear-gradient(135deg,rgba(196,172,214,.20),rgba(165,192,162,.07));border:1px solid #c9b6da;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="font-size:13px;font-weight:700;color:var(--green-dark);">🎨 生图（角色发照片）</div>
+        <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+          <input type="checkbox" id="imgOn" onchange="syncImgUI()" style="opacity:0;width:0;height:0;position:absolute;">
+          <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+        </label>
+      </div>
+      <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
+        开启后，你在聊天里说「发张照片看看」，零落/沈容会自己画一张发过来。走 NovelAI 协议（第三方站），生成约 20-40 秒。<br>
+        ⚠️ Key 只存在这台设备上，不会进代码、不会上传；仓库是公开的，写进代码就等于公开泄露。
+      </p>
+      <div id="imgFields" style="transition:opacity .25s;">
+        <label>接口地址</label>
+        <input id="imgOrigin" placeholder="https://novel.nekoprompt.top" autocapitalize="off" autocorrect="off">
+        <label>生图 API Key <span style="font-size:11px;color:var(--ink-soft)">（本地保存）</span></label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="imgKey" type="password" placeholder="nk-..." style="flex:1 1 auto;min-width:0;" autocapitalize="off" autocorrect="off">
+          <button class="btn ghost" type="button" onclick="aiToggleKey('imgKey',this)" style="flex:0 0 auto;padding:8px 10px;font-size:13px;line-height:1;" aria-label="显示或隐藏 Key">👁</button>
+        </div>
+        <label>模型</label>
+        <select id="imgModel"></select>
+        <label>尺寸</label>
+        <select id="imgSize"></select>
+        <div style="display:flex;gap:8px;">
+          <div style="flex:1 1 0;min-width:0;">
+            <label>每日上限（张）</label>
+            <input id="imgDaily" type="number" min="0" max="70" step="1" inputmode="numeric">
+          </div>
+          <div style="flex:1 1 0;min-width:0;">
+            <label>冷却（秒）</label>
+            <input id="imgCooldown" type="number" min="0" max="3600" step="10" inputmode="numeric">
+          </div>
+        </div>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 8px;line-height:1.6;">
+          这个站限制每 800 秒一张、每天约 70 张。填 0 = 不限（不建议，会把额度烧光）。
+        </p>
+        <label>零落 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（英文标签，填了长相才稳）</span></label>
+        <input id="imgAnchorA" placeholder="1girl, long silver white hair, wolf ears, ..." autocapitalize="off" autocorrect="off">
+        <label>沈容 外观锚点</label>
+        <input id="imgAnchorB" placeholder="1boy, short black hair, fox ears, suit, ..." autocapitalize="off" autocorrect="off">
+        <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button class="btn ghost" type="button" onclick="imgTestGenerate()" style="flex:0 0 auto;">🧪 试生一张</button>
+          <span id="imgHint" style="font-size:11px;color:var(--ink-soft);line-height:1.5;flex:1;min-width:120px;"></span>
+        </div>
+        <div id="imgQuotaLine" style="font-size:11px;color:var(--ink-soft);margin-top:6px;line-height:1.5;"></div>
+      </div>
+    </div>
 
     </div><!-- /pane conn -->
 
@@ -7516,8 +7578,347 @@ const TOOL_LABEL = {
   add_expense:'记账', get_expenses:'查询账目', set_budget:'设置预算',
   update_expense:'修改记账', remove_expense:'删除记账',
   log_mood:'记录心情', get_mood:'查询心情',
-  schedule_push:'预约推送'
+  schedule_push:'预约推送',
+  send_photo:'生成一张图'
 };
+/* =====================================================================
+   生图模块（2026-10-29 新增）
+   ---------------------------------------------------------------------
+   协议来自实测（2026-10-29）：POST {origin}/ai/generate-image
+     header : Authorization: Bearer <key> + Content-Type: application/json
+     body   : NAI 官方 v4 结构 {input, model, action:'generate', parameters}
+     响应   : **ZIP**（binary/octet-stream，含 image_0.png），不是 JSON
+   为什么自己解 ZIP：港港窝不引 CDN，deflate 段用浏览器原生 DecompressionStream
+   解（Chrome 103+ / 手机 Chrome 都有），零依赖、不增加包体。
+   ⚠️ Key 只存本机 localStorage：仓库 public、Pages 目录全网可读，
+      写进 HTML 等于公开泄露（删文件也收不回，只能轮换）。
+   ⚠️ 站点限速 800 秒/次、每日约 70 张 ⇒ 本地必须自己做冷却 + 每日上限，
+      否则模型会把人家的公益额度当无限用。
+   ===================================================================== */
+const IMG_CFG_KEY   = 'mhm_img_cfg';
+const IMG_QUOTA_KEY = 'mhm_img_quota';   // {day:'2026-10-29', used:3, lastAt:ts}
+const IMG_DB_NAME   = 'mhm_img_db';      // 独立库：不碰 mhm_mem_db 的 version，避免 rescue 页 VersionError
+const IMG_MODELS = [
+  { id:'nai-diffusion-4-5-full',         label:'V4.5 Full（画质最好，默认）' },
+  { id:'nai-diffusion-4-5-curated',      label:'V4.5 Curated（风格更稳）' },
+  { id:'nai-diffusion-4-full',           label:'V4 Full' },
+  { id:'nai-diffusion-4-curated-preview',label:'V4 Curated' },
+  { id:'nai-diffusion-3',                label:'Anime V3（最快最省）' }
+];
+const IMG_SIZES = [
+  { v:'832x1216', label:'竖图 832×1216（人像，推荐）' },
+  { v:'1216x832', label:'横图 1216×832（场景）' },
+  { v:'1024x1024', label:'方图 1024×1024' },
+  { v:'640x640',  label:'小方图 640×640（省时间）' }
+];
+const IMG_CFG_DEFAULT = {
+  enabled: false,
+  origin: 'https://novel.nekoprompt.top',
+  key: '',
+  model: 'nai-diffusion-4-5-full',
+  size: '832x1216',
+  steps: 28,
+  scale: 5,
+  sampler: 'k_euler_ancestral',
+  noise: 'karras',
+  dailyLimit: 8,
+  cooldownSec: 800,
+  // 角色外观锚点：留空时每次长相都会漂，建议在设置里填一次
+  anchorA: '',   // 零落
+  anchorB: ''    // 沈容
+};
+function imgCfg(){
+  let c = {};
+  try{ c = JSON.parse(localStorage.getItem(IMG_CFG_KEY)) || {}; }catch(e){ c = {}; }
+  const out = Object.assign({}, IMG_CFG_DEFAULT);
+  for(const k in c){ if(c[k] !== undefined && c[k] !== null) out[k] = c[k]; }
+  return out;
+}
+function imgCfgSave(patch){
+  const c = Object.assign(imgCfg(), patch || {});
+  try{ localStorage.setItem(IMG_CFG_KEY, JSON.stringify(c)); }catch(e){}
+  return c;
+}
+function imgDayKey(){
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function imgQuota(){
+  let q = {};
+  try{ q = JSON.parse(localStorage.getItem(IMG_QUOTA_KEY)) || {}; }catch(e){ q = {}; }
+  if(q.day !== imgDayKey()) q = { day: imgDayKey(), used: 0, lastAt: 0 };
+  // ⚠️ lastAt 是 Date.now()（约 1.79e12），绝不能用 `|0`：32 位截断会变成负数，
+  //    于是「现在 - lastAt」永远是巨大正数 ⇒ 本地冷却形同不存在（2026-10-29 实测踩过）
+  return { day: q.day, used: q.used|0, lastAt: Number(q.lastAt) || 0 };
+}
+function imgQuotaSave(q){
+  try{ localStorage.setItem(IMG_QUOTA_KEY, JSON.stringify(q)); }catch(e){}
+}
+/* 闸门：本地冷却 + 每日上限。返回 {ok:false, wait, reason(给模型看的人话)} */
+function imgGateCheck(){
+  const cfg = imgCfg();
+  if(!cfg.enabled) return { ok:false, reason:'生图还没开启（设置 → 连接与模型 → 🖼 生图）。' };
+  if(!String(cfg.key||'').trim()) return { ok:false, reason:'还没填生图 API Key（设置 → 连接与模型 → 🖼 生图）。' };
+  const q = imgQuota();
+  const lim = cfg.dailyLimit|0;
+  if(lim > 0 && q.used >= lim) return { ok:false, reason:'今天的生图额度已经用完了（'+q.used+'/'+lim+' 张），跟对方说一声明天再发，别再试。' };
+  const cd = (cfg.cooldownSec|0) * 1000;
+  const gap = Date.now() - (Number(q.lastAt) || 0);
+  if(cd > 0 && q.lastAt > 0 && gap < cd){
+    const wait = Math.ceil((cd - gap)/1000);
+    return { ok:false, wait:wait, reason:'刚生成过一张，站点限制每 ' + Math.round(cd/1000) + ' 秒只能生成一次，还要等 ' + wait + ' 秒。跟对方说实话，别假装发了。' };
+  }
+  return { ok:true };
+}
+/* 半自动闸：本轮用户到底有没有要看图。宁可放过也不要自作主张烧额度。 */
+function imgUserAsked(){
+  let t = '';
+  for(let i = aiConv.length - 1; i >= 0; i--){
+    const m = aiConv[i];
+    if(m.role !== 'user') continue;
+    if(typeof m.content === 'string') t = m.content;
+    else if(Array.isArray(m.content)) t = m.content.map(p => (p && p.type === 'text') ? (p.text||'') : '').join(' ');
+    break;
+  }
+  t = String(t || '');
+  if(!t) return false;
+  if(/(别|不要|不用|先不).{0,4}(图|照片|相片|自拍)/.test(t)) return false;   // 明确说不要
+  return /(图|照片|相片|自拍|画像|立绘|画一张|画个|来一张|拍一张|生成一张|看看你|你长什么样|长啥样)/.test(t);
+}
+/* ---------- ZIP 解包（只依赖浏览器原生 DecompressionStream） ---------- */
+function imgZipEOCD(u8, dv){
+  const min = Math.max(0, u8.length - 65557);
+  for(let i = u8.length - 22; i >= min; i--){
+    if(dv.getUint32(i, true) === 0x06054b50) return i;
+  }
+  return -1;
+}
+async function imgUnzipImages(buf){
+  const u8 = new Uint8Array(buf), dv = new DataView(buf);
+  const eocd = imgZipEOCD(u8, dv);
+  if(eocd < 0) throw new Error('响应不是 ZIP（站点可能返回了报错内容）');
+  const total = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  const out = [];
+  for(let n = 0; n < total && off + 46 <= u8.length; n++){
+    if(dv.getUint32(off, true) !== 0x02014b50) break;
+    const method = dv.getUint16(off + 10, true);
+    const csize  = dv.getUint32(off + 20, true);
+    const fnLen  = dv.getUint16(off + 28, true);
+    const exLen  = dv.getUint16(off + 30, true);
+    const cmLen  = dv.getUint16(off + 32, true);
+    const lho    = dv.getUint32(off + 42, true);
+    const name   = new TextDecoder().decode(u8.subarray(off + 46, off + 46 + fnLen));
+    off += 46 + fnLen + exLen + cmLen;
+    if(!/\.(png|jpe?g|webp)$/i.test(name)) continue;
+    if(lho + 30 > u8.length) continue;
+    const lfn = dv.getUint16(lho + 26, true), lex = dv.getUint16(lho + 28, true);
+    const start = lho + 30 + lfn + lex;
+    const raw = u8.subarray(start, start + csize);
+    if(!raw.length) continue;
+    let blob;
+    if(method === 0){
+      blob = new Blob([raw], { type:'image/png' });
+    }else{
+      if(typeof DecompressionStream !== 'function') throw new Error('这台设备的浏览器不支持解压 ZIP（需要 Chrome 103 以上）');
+      const st = new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+      blob = await new Response(st).blob();
+    }
+    const mime = /jpe?g$/i.test(name) ? 'image/jpeg' : (/(webp)$/i.test(name) ? 'image/webp' : 'image/png');
+    out.push({ name: name, blob: blob.slice(0, blob.size, mime) });
+  }
+  if(!out.length) throw new Error('ZIP 里没有图片');
+  return out;
+}
+/* ---------- 独立图片库 ---------- */
+let _imgDBPromise = null;
+function imgOpenDB(){
+  if(_imgDBPromise) return _imgDBPromise;
+  _imgDBPromise = new Promise(function(resolve){
+    try{
+      if(!window.indexedDB){ resolve(null); return; }
+      const req = indexedDB.open(IMG_DB_NAME, 1);
+      req.onupgradeneeded = function(){
+        const db = req.result;
+        if(!db.objectStoreNames.contains('images')) db.createObjectStore('images', { keyPath:'id' });
+      };
+      req.onsuccess = function(){ resolve(req.result); };
+      req.onerror = function(){ resolve(null); };
+    }catch(e){ resolve(null); }
+  });
+  return _imgDBPromise;
+}
+function imgDBTx(mode, fn){
+  return imgOpenDB().then(function(db){
+    if(!db) return Promise.resolve(null);
+    return new Promise(function(res, rej){
+      try{
+        const tx = db.transaction('images', mode);
+        const r = fn(tx.objectStore('images'));
+        r.onsuccess = function(){ res(r.result); };
+        r.onerror = function(){ rej(r.error); };
+        tx.onerror = function(){ rej(tx.error); };
+      }catch(e){ rej(e); }
+    });
+  });
+}
+function imgPut(rec){ return imgDBTx('readwrite', function(s){ return s.put(rec); }); }
+function imgGet(id){ return imgDBTx('readonly', function(s){ return s.get(id); }); }
+function imgDel(id){ return imgDBTx('readwrite', function(s){ return s.delete(id); }); }
+/* blob URL 缓存：一张图 ~150KB，最多留 40 个，超了先 revoke 最旧的 */
+const _imgUrlCache = new Map();
+function imgUrlOf(id){
+  if(_imgUrlCache.has(id)) return Promise.resolve(_imgUrlCache.get(id));
+  return imgGet(id).then(function(rec){
+    if(!rec || !rec.blob) return '';
+    const u = URL.createObjectURL(rec.blob);
+    if(_imgUrlCache.size >= 40){
+      const k = _imgUrlCache.keys().next().value;
+      try{ URL.revokeObjectURL(_imgUrlCache.get(k)); }catch(e){}
+      _imgUrlCache.delete(k);
+    }
+    _imgUrlCache.set(id, u);
+    return u;
+  }).catch(function(){ return ''; });
+}
+/* 落库前压一次：原图 PNG ~500KB，转 webp 1024 边约 120-180KB，够看又省空间 */
+function imgShrink(blob, maxSide){
+  const lim = maxSide || 1024;
+  if(typeof createImageBitmap !== 'function') return Promise.resolve(blob);
+  return createImageBitmap(blob).then(function(bmp){
+    let w = bmp.width, h = bmp.height;
+    const k = Math.min(1, lim / Math.max(w, h));
+    w = Math.max(1, Math.round(w * k)); h = Math.max(1, Math.round(h * k));
+    const cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d');
+    if(!ctx) return blob;
+    ctx.drawImage(bmp, 0, 0, w, h);
+    try{ if(bmp.close) bmp.close(); }catch(e){}
+    const p = new Promise(function(res){
+      try{ cv.toBlob(function(b){ res(b); }, 'image/webp', 0.86); }catch(e){ res(null); }
+    });
+    return p.then(function(out){ return (out && out.size) ? out : blob; });
+  }).catch(function(){ return blob; });
+}
+/* ---------- 请求 ---------- */
+function imgBuildBody(cfg, prompt, negative, w, h, seed){
+  const base = String(prompt || '').trim();
+  const neg  = String(negative || '').trim();
+  const params = {
+    width: w, height: h, n_samples: 1, steps: Math.max(1, cfg.steps|0),
+    scale: Number(cfg.scale) || 5, sampler: cfg.sampler || 'k_euler_ancestral',
+    noise_schedule: cfg.noise || 'karras', seed: seed,
+    negative_prompt: neg, sm: false, sm_dyn: false, cfg_rescale: 0
+  };
+  // V4 / V4.5 必须带结构化 caption，否则上游只按 input 理解、人物常崩
+  if(/^nai-diffusion-4/.test(cfg.model)){
+    params.v4_prompt = { caption:{ base_caption: base, char_captions: [] }, use_coords:false, use_order:true };
+    params.v4_negative_prompt = { caption:{ base_caption: neg, char_captions: [] }, legacy_uc:false };
+  }
+  return { input: base, model: cfg.model, action: 'generate', parameters: params };
+}
+async function imgGenerate(prompt, negative, opt){
+  opt = opt || {};
+  const cfg = imgCfg();
+  const gate = imgGateCheck();
+  if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait };
+  const origin = String(cfg.origin || '').replace(/\/+$/, '');
+  if(!/^https:\/\//i.test(origin)) return { ok:false, error:'生图接口地址必须是 https 开头' };
+  const wh = String(cfg.size || '832x1216').split('x');
+  const w = parseInt(wh[0], 10) || 832, h = parseInt(wh[1], 10) || 1216;
+  const seed = (opt.seed != null && opt.seed >= 0) ? (opt.seed|0) : Math.floor(Math.random() * 4294967295);
+  const body = imgBuildBody(cfg, prompt, negative, w, h, seed);
+  const ctl = new AbortController();
+  const timer = setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 150000);
+  let resp;
+  const t0 = Date.now();
+  try{
+    resp = await fetch(origin + '/ai/generate-image', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + String(cfg.key||'').replace(/^Bearer\s+/i,'').trim(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctl.signal
+    });
+  }catch(e){
+    clearTimeout(timer);
+    // ⚠️ 读正文的 fetch 不能只靠这个超时盖住，但生图是一次性响应，这里 abort 即整段结束
+    if(e && e.name === 'AbortError') return { ok:false, error:'生图超时（150 秒没返回），站点可能在排队。过一会儿再试。' };
+    return { ok:false, error:'生图请求发不出去：' + ((e && e.message) || '网络错误') };
+  }
+  clearTimeout(timer);
+  if(!resp.ok){
+    let txt = '';
+    try{ txt = (await resp.text()).slice(0, 300); }catch(e){}
+    if(resp.status === 401 || resp.status === 403) return { ok:false, error:'生图 Key 无效或没权限（HTTP ' + resp.status + '）' + (txt ? '：' + txt : '') };
+    if(resp.status === 429){
+      const ra = parseInt(resp.headers.get('Retry-After') || '', 10);
+      const m = txt.match(/还需等待\s*(\d+(?:\.\d+)?)\s*秒/);
+      const wait = ra > 0 ? ra : (m ? Math.ceil(Number(m[1])) : 0);
+      return { ok:false, wait: wait, error:'站点限速：' + (wait ? ('还要等 ' + wait + ' 秒') : '稍后再试') };
+    }
+    if(resp.status >= 500) return { ok:false, error:'生图站点上游出错（HTTP ' + resp.status + '），过一会儿再试' };
+    return { ok:false, error:'生图失败（HTTP ' + resp.status + '）' + (txt ? '：' + txt : '') };
+  }
+  let imgs;
+  try{
+    const buf = await resp.arrayBuffer();
+    imgs = await imgUnzipImages(buf);
+  }catch(e){
+    return { ok:false, error:'图片解不开：' + ((e && e.message) || '未知错误') };
+  }
+  const blob = await imgShrink(imgs[0].blob, 1024);
+  return { ok:true, blob: blob, seed: seed, w: w, h: h, ms: Date.now() - t0, count: imgs.length };
+}
+/* 角色外观锚点 + 质量词 */
+function imgComposePrompt(prompt, who){
+  const cfg = imgCfg();
+  const anchor = who === '零落' ? String(cfg.anchorA||'').trim() : (who === '沈容' ? String(cfg.anchorB||'').trim() : '');
+  const bits = [];
+  if(anchor) bits.push(anchor);
+  bits.push(String(prompt||'').trim());
+  bits.push('very aesthetic, masterpiece, no text');
+  return bits.join(', ').replace(/\s*,\s*,+/g, ', ').replace(/^\s*,\s*/, '');
+}
+const IMG_NEG_DEFAULT = 'lowres, bad anatomy, bad hands, bad feet, extra digits, worst quality, low quality, jpeg artifacts, watermark, signature, text, username, multiple views';
+
+/* 本轮刚生成、还没挂到气泡上的图。挂载点在 aiRun 的最终回复处，
+   这样「台词 + 图」在同一条气泡里（图先出现、话跟上来，最像真发照片）。 */
+let _pendingPhoto = null;
+async function aiSendPhoto(args){
+  args = args || {};
+  const prompt = String(args.prompt || '').trim();
+  if(!prompt) return { ok:false, error:'prompt 是空的，没法生成' };
+  const who = (args.who === '零落' || args.who === '沈容') ? args.who : 'none';
+  const gate = imgGateCheck();
+  if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait || 0 };
+  /* 半自动闸（代码兜底）：prompt 里写「只在对方要求时调用」管不住模型，
+     这里直接查最后一条用户消息 —— 没有要看图的意图就否决，别烧公益站额度。 */
+  if(!imgUserAsked()) return { ok:false, error:'对方这次没有要看图片，不要主动生图。用文字正常回复就好。' };
+  const full = imgComposePrompt(prompt, who);
+  const step = (typeof addSysStep === 'function') ? addSysStep('🎨 正在生成图片…（约 20-40 秒）') : null;
+  let r;
+  try{
+    r = await imgGenerate(full, IMG_NEG_DEFAULT, {});
+  }finally{
+    if(step && step.parentNode) step.remove();
+  }
+  if(!r.ok){
+    // 限速类失败记一次时间戳，避免下一轮马上又撞上去
+    if(r.wait || /限速|429/.test(String(r.error || ''))){
+      const q0 = imgQuota(); q0.lastAt = Date.now(); imgQuotaSave(q0);
+    }
+    return { ok:false, error:'生成失败：' + (r.error || '未知错误') };
+  }
+  const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  const rec = { id:id, blob:r.blob, prompt:prompt, full:full, who:who, seed:r.seed, w:r.w, h:r.h, model: imgCfg().model, created: Date.now() };
+  try{ await imgPut(rec); }catch(e){}
+  const q = imgQuota(); q.used = (q.used|0) + 1; q.lastAt = Date.now(); imgQuotaSave(q);
+  _pendingPhoto = { id:id, w:rec.w, h:rec.h, note:String(args.note || '').trim(), who:who, prompt:prompt };
+  const lim = imgCfg().dailyLimit|0;
+  return { ok:true, note:'图片已经发给对方，会跟你的下一句话一起显示。用你自己的语气说一句短的就行（不要描述画面、不要复述提示词、不要说"已生成"）。今日已用 ' + q.used + (lim > 0 ? ('/' + lim) : '') + ' 张。' };
+}
+
 const AI_TOOLS = [
   { type:'function', function:{
     name:'add_task',
@@ -7774,6 +8175,15 @@ const AI_TOOLS = [
       img:{type:'string', description:'可选配图，填一个表情包标签（半角方括号，如 [累] [贴贴]）；没有就不填'},
       mood:{type:'string', description:'写这条时的心情，一两个词，如"开心""有点累""想她"；没有就不填'}
     }, required:['who','content']}
+  }},
+  { type:'function', function:{
+    name:'send_photo',
+    description:'给对方发一张照片（自拍/生活照/场景照），图上会显示在你的气泡里。只在对方明确要看照片、图片、你现在的样子时才调用；普通聊天绝对不要调用，也不要为了讨好而配图。生成要 20-40 秒，每天有次数上限（用完了必须如实说，不许假装已经发了）。画面必须是对话里合理成立的东西：你们正在做的事、你所在的地方、你穿的衣服。',
+    parameters:{ type:'object', properties:{
+      prompt:{type:'string', description:'用英文逗号分隔的画面标签（Danbooru 风格），只写画面本身，不写中文、不写解释。例："1girl, solo, indoors, sitting on sofa, holding mug, looking at viewer, soft smile, warm lamp light, upper body"。把角色外观写在最前面（发色/发型/耳类/服装），保证每次是同一个人。'},
+      who:{type:'string', enum:['零落','沈容','none'], description:'画面主体是谁：零落 / 沈容 / none（拍景物、无人）'},
+      note:{type:'string', description:'跟图一起显示的短句，用你自己的语气（如"喏，刚拍的"），不要描述画面。可以留空'}
+    }, required:['prompt']}
   }}
 ];
 
@@ -8225,17 +8635,58 @@ function convBubbleEl(m){
   if(m.role==='assistant'){
     // agent 循环里带 tool_calls 的中间"思考+调工具"消息：运行时本来就不 addAIMsg（只有最终纯文本回复才显示），
     // 重进后渲染时也要跳过——它们是模型内部过程，不该当用户回复气泡出现（避免重进后多出一条重复内容、也避免给 TTS 误朗读制造 token 浪费）
-    if(typeof m.content==='string' && m.content.trim() && !(m.tool_calls && m.tool_calls.length)){
-      const vr = aiResolveVoice(m.content); // 历史回复可能带【角色名】标记，重进时同样剥掉再显示
+    // ★ 2026-10-29：生图消息可能只有图没有字（模型空回复兜底那条），所以「有没有字」不再作为唯一判据
+    const _hasTxt = (typeof m.content === 'string' && m.content.trim());
+    if((_hasTxt || m.img) && !(m.tool_calls && m.tool_calls.length)){
       const d = document.createElement('div');
       d.className = 'ai-msg ai';
-      appendAiBubbleText(d, vr.clean, m.id);
+      if(m.img) attachAiImage(d, m.img); // 图在上、字在下（与实时渲染保持一致）
+      if(_hasTxt){
+        const vr = aiResolveVoice(m.content); // 历史回复可能带【角色名】标记，重进时同样剥掉再显示
+        appendAiBubbleText(d, vr.clean, m.id);
+      }
       attachDelBtn(d, m.id);
       return d;
     }
   }
   // system / tool / 内部 agent 消息不在气泡区显示
   return null;
+}
+/* 生图气泡（2026-10-29）：图从独立库 mhm_img_db 按 id 取，blob URL 走缓存。
+   存档里只留 {id,w,h} 这类小字段，不塞 base64 —— localStorage 只有 5MB，一张图就能撑爆。 */
+function attachAiImage(d, img){
+  if(!d || !img || !img.id) return;
+  const box = document.createElement('div');
+  box.className = 'ai-gen-img-box';
+  const el = document.createElement('img');
+  el.className = 'ai-gen-img';
+  el.alt = img.alt || '照片';
+  el.loading = 'lazy';
+  el.decoding = 'async';
+  if(img.w && img.h) el.style.aspectRatio = img.w + ' / ' + img.h;
+  box.appendChild(el);
+  d.appendChild(box);
+  el.onclick = function(){ aiImgZoom(img.id); };
+  imgUrlOf(img.id).then(function(u){
+    if(u){ el.src = u; }
+    else { box.classList.add('lost'); box.textContent = '（图片没存住，可以让我重新生成一张）'; }
+  }).catch(function(){ box.textContent = '（图片读取失败）'; });
+}
+function aiImgZoom(id){
+  imgUrlOf(id).then(function(u){
+    if(!u) return;
+    let ov = document.getElementById('aiImgZoom');
+    if(!ov){
+      ov = document.createElement('div');
+      ov.id = 'aiImgZoom';
+      ov.className = 'ai-img-zoom';
+      ov.innerHTML = '<img alt="照片">';
+      ov.onclick = function(){ ov.classList.remove('on'); };
+      document.body.appendChild(ov);
+    }
+    ov.querySelector('img').src = u;
+    ov.classList.add('on');
+  }).catch(function(){});
 }
 function attachDelBtn(d, mid){
   if(!mid) return;
@@ -9472,13 +9923,15 @@ function sendQuick(text){
 // 为报错/提示等纯展示消息生成临时 id（用于显示删除按钮；不写入对话历史）
 function aiMsgId(){ return 'm'+Date.now()+'_'+Math.random().toString(36).slice(2,7); }
 
-function addAIMsg(role, text, mid){
+function addAIMsg(role, text, mid, img){
   // ★ 2026-09-17：标记「本轮已有可见产出」。aiRun 结束时若仍是 false，会补一句明确提示，
   //   杜绝「模型空回复 → 静默 break → 界面上只剩『👁 已读图…』步骤气泡」这种看起来像卡死的状态。
   if(role==='ai'){ hideTyping(); window.__aiTurnSaid = true; }
   const wrap = document.getElementById('aiMsgs');
   const d = document.createElement('div');
   d.className = 'ai-msg '+(role==='user'?'user':(role==='sys'?'sys':'ai'));
+  // 2026-10-29：图放前面、文字在后面 —— 「先看到照片，再读到那句话」，跟真人发图一个顺序
+  if(img) attachAiImage(d, img);
   appendAiBubbleText(d, text, mid);
   if(mid && role!=='sys'){
     d.dataset.mid = mid;
@@ -9518,7 +9971,7 @@ let _setSaving = false;        // 组合保存进行中：抑制各 save 函数�
 /* 每个分类点「保存本页」时要跑哪些保存函数（语音横跨 AI 与番茄钟两份配置，所以两个都要跑） */
 const SET_TAB_SAVE = {
   general: ['ai'],
-  conn:    ['ai'],
+  conn:    ['ai', 'img'],
   voice:   ['ai', 'pomo'],
   prompt:  ['prompt'],
   pomo:    ['pomo'],
@@ -9530,6 +9983,7 @@ function openSettings(tab){
   setTab = SET_TAB_SAVE[tab] ? tab : 'general';
   initAISettingsFields();   // 无论从哪个入口进来都全量填一遍，避免保存时读到未初始化的空值
   initPomoSettingsFields();
+  try{ initImgSettingsFields(); }catch(e){}   // 生图设置（conn 页底部）
   applySetTab(true);
   openMask(document.getElementById('setMask'));
 }
@@ -9582,6 +10036,7 @@ function saveSettings(){
   _setSaving = true;
   try{
     if(list.indexOf('ai') >= 0 && typeof saveAISettings === 'function') saveAISettings();
+    if(list.indexOf('img') >= 0 && typeof saveImgCfg === 'function') saveImgCfg();
     if(list.indexOf('pomo') >= 0 && typeof savePomoSettings === 'function') savePomoSettings();
     if(list.indexOf('prompt') >= 0 && typeof savePromptCenter === 'function') savePromptCenter();
   } finally { _setSaving = false; }
@@ -9591,6 +10046,107 @@ function saveSettings(){
   closeSettings();
 }
 
+/* ---------- 生图设置区（2026-10-29） ---------- */
+function imgFillSelects(){
+  const mSel = document.getElementById('imgModel');
+  if(mSel && !mSel.options.length){
+    mSel.innerHTML = IMG_MODELS.map(function(m){ return '<option value="' + m.id + '">' + m.label + '</option>'; }).join('');
+  }
+  const sSel = document.getElementById('imgSize');
+  if(sSel && !sSel.options.length){
+    sSel.innerHTML = IMG_SIZES.map(function(s){ return '<option value="' + s.v + '">' + s.label + '</option>'; }).join('');
+  }
+}
+function initImgSettingsFields(){
+  const on = document.getElementById('imgOn');
+  if(!on) return;
+  const cfg = imgCfg();
+  imgFillSelects();
+  on.checked = !!cfg.enabled;
+  const set = function(id, v){ const e = document.getElementById(id); if(e) e.value = v; };
+  set('imgOrigin', cfg.origin || '');
+  set('imgKey', cfg.key || '');
+  set('imgModel', cfg.model || IMG_CFG_DEFAULT.model);
+  set('imgSize', cfg.size || IMG_CFG_DEFAULT.size);
+  set('imgDaily', cfg.dailyLimit);
+  set('imgCooldown', cfg.cooldownSec);
+  set('imgAnchorA', cfg.anchorA || '');
+  set('imgAnchorB', cfg.anchorB || '');
+  const h = document.getElementById('imgHint'); if(h) h.textContent = '';
+  const old = document.getElementById('imgTestPreview'); if(old) old.remove();
+  syncImgUI();
+}
+function syncImgUI(){
+  const on = document.getElementById('imgOn'), f = document.getElementById('imgFields');
+  if(!on || !f) return;
+  f.style.opacity = on.checked ? '1' : '.45';
+  f.style.pointerEvents = on.checked ? '' : 'none';
+  imgPaintQuota();
+}
+function imgPaintQuota(){
+  const el = document.getElementById('imgQuotaLine');
+  if(!el) return;
+  const cfg = imgCfg(), q = imgQuota();
+  const cd = (cfg.cooldownSec | 0) * 1000;
+  const left = cd - (Date.now() - (Number(q.lastAt) || 0));
+  let s = '今日已用 ' + q.used + ' 张' + ((cfg.dailyLimit | 0) > 0 ? ('（上限 ' + (cfg.dailyLimit|0) + '）') : '（不限）');
+  if(cd > 0 && (Number(q.lastAt) || 0) > 0 && left > 0) s += ' · 冷却中，还需等 ' + Math.ceil(left/1000) + ' 秒';
+  el.textContent = s;
+}
+function saveImgCfg(){
+  const g = function(id){ const e = document.getElementById(id); return e ? String(e.value || '') : ''; };
+  const on = document.getElementById('imgOn');
+  imgCfgSave({
+    enabled: !!(on && on.checked),
+    origin: g('imgOrigin').trim() || IMG_CFG_DEFAULT.origin,
+    key: g('imgKey').trim(),
+    model: g('imgModel') || IMG_CFG_DEFAULT.model,
+    size: g('imgSize') || IMG_CFG_DEFAULT.size,
+    dailyLimit: Math.max(0, Math.min(70, parseInt(g('imgDaily'), 10) || 0)),
+    cooldownSec: Math.max(0, Math.min(3600, parseInt(g('imgCooldown'), 10) || 0)),
+    anchorA: g('imgAnchorA').trim(),
+    anchorB: g('imgAnchorB').trim()
+  });
+}
+/* 试生一张：花的是真额度，所以按钮上写清楚。生成后直接在这里预览，不用去聊天里看。 */
+async function imgTestGenerate(){
+  const hint = document.getElementById('imgHint');
+  saveImgCfg();
+  const cfg = imgCfg();
+  if(!String(cfg.key||'').trim()){ if(hint) hint.textContent = '先填 API Key'; return; }
+  const gate = imgGateCheck();
+  if(!gate.ok){ if(hint) hint.textContent = gate.reason; imgPaintQuota(); return; }
+  if(hint) hint.textContent = '正在生成…（约 20-40 秒，占 1 张额度）';
+  let r;
+  try{
+    r = await imgGenerate(imgComposePrompt('1girl, solo, portrait, looking at viewer, soft smile, simple background', 'none'), IMG_NEG_DEFAULT, {});
+  }catch(e){ r = { ok:false, error: (e && e.message) || '出错' }; }
+  if(!r.ok){
+    if(hint) hint.textContent = '失败：' + (r.error || '未知错误');
+    imgPaintQuota();
+    return;
+  }
+  const id = 'img_' + Date.now() + '_test';
+  try{ await imgPut({ id:id, blob:r.blob, prompt:'__test__', created: Date.now(), seed:r.seed, w:r.w, h:r.h, model: cfg.model }); }catch(e){}
+  const q = imgQuota(); q.used = (q.used|0) + 1; q.lastAt = Date.now(); imgQuotaSave(q);
+  if(hint) hint.textContent = '✅ 成功 · ' + ((r.ms||0)/1000).toFixed(1) + ' 秒 · ' + r.w + '×' + r.h;
+  let box = document.getElementById('imgTestPreview');
+  if(!box){
+    box = document.createElement('div');
+    box.id = 'imgTestPreview';
+    box.style.cssText = 'margin-top:10px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);';
+    const ql = document.getElementById('imgQuotaLine');
+    if(ql && ql.parentNode) ql.parentNode.insertBefore(box, ql);
+    else if(hint && hint.parentNode) hint.parentNode.appendChild(box);
+  }
+  box.innerHTML = '';
+  const im = document.createElement('img');
+  im.style.cssText = 'width:100%;display:block;';
+  im.alt = '试生结果';
+  im.src = URL.createObjectURL(r.blob);
+  box.appendChild(im);
+  imgPaintQuota();
+}
 /* 填一遍助理设置区的所有控件（原 openAISettings 的赋值部分，去掉了 openMask） */
 function initAISettingsFields(){
   const cfg = getAiCfg();
@@ -14789,7 +15345,15 @@ async function aiRun(){
         const shown = String(vr.clean || '').trim(); // 剥完标记后还剩多少正文
         if(shown){
           const aiPlain = aiStickerPlain(vr.clean); // 表情包标记只用于展示，记忆与朗读里去掉
-          addAIMsg('ai', vr.clean, msg.id);
+          /* 2026-10-29：本轮刚生成的图挂在这条回复上 —— 图和台词同一条气泡，最像「发了张照片再说句话」。
+             挂在 msg 上（而不是另起一条）是因为 msg 已经在 aiConv 里，saveConv 直接就能存住。 */
+          let _imgObj = null;
+          if(_pendingPhoto){
+            const ph = _pendingPhoto; _pendingPhoto = null;
+            _imgObj = { id: ph.id, w: ph.w, h: ph.h, alt: ph.note || '照片' };
+            try{ msg.img = _imgObj; }catch(e){}
+          }
+          addAIMsg('ai', vr.clean, msg.id, _imgObj);
           memNoteAssistant(aiPlain, msg.id); // 最终回复落库进记忆库（中间 tool_calls 消息不落）
           aiTtsSpeak(aiPlain, false, msg.id, vr.voice);
         }else{
@@ -14826,6 +15390,17 @@ async function aiRun(){
     }
     /* ★ 2026-09-17 兜底闸门：跑完整个循环却一个字都没说出口（模型空回复、或只调工具不回头说话），
        就补一句明确的，别让界面停在「👁 已读图…」上让人干等。比"静默卡住"强一万倍。 */
+    /* ★ 2026-10-29：图生成出来了、模型却一个字没说 —— 图不能丢（额度已经花了），
+       单独补一条只带图的气泡；有 note 就用 note 当那句话。 */
+    if(_pendingPhoto){
+      const ph = _pendingPhoto; _pendingPhoto = null;
+      const imgObj = { id: ph.id, w: ph.w, h: ph.h, alt: ph.note || '照片' };
+      const pmid = aiMsgId();
+      // content 不能留空：空 content 的 assistant 消息下一轮发给接口时可能被判非法
+      const fallback = ph.note || '（发来一张照片）';
+      try{ aiConv.push({ role:'assistant', content: fallback, id: pmid, ts: Date.now(), img: imgObj }); }catch(e){}
+      addAIMsg('ai', fallback, pmid, imgObj);
+    }
     if(!window.__aiTurnSaid){
       window.__lastAIError = window.__lastAIError || '本轮无可见产出（模型没吐出正文）';
       if(stepEl) stepEl.remove();
@@ -14845,6 +15420,7 @@ async function aiRun(){
     addAIMsg('ai','出错了：'+(e.message||'未知错误'), aiMsgId());
   }finally{
     clearTimeout(wd);
+    _pendingPhoto = null; // 未能挂上去的图不留到下轮（否则下一句话会莫名多出一张旧图）
     aiConvStripToolMsgs(); // ★ 工具流水不进历史：清掉本轮的 tool_calls/tool 消息，只留人话（存档更小，也不再挤占上下文窗口）
     saveConv(); // 持久化本次对话，刷新后仍在
     syncCloudContext().catch(()=>{}); // 云端语境同步：聊完一回合刷新云端上下文（回复主动消息后语境即更新）
@@ -14997,6 +15573,7 @@ async function aiCall(messages, cfg, attempt, opts){
     const c = Object.assign({}, m);
     if(c.userText !== undefined) delete c.userText;
     if(c.ts !== undefined) delete c.ts;
+    if(c.img !== undefined) delete c.img; // 2026-10-29 生图的本地字段（只给气泡用），严格接口会拒未知字段
     return c;
   });
   const payload = {
@@ -15412,6 +15989,8 @@ async function streamAICallText(messages, cfg, opts, onDelta){
   const cleanMsgs = (messages||[]).map(m=>{
     const c = Object.assign({}, m);
     if(c.userText !== undefined) delete c.userText;
+    if(c.ts !== undefined) delete c.ts;
+    if(c.img !== undefined) delete c.img; // 2026-10-29 生图本地字段，同 aiCall
     return c;
   });
   const payload = { model: modelName, messages: cleanMsgs, temperature: 0.3, stream: true };
@@ -15525,6 +16104,7 @@ async function execTool(name, argsStr){
     else if(name==='schedule_push') res = await aiSchedulePush(args);
     else if(name==='log_role_activity') res = ocActTool(args);
     else if(name==='post_oc_dynamic') res = await ocPostTool(args);
+    else if(name==='send_photo') res = await aiSendPhoto(args);
     else res = {ok:false, error:'未知工具 '+name};
   }catch(e){ res = {ok:false, error:String(e)}; }
   // 诚实回路：失败记回执（下一轮注入让 AI 自己开口，不替它写台词），成功消账；方向认不出不猜
