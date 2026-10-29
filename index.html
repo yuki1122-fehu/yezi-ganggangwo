@@ -7804,6 +7804,7 @@ function imgGateCheck(){
 /* 半自动闸：本轮用户到底有没有要看图。宁可放过也不要自作主张烧额度。 */
 function imgUserAsked(){
   let t = '';
+  if(!Array.isArray(aiConv)) return false;   // 防御：非对话路径（自动开口/云端快照）也会走到这里
   for(let i = aiConv.length - 1; i >= 0; i--){
     const m = aiConv[i];
     if(m.role !== 'user') continue;
@@ -7829,6 +7830,36 @@ function imgProactiveAllow(){
     return { ok:false, reason:'今天已经主动发过 ' + q.pro + ' 张照片了（上限 ' + cap + '），对方这次也没要图，别再发了。用文字正常回复。' };
   }
   return { ok:true };
+}
+/* ===== 主动发图的「时机」提示（2026-10-29）=====
+   ⚠️ 只写「可以主动发」是不够的：模型不会主动想起一个它没被提醒过的能力（工具常驻描述的通病）。
+      叶子要的是「晚饭聊到吃，就顺手拍一张餐桌」这种自然发生 —— 那需要一个时机信号，而不是又一条规则。
+   ⚠️ 这是**条件块**，不是常驻鼓励话术：额度用完 / 冷却中 / 40 分钟内刚发过 / 对方这轮就是来要图的，
+      四种情况下整块消失 ⇒ 它不会变成每轮都在的噪音，也不会诱导模型为发而发。
+   ⚠️ `noRollover`（云端 /sync 快照）不注入：Worker 侧没有工具执行能力，
+      且它的 pruneStaleLive 不认识新块，塞进去只会留下一条过期提示。 */
+const IMG_SPONT_GAP_MS = 40 * 60 * 1000;
+function imgSpontaneousBlock(opts){
+  if(opts && opts.noRollover) return '';
+  /* 「打开 App 自动先开口」那条路不提示：那条路的指令是「先发条消息」，
+     不是「此刻在做什么」，给它塞拍照机会只会变成"一开应用就收到一张图"，
+     还和云端主动消息抢同一次机会。__aiAutoReq 那条路用完即清，不影响正常对话。 */
+  if(window.__aiAutoReq) return '';
+  const cfg = imgCfg();
+  if(!cfg.enabled || !String(cfg.key || '').trim()) return '';
+  const cap = Math.max(0, Math.min(6, cfg.proactivePerDay | 0));
+  const q = imgQuota();
+  const left = cap - (q.pro | 0);
+  if(left <= 0) return '';                                            // 今天主动额度用完
+  const last = Number(q.lastAt) || 0;
+  if(last > 0 && (Date.now() - last) < IMG_SPONT_GAP_MS) return '';   // 刚发过，别连着来
+  if(imgUserAsked()) return '';                                       // 对方这轮本来就在要图，不用提示
+  const lim = cfg.dailyLimit | 0;
+  return '<顺手拍张照片>\n'
+    + '此刻如果你眼前、手上或者身边的人有值得给对方看的画面（你在吃什么、走到哪了、外面什么天色），可以顺手拍一张发过去，不用等对方开口。'
+    + '今天还能主动发 ' + left + ' 张' + (lim > 0 ? ('（全天上限 ' + lim + ' 张）') : '') + '。\n'
+    + '画面的时间、地点、光线、穿着要和上面的「此刻」和当前时间对得上，别凭空换场景。没有值得拍的就不发——不要为了发而发，也不要在对方说正事、情绪低落时插一张图。\n'
+    + '</顺手拍张照片>';
 }
 /* ---------- ZIP 解包（只依赖浏览器原生 DecompressionStream） ---------- */
 function imgZipEOCD(u8, dv){
@@ -8197,9 +8228,12 @@ async function aiSendPhoto(args){
   _pendingPhoto = { id:id, w:rec.w, h:rec.h, note:String(args.note || '').trim(), who:who, prompt:prompt, shot:shot };
   const lim = cfg.dailyLimit|0;
   let tip = '图片已经发给对方，会跟你的下一句话一起显示。用你自己的语气说一句短的就行（不要描述画面、不要复述提示词、不要说"已生成"）。';
-  if(!asked) tip = '这张是你主动发的（没等对方开口）。所以那句话要自然地带出「刚拍的/顺手拍的」这种口吻，不要解释为什么发、不要让照片变成话题中心。';
+  if(!asked) tip = '这张是你主动发的（没等对方开口）。那句话要自然带出「刚拍的/顺手拍的」这种口吻，最好接着上一句里提到的场景说，不要解释为什么发、不要让照片变成话题中心。';
   if(prevShot === shot) tip += '⚠️ 上一张也是同一个视角（' + (IMG_SHOTS[shot] || {}).label + '），连着两次一模一样会很假，下次换个视角。';
-  tip += '今日已用 ' + q.used + (lim > 0 ? ('/' + lim) : '') + ' 张' + (asked ? '' : ('，其中主动 ' + q.pro + '/' + Math.max(0, cfg.proactivePerDay|0))) + '。';
+  const capP = Math.max(0, cfg.proactivePerDay|0);
+  tip += '今日已用 ' + q.used + (lim > 0 ? ('/' + lim) : '') + ' 张'
+    + (capP > 0 ? ('，其中主动 ' + (q.pro|0) + '/' + capP + '（今天还能主动发 ' + Math.max(0, capP - (q.pro|0)) + ' 张）') : '')
+    + '。';
   return { ok:true, note: tip };
 }
 
@@ -8468,8 +8502,18 @@ const AI_TOOLS = [
       + '· pov_focus：第一人称，但画面里有一个你正看着的人（对方、店员、路边的人）。\n'
       + '· selfie：自拍，你在画面里。对方问「你长什么样 / 你在干嘛 / 让我看看你」，或你想让对方看见自己。\n'
       + '· duo：两个人的合照，要填 with。\n'
-      + '【怎么决定】对方只是好奇你在哪、看到什么 → pov；问到你自己、你的样子、你穿什么 → selfie；你们在一块儿、对方想看你们 → duo；你正看着对方 → pov_focus。同一个视角别连着用两次，真人不会一直用同一种方式拍照。\n'
-      + '【什么时候可以不问就发】对方没要图时你可以偶尔主动发（每天有独立上限，超了会被拒）。前提是场景里真有值得拍的东西、那句话自然带得出它；不要为了配图硬拍，也不要在正说正事、气氛紧张的时候插一张图。\n'
+      + '【怎么决定】对方只是好奇你在哪、看到什么 → pov；问到你自己、你的样子、你穿什么 → selfie；你们在一块儿、对方想看你们 → duo；你正看着对方 → pov_focus。同一个视角别连着用两次。\n'
+      + '【标签怎么写（NAI V4.5 吃这套）】按这个顺序写，越靠前权重越高：\n'
+      + '地点 → 时间/天气 → 光影 → 服装 → 动作表情 → 镜头 → 道具\n'
+      + '· 光影最决定成片观感，别省：warm lamp light / candlelight / dim lighting / soft window light / backlighting / golden hour / neon glow / overcast\n'
+      + '· 时间：morning / afternoon / dusk / sunset / evening / night\n'
+      + '· 镜头（按构图需要挑一个）：close-up / upper body / full body / from side / from above / wide shot / depth of field / bokeh\n'
+      + '· 服装要按场景写清楚（在家、吃饭、上班不一样），别只靠锚点自动补\n'
+      + '· 要强调某个词用 1.4::tag::，别堆一长串大括号\n'
+      + '· 例（餐桌对面的人）：restaurant table, evening, warm candlelight, dim lighting, man in white dress shirt sitting across the table, smiling at viewer, upper body, shallow depth of field, bokeh, wine glasses\n'
+      + '· 例（路边随手拍）：street corner, night, neon glow, wet asphalt, convenience store, vending machine, light rain, no humans, scenery, depth of field\n'
+      + '【不要写】视角词（selfie/pov/from above，shot 已决定）；谁在左谁在右（站位算死）；画风与质量词（全局已配）；角色长相（发色/耳型/发型自动补，除非这次换了发型）\n'
+      + '【什么时候主动发】系统提示里出现「顺手拍张照片」那块时，说明现在还有额度、也隔够久了：如果此刻场景里真有值得看的画面，就拍下来发过去，不用等对方开口。没出现那块就别主动发。对方在说正事、情绪低落、刚问了个需要回答的问题时，一律别插图。\n'
       + '【画面必须成立】时间、地点、天气、穿着要和对话一致，不能凭空跳到海边或换一套衣服。',
     parameters:{ type:'object', properties:{
       shot:{type:'string', enum:['pov','pov_focus','selfie','duo'], description:'视角。pov=你眼中所见（你不在画面里）；pov_focus=你正看着某个人；selfie=自拍（你在画面里）；duo=两人合照（须配 with）。不填时按 with/who 自动推断。'},
@@ -9316,6 +9360,8 @@ function buildLiveContext(opts){
   if(wctx) s += '\n\n' + wctx;
   const fb = memFeedbackTail(); // 动态：失败回执，60min TTL 时有时无
   if(fb) s += '\n' + fb;
+  const shot = imgSpontaneousBlock(opts); // 动态：只在「真能发」且隔够久时出现，其余时候整块消失
+  if(shot) s += '\n\n' + shot;
   if(AI_JOURNAL_CTX){ // 日记/周记/月记（memJournalRefreshCtx 异步预取）；限长防注入块膨胀（越长 miss 越多，拉低缓存命中率）
     let jc = String(AI_JOURNAL_CTX);
     if(jc.length>400) jc = jc.slice(0,400)+'…(截断)';
