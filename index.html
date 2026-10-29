@@ -1659,6 +1659,17 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .prompt-actions label{display:flex;align-items:center;gap:6px;font-size:var(--fs-2);color:var(--ink-dark);cursor:pointer;}
 .prompt-actions input[type=number]{width:64px;padding:4px 6px;border:1px solid var(--glass-line);border-radius:var(--radius-2xs);background:rgba(255,255,255,.65);font-size:var(--fs-2);font-family:var(--font);color:var(--ink);}
 .prompt-actions input[type=text]{width:100px;padding:4px 6px;border:1px solid var(--glass-line);border-radius:var(--radius-2xs);background:rgba(255,255,255,.65);font-size:var(--fs-2);font-family:var(--font);color:var(--ink);}
+/* 工具说明折叠项（2026-10-29）：23 个工具不可能全摊开，默认收起，标题给判据 */
+.td-item{border:1px solid var(--glass-line);border-radius:var(--radius-2xs);padding:8px 10px;margin-bottom:6px;background:rgba(255,255,255,.5);}
+.td-item[open]{background:rgba(255,255,255,.78);}
+.td-item>summary{list-style:none;cursor:pointer;font-size:var(--fs-2);color:var(--ink-dark);display:flex;align-items:center;gap:6px;flex-wrap:wrap;line-height:1.5;}
+.td-item>summary::-webkit-details-marker{display:none;}
+.td-item>summary::before{content:"▸";color:var(--ink-soft);font-size:11px;}
+.td-item[open]>summary::before{content:"▾";}
+.td-item .td-name{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--green-dark);font-weight:700;}
+.td-item .td-len{font-size:11px;color:var(--ink-faint);}
+.td-item .td-flag{font-size:11px;color:#8a5a1d;background:rgba(233,195,145,.32);border-radius:999px;padding:1px 6px;}
+.td-item textarea{margin-top:8px;min-height:110px;}
 .ai-input-row{display:flex;gap:10px;padding:12px 14px calc(14px + var(--safe-b));border-top:1px solid var(--line);align-items:flex-end;background-color:var(--glass-strong);backdrop-filter:blur(var(--blur-max)) saturate(200%);-webkit-backdrop-filter:blur(var(--blur-max)) saturate(200%);}
 .ai-input-row textarea{flex:1 1 0;min-width:0;border:1px solid var(--glass-line);border-radius:var(--radius-sm);padding:12px 14px;font-size:var(--fs-4);font-family:var(--font);color:var(--ink);background-color:var(--glass-strong);outline:none;max-height:120px;min-height:46px;resize:none;box-shadow:var(--shadow-inset);transition:border-color .2s,box-shadow .2s;transition-timing-function:var(--ease);}
 .ai-input-row textarea:focus{border-color:var(--green-deep);box-shadow:0 0 0 4px var(--green-glow),var(--shadow-inset);}
@@ -7671,6 +7682,8 @@ const TOOL_LABEL = {
   update_expense:'修改记账', remove_expense:'删除记账',
   log_mood:'记录心情', get_mood:'查询心情',
   schedule_push:'预约推送',
+  log_role_activity:'登记角色在做什么',
+  post_oc_dynamic:'发朋友圈/写日记',
   send_photo:'生成一张图'
 };
 /* =====================================================================
@@ -8658,16 +8671,62 @@ const AI_TOOLS = [
   }}
 ];
 
-/* 发送时浅拷贝一份工具表：`send_photo` 的说明文案用户能在提示词中心改，
-   改完必须立即生效 —— AI_TOOLS 是加载时定死的常量，直接改它等于「要重启应用」。
-   只替换有自定义说明的那一个，其余保持原引用（省钱也省心）。 */
+/* ===== 工具说明：全部可看可改（2026-10-29 晚，叶子要求）=====
+   「看得见总是好一些」——这 23 段文案是模型决定要不要调工具、怎么填参数的唯一依据，
+   以前全写死在 AI_TOOLS 里，只有改代码才能动。
+   设计取舍：
+   - **默认值不另存一份**：启动时从 AI_TOOLS 现抓（`TOOL_DESC_DEFAULT`），
+     这样代码改了文案，用户没动过的工具自动跟着更新，不会留一份过期副本。
+   - 只有「用户真的改过」的才存 `mhm_tool_desc`（工具名 → 文案）；改成空就删掉这条覆盖。
+   - `send_photo` 例外：它走 `mhm_img_prompt.toolDesc`（提示词中心第 15 块，带两层说明），
+     这里不重复列，避免两个入口改同一段文案互相覆盖。
+   - ⚠️ 工具说明改坏了功能就哑了（模型不知道有这个工具、或参数填错）：每项都有「恢复默认」。 */
+const TOOL_DESC_KEY = 'mhm_tool_desc';
+const TOOL_DESC_DEFAULT = {};
+AI_TOOLS.forEach(function(t){
+  const nm = t && t.function && t.function.name;
+  if(nm) TOOL_DESC_DEFAULT[nm] = String(t.function.description || '');
+});
+function toolDescOverrides(){
+  let c = {};
+  try{ c = JSON.parse(localStorage.getItem(TOOL_DESC_KEY)) || {}; }catch(e){ c = {}; }
+  return (c && typeof c === 'object') ? c : {};
+}
+/* 合并写：值 trim 后为空 ⇒ 删掉覆盖（回退默认）。一次写多个工具，避免 23 次 localStorage 写。 */
+function toolDescSavePatch(patch){
+  const c = Object.assign({}, toolDescOverrides());
+  Object.keys(patch || {}).forEach(function(k){
+    const v = String(patch[k] == null ? '' : patch[k]);
+    if(!v.trim()) delete c[k];
+    else c[k] = v;
+  });
+  try{ localStorage.setItem(TOOL_DESC_KEY, JSON.stringify(c)); }catch(e){}
+  return c;
+}
+function toolDescOf(name){
+  if(name === 'send_photo') return imgToolDesc();   // 生图走自己的键（提示词中心第 15 块）
+  const ov = toolDescOverrides();
+  if(ov[name] && String(ov[name]).trim()) return String(ov[name]);
+  return TOOL_DESC_DEFAULT[name] || '';
+}
+function toolDescIsCustom(name){
+  if(name === 'send_photo') return !!imgPromptCfg().toolDesc.trim();
+  const ov = toolDescOverrides();
+  return !!(ov[name] && String(ov[name]).trim());
+}
+/* 发送时浅拷贝一份工具表：说明文案用户能在提示词中心改，改完必须立即生效 ——
+   AI_TOOLS 是加载时定死的常量，直接改它等于「要重启应用」。
+   没被改过的工具保持原引用（不复制 = 不浪费）。 */
 function aiToolsForPayload(){
-  const desc = imgToolDesc();
+  const ov = toolDescOverrides();
   return AI_TOOLS.map(function(t){
-    if(t && t.function && t.function.name === 'send_photo'){
-      return { type:'function', function: Object.assign({}, t.function, { description: desc }) };
-    }
-    return t;
+    const nm = t && t.function && t.function.name;
+    if(!nm) return t;
+    let desc = null;
+    if(nm === 'send_photo') desc = imgToolDesc();
+    else if(ov[nm] && String(ov[nm]).trim()) desc = String(ov[nm]);
+    if(desc == null) return t;
+    return { type:'function', function: Object.assign({}, t.function, { description: desc }) };
   });
 }
 let aiConv = null;
@@ -12055,6 +12114,13 @@ function pcResetDiaryTpl(){
   const h = document.getElementById('promptCenterHint');
   if(h) h.textContent = '已恢复默认日记生成提示词，点「保存修改」生效。';
 }
+function pcResetToolDesc(name){
+  const ta = document.querySelector('#promptCenterBody textarea.td-edit[data-tool="' + name + '"]');
+  if(!ta) return;
+  ta.value = String(TOOL_DESC_DEFAULT[name] || '');
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已把 ' + name + ' 的说明恢复成默认，点「保存本页」生效。';
+}
 function pcResetImgToolDesc(){
   const ta = document.getElementById('pcImgToolDesc');
   if(!ta) return;
@@ -12193,6 +12259,30 @@ function renderPromptCenter(){
     + '<p class="prompt-desc">满足条件（额度没满、隔够 40 分钟、你没在要图）时才追加这一段，让角色「自己想起来」可以拍。占位符 <code>{{LEFT}}</code> = 今天还能主动发几张，<code>{{LIM}}</code> = 「（全天上限 N 张）」或空，别删掉它们。留空 = 用默认。</p>'
     + '<textarea id="pcImgSpont" class="prompt-body" rows="8">'+escHtml(imgSpontTpl())+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetImgSpont()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  /* 17 · 业务工具说明（2026-10-29 晚）：23 个工具的说明全可见、可改。
+     默认值不存副本（启动时从 AI_TOOLS 现抓），只有改过的才落 mhm_tool_desc。 */
+  const toolNames = AI_TOOLS.map(function(t){ return t && t.function && t.function.name; }).filter(function(n){ return n && n !== 'send_photo'; });
+  const customN = toolNames.filter(toolDescIsCustom).length;
+  const tdBits = toolNames.map(function(nm){
+    const cur = toolDescOf(nm);
+    return '<details class="td-item"><summary>'
+      + '<span class="td-name">'+escHtml(nm)+'</span>'
+      + '<span>'+escHtml(TOOL_LABEL[nm] || '')+'</span>'
+      + (toolDescIsCustom(nm) ? '<span class="td-flag">已改</span>' : '')
+      + '<span class="td-len">'+cur.length+' 字</span>'
+      + '</summary>'
+      + '<textarea class="td-edit" data-tool="'+escHtml(nm)+'" rows="6" spellcheck="false" autocapitalize="off" autocorrect="off">'+escHtml(cur)+'</textarea>'
+      + '<div class="prompt-actions" style="margin-top:6px;">'
+      + '<button class="btn ghost" type="button" onclick="pcResetToolDesc(&quot;'+escHtml(nm)+'&quot;)" style="padding:4px 10px;font-size:11px;">恢复默认</button>'
+      + '<span style="font-size:11px;color:var(--ink-faint);">默认 '+String(TOOL_DESC_DEFAULT[nm] || '').length+' 字 · 留空 = 用默认</span>'
+      + '</div></details>';
+  }).join('');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">17</span><span>业务工具说明（'+toolNames.length+' 个工具）</span></div>'
+    + '<p class="prompt-desc">这是模型「要不要调这个工具、参数怎么填」的唯一依据，点开每一项就能看、能改。'
+    + (customN ? ('<b style="color:#8a5a1d;">其中 '+customN+' 个已被你改过（标「已改」）。</b>') : '')
+    + '<br>⚠️ 改坏了对应功能会变哑（模型不知道有这个工具、或把参数填错方向），拿不准就点「恢复默认」；改完从下一轮对话起生效。'
+    + '<br><span style="color:var(--ink-faint);">生图的说明书不在这里，是上面第 15 / 16 块。</span></p>'
+    + tdBits + '</div>');
   wrap.innerHTML = sc.join('');
 }
 function savePromptCenter(){
@@ -12238,6 +12328,17 @@ function savePromptCenter(){
     if(imgSpontEl) ip.spontTpl = imgSpontEl.value;
     imgPromptSave(ip);
   }
+  // 业务工具说明：只有改动过的才落库（等于默认值 = 删除覆盖，避免留一份会过期的副本）
+  const tdPatch = {};
+  let tdAny = false;
+  document.querySelectorAll('#promptCenterBody textarea.td-edit').forEach(function(ta){
+    const nm = ta.getAttribute('data-tool');
+    if(!nm) return;
+    tdAny = true;
+    const def = String(TOOL_DESC_DEFAULT[nm] || '');
+    tdPatch[nm] = (ta.value === def) ? '' : ta.value;
+  });
+  if(tdAny) toolDescSavePatch(tdPatch);
   
   if(vOn){
     const vv = aiVoices();
@@ -12288,7 +12389,14 @@ function copyPromptCenter(){
     const ta = sec.querySelector('textarea.prompt-body');
     const pre = sec.querySelector('pre.prompt-pre');
     lines.push('【' + (title ? title.textContent.trim() : '') + '】');
+    const many = sec.querySelectorAll('textarea.td-edit');
     if(ta) lines.push(ta.value);
+    else if(many.length){
+      many.forEach(function(x){
+        lines.push('— ' + (x.getAttribute('data-tool') || '') + ' —');
+        lines.push(x.value);
+      });
+    }
     else if(pre) lines.push(pre.textContent);
     lines.push('');
   });
