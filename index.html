@@ -2908,6 +2908,11 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 10px;line-height:1.6;">
           这个站限制每 800 秒一张、每天约 70 张。填 0 = 不限（不建议，会把额度烧光）。
         </p>
+        <label>AI 主动发图（张/天） <span style="font-size:11px;color:var(--ink-soft)">（你没开口也能发）</span></label>
+        <input id="imgProactive" type="number" min="0" max="6" step="1" inputmode="numeric">
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 10px;line-height:1.6;">
+          填 0 = 只有你提了才发。这部分<b style="color:#a3577a;">算在每日上限里</b>，不是额外额度——它多发一张，你主动要的那张就少一张。
+        </p>
 
         <!-- 画风指纹：整套画风的唯一来源，随时可改（2026-10-29 增加） -->
         <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
@@ -7677,6 +7682,9 @@ const IMG_CFG_DEFAULT = {
   noise: 'karras',
   dailyLimit: 8,
   cooldownSec: 800,
+  /* AI 主动发图（没等你开口就发）：0 = 不允许，只有你提了才发。
+     它是「每日上限」里的一个子集，不是额外额度 —— 主动发多了，你主动要的那张就没了。 */
+  proactivePerDay: 2,
   // 画风指纹：全局恒定，设置页可随时改（改完对之后所有图为生效）
   styleDraw: IMG_STYLE_DEFAULT,
   negPrompt: IMG_NEG_DEFAULT,
@@ -7722,10 +7730,11 @@ function imgDayKey(){
 function imgQuota(){
   let q = {};
   try{ q = JSON.parse(localStorage.getItem(IMG_QUOTA_KEY)) || {}; }catch(e){ q = {}; }
-  if(q.day !== imgDayKey()) q = { day: imgDayKey(), used: 0, lastAt: 0 };
+  if(q.day !== imgDayKey()) q = { day: imgDayKey(), used: 0, lastAt: 0, pro: 0, lastShot: '' };
   // ⚠️ lastAt 是 Date.now()（约 1.79e12），绝不能用 `|0`：32 位截断会变成负数，
   //    于是「现在 - lastAt」永远是巨大正数 ⇒ 本地冷却形同不存在（2026-10-29 实测踩过）
-  return { day: q.day, used: q.used|0, lastAt: Number(q.lastAt) || 0 };
+  // pro = 今天「没被要求就主动发」的张数；lastShot = 上一张的镜头（用来提醒别连着同一个视角）
+  return { day: q.day, used: q.used|0, lastAt: Number(q.lastAt) || 0, pro: q.pro|0, lastShot: String(q.lastShot || '') };
 }
 function imgQuotaSave(q){
   try{ localStorage.setItem(IMG_QUOTA_KEY, JSON.stringify(q)); }catch(e){}
@@ -7760,7 +7769,20 @@ function imgUserAsked(){
   if(!t) return false;
   if(/(别|不要|不用|先不).{0,4}(图|照片|相片|自拍|合照|合影)/.test(t)) return false;   // 明确说不要
   // 「合照/合影/同框/我们俩」必须算：支持双人后，这是最常见的请求句式（漏了会被闸门当没要图，直接拦掉）
-  return /(图|照片|相片|自拍|画像|立绘|合照|合影|同框|我们俩|画一张|画个|来一张|拍一张|生成一张|看看你|你长什么样|长啥样)/.test(t);
+  // 2026-10-29 补 POV 句式：现在能拍「我看到的」，所以「给我看看/你那边/外面什么样」也是明确要图
+  return /(图|照片|相片|自拍|画像|立绘|合照|合影|同框|我们俩|画一张|画个|来一张|拍一张|拍个|生成一张|看看|给我看|你长什么样|长啥样|你那边|你那儿|外面什么样)/.test(t);
+}
+/* 主动发图闸（2026-10-29）：叶子允许 AI 偶尔不打招呼就发，但每天封顶 2 张（设置页可改，0=禁止）。
+   ⚠️ 判据全在代码里，不信 prompt —— 模型分不清「今天第几张」，让它自觉必然失控。
+   ⚠️ pro 只统计「没被要求」的那次；你主动要的不走这条路、不占这 2 张。 */
+function imgProactiveAllow(){
+  const cap = Math.max(0, Math.min(6, imgCfg().proactivePerDay|0));
+  if(cap <= 0) return { ok:false, reason:'对方这次没有要看图片，不要主动生图。用文字正常回复就好。' };
+  const q = imgQuota();
+  if((q.pro|0) >= cap){
+    return { ok:false, reason:'今天已经主动发过 ' + q.pro + ' 张照片了（上限 ' + cap + '），对方这次也没要图，别再发了。用文字正常回复。' };
+  }
+  return { ok:true };
 }
 /* ---------- ZIP 解包（只依赖浏览器原生 DecompressionStream） ---------- */
 function imgZipEOCD(u8, dv){
@@ -7914,8 +7936,12 @@ async function imgGenerate(prompt, negative, opt){
   if(!/^https:\/\//i.test(origin)) return { ok:false, error:'生图接口地址必须是 https 开头' };
   const wh = String(cfg.size || '832x1216').split('x');
   let w = parseInt(wh[0], 10) || 832, h = parseInt(wh[1], 10) || 1216;
-  /* 双人必须横构图：竖图 832 宽塞两个全身人物会挤成一坨（2026-10-29） */
-  if(opt.dual && h > w){ const t = w; w = h; h = t; }
+  /* 画幅由镜头决定，不由设置里的尺寸决定：设置给的是「基准尺寸」，这里只按需翻转朝向。
+     ⚠️ 竖图 832 宽塞两个全身人物会挤成一坨；横图拍自拍又会空掉两边（2026-10-29） */
+  const wantL = (opt.aspect === 'landscape') || (opt.dual && !opt.aspect);
+  const wantP = (opt.aspect === 'portrait');
+  if(wantL && h > w){ const t = w; w = h; h = t; }
+  if(wantP && w > h){ const t = w; w = h; h = t; }
   const seed = (opt.seed != null && opt.seed >= 0) ? (opt.seed|0) : Math.floor(Math.random() * 4294967295);
   const body = imgBuildBody(cfg, prompt, negative, w, h, seed, opt);
   const ctl = new AbortController();
@@ -7959,20 +7985,8 @@ async function imgGenerate(prompt, negative, opt){
   const blob = await imgShrink(imgs[0].blob, 1024);
   return { ok:true, blob: blob, seed: seed, w: w, h: h, ms: Date.now() - t0, count: imgs.length };
 }
-/* 拼装顺序很关键：画风 → 外观锚点 → 内容 → 尾部约束。
-   NAI 里质量/画师词越靠前影响越大；反过来场景词会盖过画风，人就变成「场景里随便一个人」。
-   ⚠️ prompt 是纯文本，`权重::标签::` 原样透传，但拼接只能用 ', ' 不能动 `::` 内部。 */
-function imgComposePrompt(prompt, who){
-  const cfg = imgCfg();
-  const style = String(cfg.styleDraw || '').trim() || 'best quality, highly detailed';
-  const anchor = imgAnchorOf(who);
-  const bits = [style];
-  if(anchor) bits.push(anchor);
-  const body = String(prompt || '').trim();
-  if(body) bits.push(body);
-  bits.push('very aesthetic, no text');
-  return bits.filter(Boolean).join(', ').replace(/\s*,\s*,+/g, ', ').replace(/^\s*,\s*/, '');
-}
+/* 拼装统一走下面的 imgComposeShot（2026-10-29 起）：原来的 imgComposePrompt 只支持
+   「第三人称单人」，而且外观锚点写在 base 里 —— 有了 char_captions 通道后那样会重复打架。 */
 /* 双人 caption：base 只放「画风 + 场景 + 构图」，两副长相各进 char_captions 带坐标。
    ⚠️ 外观锚点绝不能同时出现在 base 和 char 里 —— 两边打架会把角色特征糊成一团。
    ⚠️ 顺序必须按坐标升序（左→右），否则 NAI 会把特征配错人。 */
@@ -7987,17 +8001,89 @@ function imgBuildChars(whoA, whoB){
     return { who: w, caption: imgAnchorOf(w) || IMG_ANCHOR_FB[w], x: IMG_SLOT[w], y: 0.5 };
   });
 }
-function imgComposeDuo(prompt, whoA, whoB){
+/* ================= 镜头层（2026-10-29）=================
+   同一个「发张照片」，可能是四种完全不同的事：
+     ① 她在路上随手拍给你看（镜头＝她的眼睛，她本人不在画面里）
+     ② 她正看着某个人（第一人称，但画面里有一张脸）
+     ③ 她自拍（她在画面里，前置镜头）
+     ④ 两个人同框
+   这四种的**构图、负面词、坐标、画幅全都不一样**，而且负面词互相冲突：
+   纯 POV 必须禁 head/torso/full body（不然会长出一个人），但②③④里那个人本来
+   就该有头有身子 —— 把模板①的负面词套到模板②上，那个人直接被否定掉。
+   所以负面词必须按镜头切换，绝不能用一份全局负面词。
+
+   ⚠️ 这里**只写视角/构图语言**，不写 realistic / photograph。
+      画风归 styleDraw 管，两套抢权重只会互相抵消（叶子 2026-10-29 定：统一走现有画师串，
+      POV 靠构图而不是靠照片质感来取得真实感）。
+   ⚠️ 坐标一律由代码给，模型一个都不许填 —— 它给 0.95 人物就出画了。 */
+const IMG_SHOTS = {
+  pov: {
+    label: '第一人称·我看到的',
+    lead: 'first-person view, POV, from own eyes, camera at eye level, casual snapshot composition',
+    neg: 'selfie, mirror, reflection, reflective glass, water reflection, photographer, own face, own body, third-person view',
+    chars: 'none', aspect: 'landscape'
+  },
+  pov_focus: {
+    label: '第一人称·看着对方',
+    lead: 'first-person view, POV, from own eyes, looking at another, the one in frame facing viewer, casual snapshot composition',
+    neg: 'selfie, mirror, reflection, reflective glass, third-person view, from behind, multiple people',
+    chars: 'one', center: 0.55, aspect: 'landscape'
+  },
+  selfie: {
+    label: '自拍·你在画面里',
+    lead: 'selfie, front camera, arm holding phone, looking at viewer, upper body, casual snapshot',
+    neg: 'no humans, empty scene, scenery, from behind, back view, third-person view, wide shot, full body',
+    chars: 'one', center: 0.5, aspect: 'portrait'
+  },
+  duo: {
+    label: '两人同框',
+    lead: 'duo, hetero, side by side',
+    neg: '',
+    chars: 'two', aspect: 'landscape'
+  }
+};
+/* 镜头 + 画面里的人数必须自洽。模型经常想当然地填出「纯 POV + 指定主角」这种自相矛盾的组合：
+   宁可报错让它改一次（不花额度），也别静默降级 —— 降级等于花 1 张额度换一张错的图。 */
+function imgResolveShot(shot, who, withWho){
+  let s = String(shot || '').trim();
+  if(!IMG_SHOTS[s]) s = '';
+  if(s === 'duo' && !withWho) return { shot:'duo', err:'shot=duo 要在 with 里填另一个人（零落或沈容，不能和 who 相同）。' };
+  if(s === 'pov' && withWho) s = 'duo';
+  if(!s) s = withWho ? 'duo' : (who === 'none' ? 'pov' : 'selfie');
+  if(s === 'pov') return { shot:'pov' };
+  if(who === 'none') return { shot:s, err:'这个镜头画面里必须有个人，但 who 填的是 none。自拍就填你自己（零落或沈容），拍对方就填对方。' };
+  return { shot:s };
+}
+/* 这个镜头画面里有谁、各在哪。坐标全部由代码算，单人也带坐标（NAI V4 单人用 coords 会更稳，
+   不会把人物甩到角落）；pov 返回空数组 ⇒ use_coords 自动关掉，画面里就不会凭空长人。 */
+function imgShotChars(shot, who, withWho){
+  const spec = IMG_SHOTS[shot] || IMG_SHOTS.selfie;
+  if(spec.chars === 'none') return [];
+  if(spec.chars === 'two') return imgBuildChars(who, withWho);
+  if(who !== '零落' && who !== '沈容') return [];
+  return [{ who: who, caption: imgAnchorOf(who) || IMG_ANCHOR_FB[who], x: (spec.center || 0.5), y: 0.5 }];
+}
+/* 拼装：画风 → 镜头语言 → 画面内容 → 尾部约束。外观锚点只走 char_captions，绝不重复写进 base
+   （两边都写会打架，把角色特征糊成一团）。非 V4 模型没有 char_captions 通道，才退回写 base。 */
+function imgComposeShot(shot, prompt, who, withWho){
   const cfg = imgCfg();
+  const spec = IMG_SHOTS[shot] || IMG_SHOTS.selfie;
   const style = String(cfg.styleDraw || '').trim() || 'best quality, highly detailed';
   const body = String(prompt || '').trim();
-  const hasDuo = /\bduo\b|\b2girls\b|\b2boys\b|\bcouple\b|two (people|persons|figures|characters)/i.test(body);
-  const bits = [style];
-  if(!hasDuo) bits.push('duo, hetero, side by side');
+  const chars = imgShotChars(shot, who, withWho);
+  const isV4 = /^nai-diffusion-4/.test(String(cfg.model || ''));
+  const bits = [style, spec.lead];
+  if(!isV4) chars.forEach(function(c){ bits.push(c.caption); });
   if(body) bits.push(body);
   bits.push('very aesthetic, no text');
   const base = bits.filter(Boolean).join(', ').replace(/\s*,\s*,+/g, ', ').replace(/^\s*,\s*/, '');
-  return { base: base, chars: imgBuildChars(whoA, whoB) };
+  return { base: base, chars: chars, aspect: spec.aspect, neg: spec.neg };
+}
+/* 负面词 = 你的全局负面词（避雷用，不动） + 这个镜头专属的（消掉不该出现的东西） */
+function imgNegFor(shot){
+  const spec = IMG_SHOTS[shot] || IMG_SHOTS.selfie;
+  const base = String(imgCfg().negPrompt || '').trim() || IMG_NEG_DEFAULT;
+  return spec.neg ? (base + ', ' + spec.neg) : base;
 }
 
 /* 本轮刚生成、还没挂到气泡上的图。挂载点在 aiRun 的最终回复处，
@@ -8010,24 +8096,29 @@ async function aiSendPhoto(args){
   const who = (args.who === '零落' || args.who === '沈容') ? args.who : 'none';
   /* 双人同框：args.with 指「另一个人」。等于自己或不是这两位就忽略，退回单人。 */
   const withWho = ((args.with === '零落' || args.with === '沈容') && args.with !== who) ? args.with : '';
+  /* 先定镜头（纯逻辑，不花额度）：镜头与人数不自洽时直接报错让模型改，别烧一张额度换错图 */
+  const rs = imgResolveShot(args.shot, who, withWho);
+  if(rs.err) return { ok:false, error: rs.err };
+  const shot = rs.shot;
   const gate = imgGateCheck();
   if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait || 0 };
-  /* 半自动闸（代码兜底）：prompt 里写「只在对方要求时调用」管不住模型，
-     这里直接查最后一条用户消息 —— 没有要看图的意图就否决，别烧公益站额度。 */
-  if(!imgUserAsked()) return { ok:false, error:'对方这次没有要看图片，不要主动生图。用文字正常回复就好。' };
-  const cfg = imgCfg();
-  const neg = String(cfg.negPrompt || '').trim() || IMG_NEG_DEFAULT;
-  let full, opt = {}, dual = false;
-  if(withWho){
-    dual = true;
-    const d = imgComposeDuo(prompt, who, withWho);
-    full = d.base;
-    opt.chars = d.chars;
-    opt.dual = true;
-  }else{
-    full = imgComposePrompt(prompt, who);
+  /* 两条路：你开口要了 → 放行；你没开口 → 走「主动发图」额度（每天上限，设置里可关）。
+     prompt 里写「只在对方要求时调用」管不住模型，判据必须在代码里。 */
+  const asked = imgUserAsked();
+  if(!asked){
+    const pa = imgProactiveAllow();
+    if(!pa.ok) return { ok:false, error: pa.reason };
   }
-  const step = (typeof addSysStep === 'function') ? addSysStep(dual ? '🎨 正在生成双人图…（约 20-40 秒）' : '🎨 正在生成图片…（约 20-40 秒）') : null;
+  const cfg = imgCfg();
+  const plan = imgComposeShot(shot, prompt, who, withWho);
+  const full = plan.base;
+  const neg = imgNegFor(shot);
+  const opt = { chars: plan.chars, aspect: plan.aspect };
+  const stepTxt = shot === 'duo' ? '🎨 正在生成双人图…'
+    : shot === 'pov' ? '🎨 正在拍你看到的画面…'
+    : shot === 'pov_focus' ? '🎨 正在拍下眼前的画面…'
+    : '🎨 正在生成自拍…';
+  const step = (typeof addSysStep === 'function') ? addSysStep(stepTxt + '（约 20-40 秒）') : null;
   let r;
   try{
     r = await imgGenerate(full, neg, opt);
@@ -8042,12 +8133,23 @@ async function aiSendPhoto(args){
     return { ok:false, error:'生成失败：' + (r.error || '未知错误') };
   }
   const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
-  const rec = { id:id, blob:r.blob, prompt:prompt, full:full, who:who, withWho:withWho, seed:r.seed, w:r.w, h:r.h, model: cfg.model, created: Date.now() };
+  const rec = { id:id, blob:r.blob, prompt:prompt, full:full, neg:neg, who:who, withWho:withWho, shot:shot,
+                proactive: !asked, seed:r.seed, w:r.w, h:r.h, model: cfg.model, created: Date.now() };
   try{ await imgPut(rec); }catch(e){}
-  const q = imgQuota(); q.used = (q.used|0) + 1; q.lastAt = Date.now(); imgQuotaSave(q);
-  _pendingPhoto = { id:id, w:rec.w, h:rec.h, note:String(args.note || '').trim(), who:who, prompt:prompt };
+  const q = imgQuota();
+  const prevShot = q.lastShot;
+  q.used = (q.used|0) + 1;
+  q.lastAt = Date.now();
+  if(!asked) q.pro = (q.pro|0) + 1;
+  q.lastShot = shot;
+  imgQuotaSave(q);
+  _pendingPhoto = { id:id, w:rec.w, h:rec.h, note:String(args.note || '').trim(), who:who, prompt:prompt, shot:shot };
   const lim = cfg.dailyLimit|0;
-  return { ok:true, note:'图片已经发给对方，会跟你的下一句话一起显示。用你自己的语气说一句短的就行（不要描述画面、不要复述提示词、不要说"已生成"）。今日已用 ' + q.used + (lim > 0 ? ('/' + lim) : '') + ' 张。' };
+  let tip = '图片已经发给对方，会跟你的下一句话一起显示。用你自己的语气说一句短的就行（不要描述画面、不要复述提示词、不要说"已生成"）。';
+  if(!asked) tip = '这张是你主动发的（没等对方开口）。所以那句话要自然地带出「刚拍的/顺手拍的」这种口吻，不要解释为什么发、不要让照片变成话题中心。';
+  if(prevShot === shot) tip += '⚠️ 上一张也是同一个视角（' + (IMG_SHOTS[shot] || {}).label + '），连着两次一模一样会很假，下次换个视角。';
+  tip += '今日已用 ' + q.used + (lim > 0 ? ('/' + lim) : '') + ' 张' + (asked ? '' : ('，其中主动 ' + q.pro + '/' + Math.max(0, cfg.proactivePerDay|0))) + '。';
+  return { ok:true, note: tip };
 }
 
 const AI_TOOLS = [
@@ -8309,12 +8411,21 @@ const AI_TOOLS = [
   }},
   { type:'function', function:{
     name:'send_photo',
-    description:'给对方发一张照片（自拍/生活照/场景照/合照），图上会显示在你的气泡里。只在对方明确要看照片、图片、你现在的样子时才调用；普通聊天绝对不要调用，也不要为了讨好而配图。生成要 20-40 秒，每天有次数上限（用完了必须如实说，不许假装已经发了）。画面必须是对话里合理成立的东西：你们正在做的事、你所在的地方、你穿的衣服。想发两个人同框的合照时，填 with 指定另一个人。',
+    description:'给对方发一张照片（你随手拍的），图会跟你的下一句话一起显示在气泡里。生成要 20-40 秒，每天有额度上限；额度用完必须如实说，不许假装已经发了。\n'
+      + '【先选视角 shot，这比写画面更重要】\n'
+      + '· pov：镜头就是你的眼睛，你本人不在画面里（最多露一点手）。你一个人在外面、在房间、在吃东西、看到什么好玩的。最像真人随手拍，也最耐看。\n'
+      + '· pov_focus：第一人称，但画面里有一个你正看着的人（对方、店员、路边的人）。\n'
+      + '· selfie：自拍，你在画面里。对方问「你长什么样 / 你在干嘛 / 让我看看你」，或你想让对方看见自己。\n'
+      + '· duo：两个人的合照，要填 with。\n'
+      + '【怎么决定】对方只是好奇你在哪、看到什么 → pov；问到你自己、你的样子、你穿什么 → selfie；你们在一块儿、对方想看你们 → duo；你正看着对方 → pov_focus。同一个视角别连着用两次，真人不会一直用同一种方式拍照。\n'
+      + '【什么时候可以不问就发】对方没要图时你可以偶尔主动发（每天有独立上限，超了会被拒）。前提是场景里真有值得拍的东西、那句话自然带得出它；不要为了配图硬拍，也不要在正说正事、气氛紧张的时候插一张图。\n'
+      + '【画面必须成立】时间、地点、天气、穿着要和对话一致，不能凭空跳到海边或换一套衣服。',
     parameters:{ type:'object', properties:{
-      prompt:{type:'string', description:'用英文逗号分隔的画面标签（Danbooru 风格），只写画面本身，不写中文、不写解释。例："1girl, solo, indoors, sitting on sofa, holding mug, looking at viewer, soft smile, warm lamp light, upper body"。把角色外观写在最前面（发色/发型/耳类/服装），保证每次是同一个人。填了 who 时外观可以不写（会自动补上角色锚点）。'},
-      who:{type:'string', enum:['零落','沈容','none'], description:'画面主体是谁：零落 / 沈容 / none（拍景物、无人）'},
-      with:{type:'string', enum:['零落','沈容'], description:'可选。要发两个人同框的合照时，填画面里的另一个人（不能和 who 相同）。填了之后站位和外观由程序自动安排，prompt 里只需要写场景和两人的动作关系，不要再写谁在左谁在右。'},
-      note:{type:'string', description:'跟图一起显示的短句，用你自己的语气（如"喏，刚拍的"），不要描述画面。可以留空'}
+      shot:{type:'string', enum:['pov','pov_focus','selfie','duo'], description:'视角。pov=你眼中所见（你不在画面里）；pov_focus=你正看着某个人；selfie=自拍（你在画面里）；duo=两人合照（须配 with）。不填时按 with/who 自动推断。'},
+      prompt:{type:'string', description:'英文逗号分隔的画面标签（Danbooru 风格），只写画面本身：不写中文、不写解释、不写画风与质量词（已全局配好）。也不要写视角词（selfie/pov/first-person/from above）——shot 已经决定了，重复写会打架；不要写谁在左谁在右（站位由程序算死）；不要写角色长相（发色/耳型/默认服装会自动补，除非这套衣服变了）。拍静物/空景带上 no humans, scenery；拍人要写清在做什么。例：street market, evening, string lights, food stall, steam, wet pavement, bokeh'},
+      who:{type:'string', enum:['零落','沈容','none'], description:'画面里最主要的那个真人：自拍填你自己，拍对方填对方，纯风景/静物填 none。shot=pov 时这个字段被忽略。'},
+      with:{type:'string', enum:['零落','沈容'], description:'只在 shot=duo 时用：画面里的另一个人（不能和 who 相同）。填了之后站位、画幅、外观全由程序安排。'},
+      note:{type:'string', description:'跟图一起显示的短句，用你自己的语气（如"喏，刚拍的"）。不要描述画面、不要复述标签。可以留空'}
     }, required:['prompt']}
   }}
 ];
@@ -10202,6 +10313,7 @@ function initImgSettingsFields(){
   set('imgSize', cfg.size || IMG_CFG_DEFAULT.size);
   set('imgDaily', cfg.dailyLimit);
   set('imgCooldown', cfg.cooldownSec);
+  set('imgProactive', (cfg.proactivePerDay|0));
   set('imgAnchorA', cfg.anchorA || '');
   set('imgAnchorB', cfg.anchorB || '');
   set('imgStyle', cfg.styleDraw || IMG_STYLE_DEFAULT);
@@ -10233,6 +10345,8 @@ function imgPaintQuota(){
 function saveImgCfg(){
   const g = function(id){ const e = document.getElementById(id); return e ? String(e.value || '') : ''; };
   const on = document.getElementById('imgOn');
+  // 主动发图：空着当默认值，别当成 0 —— 「清空输入框」不该等于「关掉功能」
+  const pv = parseInt(g('imgProactive'), 10);
   imgCfgSave({
     enabled: !!(on && on.checked),
     origin: g('imgOrigin').trim() || IMG_CFG_DEFAULT.origin,
@@ -10241,6 +10355,7 @@ function saveImgCfg(){
     size: g('imgSize') || IMG_CFG_DEFAULT.size,
     dailyLimit: Math.max(0, Math.min(70, parseInt(g('imgDaily'), 10) || 0)),
     cooldownSec: Math.max(0, Math.min(3600, parseInt(g('imgCooldown'), 10) || 0)),
+    proactivePerDay: Number.isFinite(pv) ? Math.max(0, Math.min(6, pv)) : IMG_CFG_DEFAULT.proactivePerDay,
     anchorA: g('imgAnchorA').trim(),
     anchorB: g('imgAnchorB').trim(),
     styleDraw: g('imgStyle').trim() || IMG_STYLE_DEFAULT,
@@ -10270,7 +10385,10 @@ async function imgTestGenerate(){
   if(hint) hint.textContent = '正在生成…（约 20-40 秒，占 1 张额度）';
   let r;
   try{
-    r = await imgGenerate(imgComposePrompt('1girl, solo, portrait, looking at viewer, soft smile, simple background', 'none'), String(cfg.negPrompt||'').trim() || IMG_NEG_DEFAULT, {});
+    /* 试生必须走跟聊天完全一样的拼装路径（imgComposeShot / imgNegFor），
+       否则「试生能出图、聊天里出不了」这种差异会被掩盖掉。 */
+    const p0 = imgComposeShot('selfie', 'solo, looking at viewer, soft smile, simple background', '零落', '');
+    r = await imgGenerate(p0.base, imgNegFor('selfie'), { chars: p0.chars, aspect: p0.aspect });
   }catch(e){ r = { ok:false, error: (e && e.message) || '出错' }; }
   if(!r.ok){
     if(hint) hint.textContent = '失败：' + (r.error || '未知错误');
