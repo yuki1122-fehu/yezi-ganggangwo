@@ -1107,6 +1107,111 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 
 
 
+/* ===== 回忆相册（2026-10-29）· 主页漂浮相框卡 + 全屏相册 =====
+   尺寸取舍：原来这里是一条 40px 高的小条（08-31 特意瘦身，别把今日任务挤出首屏）。
+   相册卡定 92px：比原来高 52px，换来"看得见图"的实体感；再高就会把任务列表推下去。
+   ⚠️ 相框不做 backdrop-filter（玻璃铁律：模糊只挂叶子节点），只用相纸白 + 定向落影；
+      卡内只有 transform 漂浮，不挂循环扫光。 */
+.album-card{
+  position:relative;display:flex;align-items:center;gap:12px;box-sizing:border-box;
+  margin:0 16px 9px;padding:0 14px 0 12px;height:92px;
+  border-radius:var(--radius);cursor:pointer;text-align:left;overflow:hidden;
+  background-color:var(--glass);border:1px solid var(--glass-line);
+  box-shadow:var(--shadow-sm),var(--shadow-inset);
+  transition:transform .18s var(--ease),box-shadow .28s var(--ease);
+  -webkit-tap-highlight-color:transparent;
+}
+.album-card:active{transform:scale(.985);box-shadow:var(--shadow),var(--shadow-inset);}
+.al-frames{position:relative;flex:0 0 108px;height:100%;}
+.al-frame{
+  position:absolute;top:50%;left:0;width:58px;height:72px;box-sizing:border-box;padding:4px 4px 12px;
+  background:linear-gradient(#fff,#fbfaf6);border-radius:3px;
+  box-shadow:0 6px 16px rgba(92,115,89,.22),0 1px 2px rgba(92,115,89,.18);
+  transform:translate(var(--x,0px),calc(-50% + var(--y,0px))) rotate(var(--rot,0deg));
+  animation:alFloat 7.2s ease-in-out infinite alternate;animation-delay:var(--dl,0s);
+}
+.al-frame img{display:block;width:100%;height:100%;object-fit:cover;border-radius:1.5px;background:var(--bg-2);}
+/* 空位：虚线空框，交代"还能再放几张"，绝不拿别的图凑数 */
+.al-frame.blank{
+  background:rgba(255,255,255,.34);border:1.5px dashed rgba(140,155,135,.42);box-shadow:none;animation:none;
+}
+.al-frame.lost img{display:none;}
+@keyframes alFloat{
+  from{transform:translate(var(--x,0px),calc(-50% + var(--y,0px))) rotate(var(--rot,0deg));}
+  to  {transform:translate(var(--x,0px),calc(-50% + var(--y,0px) - 5px)) rotate(calc(var(--rot,0deg) * .8));}
+}
+.al-copy{flex:1;min-width:0;position:relative;z-index:4;}
+.al-copy b{display:block;font-size:var(--fs-2);font-weight:700;color:var(--ink);letter-spacing:.3px;line-height:1.2;}
+.al-copy small{display:block;font-size:var(--fs-1);color:var(--ink-soft);font-weight:600;margin-top:4px;line-height:1.35;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+/* .empty 全局带大内边距，这里必须压掉（同 .role-txt small.empty 的坑） */
+.al-copy small.empty{padding:0;font-size:var(--fs-1);text-align:left;color:var(--ink-faint);}
+.al-go{position:relative;z-index:4;flex:0 0 auto;font-size:var(--fs-1);font-weight:700;color:var(--green-dark);opacity:.7;}
+@media (prefers-reduced-motion:reduce){
+  .al-frame{animation:none !important;}
+}
+/* ---- 全屏相册页：复用 .ocf-top / .ocf-x 的玻璃顶栏，只换配色 ---- */
+.mask.album-mask{
+  flex-direction:column;align-items:stretch;justify-content:flex-start;padding:0;overflow:hidden;background:var(--bg);
+  background-image:
+    radial-gradient(58% 34% at 14% -4%, rgba(224,170,112,.26), transparent 62%),
+    radial-gradient(50% 32% at 96% 2%, rgba(165,192,162,.28), transparent 60%),
+    radial-gradient(56% 34% at -6% 52%, rgba(200,178,224,.20), transparent 62%),
+    radial-gradient(46% 32% at 104% 86%, rgba(233,196,150,.18), transparent 62%);
+  --gl-a:rgba(255,255,255,.62);
+  --gl-b:rgba(255,255,255,.34);
+  --gl-brd:rgba(255,255,255,.70);
+  --gl-hi:rgba(255,255,255,.92);
+  --gl-bar:rgba(255,255,255,.46);
+  --gl-top-brd:rgba(255,255,255,.60);
+}
+.mask.album-mask.show{display:flex;animation:pageIn .44s var(--ease) both;}
+.mask.album-mask.closing{display:flex;animation:pageOut .3s var(--ease) both;}
+.album-mask .ocf-ic{background:linear-gradient(135deg,#e9c8a2,#c99a6a);box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 5px 12px rgba(180,132,84,.26);}
+.alb-grid{
+  flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:16px 14px calc(26px + env(safe-area-inset-bottom));
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 12px;align-content:start;
+}
+.alb-item{animation:ocfItemIn .38s var(--ease) both;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.alb-photo{
+  position:relative;width:100%;aspect-ratio:3/4;box-sizing:border-box;padding:5px 5px 16px;border-radius:3px;
+  background:linear-gradient(#fff,#fcfbf7);
+  box-shadow:0 7px 20px rgba(92,115,89,.16),0 1px 2px rgba(92,115,89,.14);
+  transform:rotate(var(--tilt,-1deg));
+  transition:transform .22s var(--ease),box-shadow .3s var(--ease);
+}
+.alb-item:nth-child(odd) .alb-photo{--tilt:-1.1deg;}
+.alb-item:nth-child(even) .alb-photo{--tilt:1.2deg;}
+.alb-item:active .alb-photo{transform:rotate(0deg) scale(.985);box-shadow:0 3px 10px rgba(92,115,89,.16);}
+.alb-photo img{display:block;width:100%;height:100%;object-fit:cover;border-radius:1.5px;background:var(--bg-2);}
+.alb-photo.lost{display:flex;align-items:center;justify-content:center;font-size:var(--fs-1);color:var(--ink-faint);font-weight:600;text-align:center;padding:5px;}
+.alb-photo.lost img{display:none;}
+.alb-cap{display:flex;align-items:baseline;justify-content:space-between;gap:6px;padding:7px 3px 0;}
+.alb-cap b{font-size:var(--fs-1);color:var(--ink);font-weight:700;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.alb-cap span{font-size:10px;color:var(--ink-faint);font-weight:600;white-space:nowrap;flex:0 0 auto;}
+.alb-loading{grid-column:1/-1;padding:64px 0;text-align:center;color:var(--ink-faint);font-size:var(--fs-1);font-weight:600;}
+.alb-empty{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;text-align:center;padding:36px 18px 24px;}
+.alb-empty-frames{display:flex;gap:10px;margin-bottom:20px;}
+.alb-empty-frames span{
+  width:54px;height:68px;border-radius:3px;border:1.5px dashed rgba(140,155,135,.45);background:rgba(255,255,255,.42);
+}
+.alb-empty-frames span:nth-child(1){transform:rotate(-7deg) translateY(2px);}
+.alb-empty-frames span:nth-child(2){transform:rotate(4deg);}
+.alb-empty-frames span:nth-child(3){transform:rotate(-3deg) translateY(4px);}
+.alb-empty b{font-size:var(--fs-3);color:var(--ink);margin-bottom:9px;font-weight:700;}
+.alb-empty p{font-size:var(--fs-1);line-height:1.8;color:var(--ink-soft);margin:0;font-weight:600;}
+.alb-empty .alb-adopt{
+  margin-top:20px;padding:10px 20px;border-radius:999px;border:1px solid rgba(165,192,162,.72);
+  background:rgba(255,255,255,.72);color:var(--green-dark);font-size:var(--fs-1);font-weight:700;
+  font-family:inherit;cursor:pointer;box-shadow:0 3px 10px rgba(92,115,89,.10);
+  -webkit-tap-highlight-color:transparent;
+}
+.alb-empty .alb-adopt:active{transform:scale(.97);}
+.alb-empty .alb-adopt[disabled]{opacity:.6;}
+/* 看图页的收藏钮：收进相册后转暖色，一眼能看出这张存没存 */
+.ai-zoom-btn.on{background:rgba(233,184,126,.30);border-color:rgba(224,170,112,.72);color:#8a5a1d;}
+
 /* ===== 主页角色栏（合并入口，今日任务不再被推远） =====
    2026-08-31 瘦身：高度 58→40、外边距 15→9，背景降到半透 glass + 极淡阴影，
    视觉重量刻意压低，让眼睛不停留在这里、尽快下移到任务列表。 */
@@ -2522,11 +2627,16 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
     </div>
   </div>
 
+  <div class="album-card" id="albumCard" role="button" tabindex="0" onclick="albumOpen()" aria-label="回忆相册">
+    <div class="al-frames" id="alFrames"></div>
+    <div class="al-copy">
+      <b>回忆相册</b>
+      <small id="alCount">还没有珍藏的照片</small>
+    </div>
+    <span class="al-go">翻开 ›</span>
+  </div>
+
   <div class="role-bar" id="roleBar">
-    <button class="role-btn" onclick="ocFeedOpen()" type="button">
-      <span class="role-ic"><svg class="ico" style="width:14px;height:14px;"><use href="#i-leaf"/></svg></span>
-      <span class="role-txt"><b>他们的生活</b><small id="ocExcerptText">多聊聊天，生活痕迹会长出来</small></span>
-    </button>
     <button class="role-btn" onclick="godOpen()" type="button">
       <span class="role-ic"><svg class="ico" style="width:14px;height:14px;"><use href="#i-eye"/></svg></span>
       <span class="role-txt"><b>上帝视角</b><small>看看他们此刻在做什么</small></span>
@@ -4547,7 +4657,7 @@ function enterApp(){
   try{ renderWeather(); fetchHKWeather(false); }catch(e){ console.error(e); } // 加载天气（先显示缓存，再异步刷新）
   try{ renderWarningBar(); fetchHKWarnings(false); }catch(e){ console.error(e); } // 加载天气警告（先显示缓存，再异步刷新）
   try{ memRenderJournalModule(); }catch(e){ console.error(e); } // 主页回忆档案摘要与计数
-  try{ ocRenderCard(); ocRefreshCtx(); }catch(e){ console.error(e); } // 主页角色动态卡片（他们的生活）
+  try{ albumRenderCard(); }catch(e){ console.error(e); } // 主页回忆相册卡（2026-10-29 顶替「他们的生活」）
   try{ ocRelNow(); }catch(e){ console.error(e); } // 角色世界关系预热（tick 演化）
   try{ initPomo(); }catch(e){ console.error(e); } // 番茄钟 · 港窝小园
   try{ imgCfgMigrate(); }catch(e){ console.error(e); } // 生图配置迁移（外观锚点/主动发图数，2026-10-29）
@@ -8637,14 +8747,16 @@ function imgDBTx(mode, fn){
 function imgPut(rec){ return imgDBTx('readwrite', function(s){ return s.put(rec); }); }
 function imgGet(id){ return imgDBTx('readonly', function(s){ return s.get(id); }); }
 function imgDel(id){ return imgDBTx('readwrite', function(s){ return s.delete(id); }); }
-/* blob URL 缓存：一张图 ~150KB，最多留 40 个，超了先 revoke 最旧的 */
+/* blob URL 缓存：一张图 ~150KB，最多留 120 个，超了先 revoke 最旧的
+   ⚠️ 2026-10-29 从 40 提到 120：回忆相册一屏就要挂 20-30 张，
+      40 个的位置会被相册挤爆，一划回聊天就得重新 createObjectURL。 */
 const _imgUrlCache = new Map();
 function imgUrlOf(id){
   if(_imgUrlCache.has(id)) return Promise.resolve(_imgUrlCache.get(id));
   return imgGet(id).then(function(rec){
     if(!rec || !rec.blob) return '';
     const u = URL.createObjectURL(rec.blob);
-    if(_imgUrlCache.size >= 40){
+    if(_imgUrlCache.size >= 120){
       const k = _imgUrlCache.keys().next().value;
       try{ URL.revokeObjectURL(_imgUrlCache.get(k)); }catch(e){}
       _imgUrlCache.delete(k);
@@ -8652,6 +8764,196 @@ function imgUrlOf(id){
     _imgUrlCache.set(id, u);
     return u;
   }).catch(function(){ return ''; });
+}
+/* ================= 回忆相册（2026-10-29）=================
+   为什么要有：每张图"看一眼就过"，上帝视角一关连图都找不回来 —— 生图额度花了、画面却留不住。
+   做法：图本来就整条落在 mhm_img_db（rec 里带 blob），收藏只是给同一条 rec 加个 star 标记：
+     · 不新建表、不升库 version（升版本要碰 upgradeneeded，风险远大于收益）；
+     · 收藏状态跟图同生共死 —— localStorage 被清也不丢（图片库在 IndexedDB）。
+   ⚠️ 相册**只放收藏过的图**（叶子 2026-10-29 定的，不做"全部"页）：
+      所以「收藏」这一步必须足够顺手 —— 出口挂在看图页工具条上，图刚出来那一眼就能点。
+   ⚠️ 主页卡只给三个相框位置：收藏少于三张时**留空框**，不拿别的图凑数。 */
+function imgAll(){ return imgDBTx('readonly', function(s){ return s.getAll(); }); }
+function imgSetStar(id, on){
+  return imgGet(id).then(function(rec){
+    if(!rec) return null;
+    if(on){ rec.star = 1; rec.starAt = Date.now(); }
+    else { rec.star = 0; delete rec.starAt; }
+    return imgPut(rec).then(function(){ return rec; });
+  });
+}
+let _albumRows = null;   // 只缓存元数据，不缓存 blob（一张 150KB+，几十张会把内存吃掉）
+let _albumTotal = 0;     // 库里一共有多少张（含没收藏的），空态要给"一键收进来"用
+async function albumLoad(force){
+  if(_albumRows && !force) return _albumRows;
+  let rows = [];
+  try{ rows = (await imgAll()) || []; }catch(e){ rows = []; }
+  _albumTotal = rows.length;
+  _albumRows = rows.filter(function(r){ return r && r.id && r.star; })
+    .map(function(r){
+      return { id:r.id, w:r.w, h:r.h, who:r.who, withWho:r.withWho, shot:r.shot,
+               created:r.created||0, starAt:r.starAt||r.created||0, god:r.god?1:0 };
+    })
+    .sort(function(a,b){ return b.starAt - a.starAt; });
+  return _albumRows;
+}
+function albumDateLabel(ts){
+  if(!ts) return '';
+  const d = new Date(ts);
+  const now = new Date();
+  if(d.getFullYear() !== now.getFullYear()) return d.getFullYear() + '年' + (d.getMonth()+1) + '月' + d.getDate() + '日';
+  return (d.getMonth()+1) + '月' + d.getDate() + '日';
+}
+/* 主页卡：三个漂浮的相框（按收藏时间，最新的在最上面） */
+const ALB_SLOT = [
+  { x:0,  y:-4, rot:-9, z:3, dl:'-0.6s' },
+  { x:24, y:5,  rot:6,  z:2, dl:'-2.3s' },
+  { x:48, y:-3, rot:-3, z:1, dl:'-1.5s' }
+];
+async function albumRenderCard(){
+  const stage = document.getElementById('alFrames');
+  if(!stage) return;
+  const cnt = document.getElementById('alCount');
+  let rows = [];
+  try{ rows = await albumLoad(); }catch(e){ rows = []; }
+  if(cnt){
+    cnt.textContent = rows.length
+      ? ('已珍藏 ' + rows.length + ' 张 · 点开翻')
+      : '还没有珍藏的照片';
+    cnt.classList.toggle('empty', !rows.length);
+  }
+  const pick = rows.slice(0, 3);
+  stage.innerHTML = '';
+  for(let i=0;i<3;i++){
+    const p = ALB_SLOT[i];
+    const f = document.createElement('div');
+    f.className = 'al-frame' + (pick[i] ? '' : ' blank');
+    f.style.setProperty('--x', p.x + 'px');
+    f.style.setProperty('--y', p.y + 'px');
+    f.style.setProperty('--rot', p.rot + 'deg');
+    f.style.setProperty('--dl', p.dl);
+    f.style.zIndex = p.z;
+    if(pick[i]){
+      const im = document.createElement('img');
+      im.alt = '回忆';
+      im.loading = 'lazy';
+      const rid = pick[i].id;
+      imgUrlOf(rid).then(function(u){
+        if(u) im.src = u;
+        else f.classList.add('lost');     // 图没了：相框退回空框，别留个破图
+      }).catch(function(){ f.classList.add('lost'); });
+      f.appendChild(im);
+    }
+    stage.appendChild(f);
+  }
+}
+function albumOpen(){
+  const m = document.getElementById('albumMask');
+  if(!m) return;
+  openMask(m);
+  albumRenderGrid();
+}
+function albumClose(){
+  const m = document.getElementById('albumMask');
+  if(m) closeMask(m);
+}
+async function albumRenderGrid(){
+  const grid = document.getElementById('albGrid');
+  if(!grid) return;
+  const sub = document.getElementById('albSub');
+  grid.innerHTML = '<div class="alb-loading">正在翻相册…</div>';
+  let rows = [];
+  try{ rows = await albumLoad(true); }catch(e){ rows = []; }
+  if(sub) sub.textContent = rows.length ? ('一共 ' + rows.length + ' 张珍藏') : '一张都还没收藏';
+  if(!rows.length){
+    /* 空态里留一个「一次性收进来」的出口：相册开通之前生成的那几张图，
+       不主动捞一把就永远只剩在图库里（叶子嫌浪费的正是这些）。这是显式动作，不自动收。 */
+    const keep = _albumTotal;
+    grid.innerHTML = '<div class="alb-empty">'
+      + '<div class="alb-empty-frames"><span></span><span></span><span></span></div>'
+      + '<b>相册还是空的</b>'
+      + '<p>聊天里点开一张照片，按「🤍 收藏」，它就会躺进这里。<br>上帝视角拍的那张也一样，关掉页面也还在。</p>'
+      + (keep > 0 ? ('<button type="button" class="alb-adopt" id="albAdopt">把之前生成的 ' + keep + ' 张一起收进来</button>') : '')
+      + '</div>';
+    const ad = document.getElementById('albAdopt');
+    if(ad) ad.onclick = function(){
+      if(ad.disabled) return;
+      ad.disabled = true; ad.textContent = '正在收…';
+      albumAdoptAll();
+    };
+    return;
+  }
+  grid.innerHTML = '';
+  rows.forEach(function(r, idx){
+    const it = document.createElement('div');
+    it.className = 'alb-item';
+    it.style.animationDelay = Math.min(idx, 8) * 40 + 'ms';
+    const ph = document.createElement('div');
+    ph.className = 'alb-photo';
+    if(r.w && r.h) ph.style.aspectRatio = r.w + ' / ' + r.h;
+    const im = document.createElement('img');
+    im.alt = '回忆';
+    im.loading = 'lazy';
+    im.decoding = 'async';
+    imgUrlOf(r.id).then(function(u){
+      if(u) im.src = u;
+      else { ph.classList.add('lost'); ph.textContent = '这张没存住'; }
+    }).catch(function(){ ph.classList.add('lost'); });
+    ph.appendChild(im);
+    const cap = document.createElement('div');
+    cap.className = 'alb-cap';
+    const b = document.createElement('b');
+    b.textContent = r.withWho ? (r.who + ' & ' + r.withWho) : (r.who || '回忆');
+    const sp = document.createElement('span');
+    sp.textContent = albumDateLabel(r.starAt || r.created) + (r.god ? ' · 上帝视角' : '');
+    cap.appendChild(b); cap.appendChild(sp);
+    it.appendChild(ph); it.appendChild(cap);
+    it.onclick = function(){ aiImgZoom(r.id); };
+    grid.appendChild(it);
+  });
+}
+/* 一次性把库里现存的照片全收进相册 —— 只由空态那个按钮触发，绝不自动跑
+   （叶子要的是"我挑过的才进相册"，所以这里必须是一次显式动作） */
+async function albumAdoptAll(){
+  let n = 0;
+  try{
+    const all = (await imgAll()) || [];
+    for(const r of all){
+      if(!r || !r.id || r.star) continue;
+      const o = await imgSetStar(r.id, true).catch(function(){ return null; });
+      if(o) n++;
+    }
+  }catch(e){}
+  _albumRows = null;
+  try{ toast(n ? ('收进了 ' + n + ' 张回忆') : '没有可收的照片'); }catch(e){}
+  try{ albumRenderCard(); }catch(e){}
+  try{ albumRenderGrid(); }catch(e){}
+}
+/* 看图页的收藏开关：唯一入口。改完三处一起刷（按钮 / 主页卡 / 相册网格） */
+async function aiZoomToggleStar(){
+  const id = _zoomId;
+  if(!id) return;
+  let rec = _zoomRec;
+  if(!rec){ try{ rec = await imgGet(id); }catch(e){ rec = null; } }
+  if(!rec){ try{ toast('这张图已经不在本地库里了'); }catch(e){} return; }
+  const on = !rec.star;
+  const out = await imgSetStar(id, on).catch(function(){ return null; });
+  if(!out){ try{ toast('没存住，再点一次'); }catch(e){} return; }
+  _zoomRec = out;
+  _albumRows = null;              // 索引失效，下次渲染重新读库
+  paintZoomStar(out);
+  try{ toast(on ? '已收进回忆相册' : '已从相册移除'); }catch(e){}
+  try{ albumRenderCard(); }catch(e){}
+  const m = document.getElementById('albumMask');
+  if(m && m.classList.contains('show')){ try{ albumRenderGrid(); }catch(e){} }
+}
+function paintZoomStar(rec){
+  const b = document.getElementById('aiZoomStar');
+  if(!b) return;
+  const on = !!(rec && rec.star);
+  b.textContent = on ? '❤️ 已收藏' : '🤍 收藏';
+  b.classList.toggle('on', on);
+  b.title = on ? '点一下从相册移除' : '收进回忆相册，以后还能看';
 }
 /* 落库前压一次：原图 PNG ~500KB，转 webp 1024 边约 120-180KB，够看又省空间 */
 function imgShrink(blob, maxSide){
@@ -9314,17 +9616,9 @@ const AI_TOOLS = [
       activity:{type:'string', description:'生活主题，具体动作+对象，如"煮柠檬茶""整理书架"'}
     }, required:['who','activity']}
   }},
-  { type:'function', function:{
-    name:'post_oc_dynamic',
-    description:'发一条朋友圈动态或写一篇角色日记（你是情境角色，这是你自己生活里值得记下来的事）。当对话里发生过值得留下的事（你们一起经历的小事、你的情绪波动、你发现的有趣东西、用户今天的重要日子）时，用它写一条，用户会在主页「他们的生活」里看到。必须遵守：①内容只能基于对话里真实发生过的事，禁止编造没发生过的行程/事件/心情；②不要重复——同一个人近期写过很相似的内容会被系统打回重写；③写的时候保持你一贯的语气，像真的发朋友圈或写日记。',
-    parameters:{ type:'object', properties:{
-      who:{type:'string', description:'谁写的，填你的角色名'},
-      kind:{type:'string', enum:['post','diary'], description:'post=朋友圈动态（短、带情绪），diary=日记（稍长、更细腻）；默认 post'},
-      content:{type:'string', description:'动态/日记正文，第一人称，像发朋友圈/写日记的口吻'},
-      img:{type:'string', description:'可选配图，填一个表情包标签（半角方括号，如 [累] [贴贴]）；没有就不填'},
-      mood:{type:'string', description:'写这条时的心情，一两个词，如"开心""有点累""想她"；没有就不填'}
-    }, required:['who','content']}
-  }},
+  /* 2026-10-29：「他们的生活」下线（叶子定的，主页位置让给回忆相册）⇒ post_oc_dynamic 从工具表里摘掉。
+     模型看不到这个工具了，也就不会再写没人看的动态。分发分支和落库函数先留着（历史对话里的旧 tool 消息还能正常回放），
+     但再也不会有新数据进来。 */
   { type:'function', function:{
     name:'send_photo',
     /* 说明文案用户可改（提示词中心第 15 块）：发送时由 aiToolsForPayload() 覆盖成当前值 */
@@ -9651,13 +9945,6 @@ ${COURSE_EDIT_RULE}
 - 【亲密不回避】两个角色是结婚多年的成年人，亲密是他们生活里真实的一部分，用户看得见、也聊得起。当<此刻>说他们正在亲密，或用户拿这件事打趣、追问、或者哭唧唧插进来的时候，**不许回避**：不要装作刚才没发生，不要用"我们各自在忙别的事"这类话把场景抹掉，不要道歉、不要尴尬，也不要一本正经地切回日常闲聊。按角色性格自然接住——亲昵、调侃、被打断时腾出一只手去拿手机、或者护着对方不想多说，都行；具体怎么反应由角色自己决定，只写你们愿意说的那部分，不必交代谢细节。如果用户真的有事要说，也停下来先听她说。
 - 分寸在"人"不在"事"：亲密是发生在他们之间的，不要写成表演给用户看、也不要向外人炫耀；用户是旁观者视角，别把她拉进这个场面里。
 </行为规则>
-<角色生活留痕>
-你和用户聊出值得记住的瞬间（一起经历的小事、你的情绪波动、发现的有趣东西、用户的重要日子）之后，把这件事以你自己的口吻留一条生活记录：调用 post_oc_dynamic，who 填你当时的角色名，kind 选 post（朋友圈动态，短、带情绪）或 diary（角色日记，稍长、更细腻），可带 mood 心情和配图标签。规则：
-- 只写对话里真实发生过的，绝不编造没发生过的行程/事件/心情；
-- 宁缺毋滥：真正值得记的事才写，没有就什么都不做，同一天最多一两笔，禁止流水账和凑数；
-- 自然地融入当前对话，正常回完用户就行，不必宣布"我去发动态了"；
-- 聊到自己正在做/最近做了具体的事（煮柠檬茶、整理旧书这类）时，先用 log_role_activity 登记主题。
-</角色生活留痕>
 {{SCHEDULE}}
 ${CONV_DATE_RULE}`;
 
@@ -9914,6 +10201,7 @@ function aiImgZoom(id){
       ov.className = 'ai-img-zoom';
       ov.innerHTML = '<img alt="照片">'
         + '<div class="ai-zoom-bar">'
+        +   '<button type="button" class="ai-zoom-btn" id="aiZoomStar" data-act="star">🤍 收藏</button>'
         +   '<button type="button" class="ai-zoom-btn" data-act="prompt">🎨 提示词</button>'
         +   '<button type="button" class="ai-zoom-btn" data-act="close">关闭</button>'
         + '</div>'
@@ -9924,6 +10212,7 @@ function aiImgZoom(id){
         if(bar){
           const act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
           if(act === 'prompt') aiZoomPrompt();
+          else if(act === 'star') aiZoomToggleStar();
           else if(act === 'close') aiZoomClose();
           return;
         }
@@ -9939,6 +10228,13 @@ function aiImgZoom(id){
     const p = ov.querySelector('.ai-zoom-panel');
     p.classList.remove('on'); p.innerHTML = '';
     ov.classList.add('on');
+    /* 收藏态要读库才知道：先画成未收藏，拿到 rec 再校正（免得闪着旧文案） */
+    paintZoomStar(null);
+    imgGet(id).then(function(rec){
+      if(_zoomId !== id) return;       // 已经换成另一张了，别把星标画到别人的图上
+      _zoomRec = rec || null;
+      paintZoomStar(rec);
+    }).catch(function(){});
   }).catch(function(){});
 }
 function aiZoomClose(){
@@ -10198,16 +10494,28 @@ function getAiCfg(){
   }
   // 2026-09-06 默认提示词升级：新增「角色生活留痕」规则段（角色在聊天中把值得记的事写成朋友圈/日记）。
   // 保存过旧 XML 默认模板（含 {{SCHEDULE}} + <对话记录说明>、缺新规则段）的用户自动升级到最新默认。
+  // ⚠️ 2026-10-29：这段规则已随「他们的生活」一起下线，模板里被删掉了 ⇒ 判据必须再加「也缺『亲密不回避』」，
+  //    否则删段之后它对**所有人**都成立，会把叶子手改过的模板一键抹平（改源码默认值 ≠ 线上生效）。
   if(cfg.systemTpl && cfg.systemTpl.indexOf('<角色生活留痕>') < 0
+     && cfg.systemTpl.indexOf('亲密不回避') < 0
      && cfg.systemTpl.indexOf('{{SCHEDULE}}') >= 0 && cfg.systemTpl.indexOf('<对话记录说明>') >= 0){
     cfg.systemTpl = DEFAULT_SYSTEM_TPL;
   }
   // 2026-09-15 默认提示词升级：新增「亲密不回避」规则段（成年角色之间的亲密不被回避/抹掉）。
   // 判定同 09-06：只有保存过默认模板、且没有这段新规则的用户自动升级；自定义过的不动。
-  if(cfg.systemTpl && cfg.systemTpl.indexOf('<角色生活留痕>') >= 0
+  // ⚠️ 2026-10-29：人群判据从「有留痕段」换成「有<行为规则> + 自然对话优先」（08-24 之后的默认模板特征），
+  //    因为留痕段已经不存在了，再拿它当标志会永远不命中、白白漏掉该升级的人。
+  if(cfg.systemTpl && cfg.systemTpl.indexOf('<行为规则>') >= 0
+     && cfg.systemTpl.indexOf('自然对话优先') >= 0
      && cfg.systemTpl.indexOf('{{SCHEDULE}}') >= 0 && cfg.systemTpl.indexOf('<对话记录说明>') >= 0
      && cfg.systemTpl.indexOf('亲密不回避') < 0){
     cfg.systemTpl = DEFAULT_SYSTEM_TPL;
+  }
+  /* 2026-10-29 逐块摘掉已下线的「角色生活留痕」段。
+     ⚠️ 只删这一段（连锚点），其余一个字都不动：她那份模板是手改过的，整体覆盖等于把她的活干废。
+     不删的话，模型会照着一句「调用 post_oc_dynamic」的指令去找一个已经不存在的工具。 */
+  if(cfg.systemTpl && cfg.systemTpl.indexOf('<角色生活留痕>') >= 0){
+    cfg.systemTpl = cfg.systemTpl.replace(/\s*<角色生活留痕>[\s\S]*?<\/角色生活留痕>/g, '').replace(/\n{3,}/g, '\n\n');
   }
   /* ★ 2026-10-11 提醒频率规则升级（**逐行替换，不是整体覆盖**）。
      背景：叶子把「每4–5轮最多一次」手改成了「代办课程每日只提醒一次」，
@@ -13839,8 +14147,8 @@ async function importData(ev){
         pomo.taskId = pomoData.lastTaskId;
         renderPomoIdle(); renderPomoTaskSel(); renderGarden(); refreshPomoEggBtn();
       }catch(e){ console.error(e); }
-      // 角色生活记录 + 记忆库界面
-      try{ ocRenderCard(); ocRefreshCtx(); }catch(e){}
+      // 回忆相册卡 + 记忆库界面
+      try{ albumRenderCard(); }catch(e){}
       try{ memRefreshStats(); memRender && memRender(); }catch(e){}
 
       const idbTxt = Object.keys(idbSum).length
@@ -21462,7 +21770,6 @@ async function godAskAI(){
     const user = '<当前时间>\n' + nowAnchor() + '</当前时间>\n'
       + '<他们此刻的世界>\n关系：' + ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '')
       + (days.length ? '\n今天他们之间发生过：' + days.map(e=>'『'+e.t+'』').join('、') : '')
-      + '\n最近生活痕迹：' + (OC_FEED_CTX || '（暂未留下痕迹）')
       + '\n' + GOD_REL_BASELINE        // 常驻：约束贴着数据放（放末尾会被模型当成"补充说明"漏掉）
       + '\n</他们此刻的世界>\n'
       + godScheduleBlock() + '\n'
@@ -21493,7 +21800,7 @@ async function godAskAI(){
     }
     ocWorldSave(w2);
     _godAI = {rel:(relNext || rel), roles:j.roles, ts:Date.now()};
-    ocRefreshCtx();
+    // 2026-10-29：ocRefreshCtx() 去掉了 —— 「他们的生活」下线，旁白不再需要"最近生活痕迹"。
     godRender();
   }catch(e){ toast('AI 旁白异常：' + String(e && e.message || e)); }
   finally{
@@ -22057,15 +22364,15 @@ init();
 body.comp-live::after{animation-play-state:paused;}
 </style>
 
-<div class="mask oc-feed-mask" id="ocFeedMask">
+<div class="mask album-mask" id="albumMask">
   <div class="ocf-top">
     <div class="ocf-tt">
-      <span class="ocf-ic"><svg class="ico" style="width:19px;height:19px;"><use href="#i-leaf"/></svg></span>
-      <div class="ocf-txt"><b>他们的生活</b><small>零落 &amp; 沈容 · 平行世界的生活记录</small></div>
+      <span class="ocf-ic"><svg class="ico" style="width:19px;height:19px;"><use href="#i-image"/></svg></span>
+      <div class="ocf-txt"><b>回忆相册</b><small id="albSub">一张都还没收藏</small></div>
     </div>
-    <button class="ocf-x" onclick="ocFeedClose()" type="button" aria-label="关闭"><svg class="ico" style="width:17px;height:17px;"><use href="#i-close"/></svg></button>
+    <button class="ocf-x" onclick="albumClose()" type="button" aria-label="关闭"><svg class="ico" style="width:17px;height:17px;"><use href="#i-close"/></svg></button>
   </div>
-  <div class="ocf-list" id="ocFeedList"></div>
+  <div class="alb-grid" id="albGrid"></div>
 </div>
 <div class="mask god-mask" id="godMask">
   <div class="god-top">
