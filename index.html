@@ -3049,6 +3049,12 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
               <option value="k_dpmpp_sde">k_dpmpp_sde（质感强）</option>
               <option value="ddim">ddim（锐利）</option>
             </select>
+            <label>固定 seed <span style="font-size:11px;color:var(--ink-soft)">（留空 = 每张随机）</span></label>
+            <input id="imgSeed" type="number" min="0" max="4294967295" step="1" inputmode="numeric" placeholder="留空 = 随机" autocapitalize="off" autocorrect="off">
+            <p class="hint" style="font-size:11px;color:#4a5b4d;margin:6px 0 0;line-height:1.65;">
+              想严格对比「改了画风/锚点到底有没有用」：把上一张的 seed 填进来，<b>只改一个变量</b>再出图；
+              同 seed 同提示词会得到同一张，seed 空着就每张都不一样。
+            </p>
             <p class="hint" style="font-size:11px;color:#4a5b4d;margin:6px 0 0;line-height:1.65;">
               steps 28 是均衡值，超过 35 基本只是变慢。<b>scale 5</b> = 画面自由度高，<b>6~7</b> = 更听提示词但会僵硬，超过 8 容易出塑料感。<br>
               采样器/噪声调度的组合 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">k_euler_ancestral + karras</code> 是 NAI 公认最舒服的，没特别理由别换。
@@ -8051,7 +8057,7 @@ const IMG_SPONT_DEFAULT = `<顺手拍张照片>
 function imgPromptCfg(){
   let c = {};
   try{ c = JSON.parse(localStorage.getItem(IMG_PROMPT_KEY)) || {}; }catch(e){ c = {}; }
-  return { toolDesc: String(c.toolDesc || ''), spontTpl: String(c.spontTpl || ''), godTpl: String(c.godTpl || '') };
+  return { toolDesc: String(c.toolDesc || ''), spontTpl: String(c.spontTpl || ''), godTpl: String(c.godTpl || ''), testTpl: String(c.testTpl || '') };
 }
 function imgPromptSave(patch){
   const c = Object.assign(imgPromptCfg(), patch || {});
@@ -8094,6 +8100,18 @@ const IMG_GOD_SNAP_DEFAULT = `下面这一刻，是他们两个人真实生活�
 function imgGodSnapTpl(){
   const v = imgPromptCfg().godTpl;
   return v.trim() ? v : IMG_GOD_SNAP_DEFAULT;
+}
+/* ===== 设置页「🧪 试生一张」的画面内容（2026-10-29 晚抽出来，可看可改）=====
+   为什么必须可改：这张图是她判断「画风/锚点行不行」的唯一样品，而它以前写死成
+   `solo, looking at viewer, soft smile, simple background` —— **没有发型、没有服装**。
+   于是模型只能自由发挥：脸容易偏中性、衣服被「禁暴露」负面词压成一件没轮廓的宽松上衣，
+   看起来就像"把零落画成了男生"。她一度怀疑是画风串偏男性，其实这张样品本身就不公平。
+   ⚠️ 它走的仍是和聊天完全一样的 imgComposeShot / imgNegFor —— 别为了"好看"在这里偷偷加东西，
+      否则「试生能出、聊天里出不了」这种差异会被掩盖。 */
+const IMG_TEST_DEFAULT = 'solo, looking at viewer, soft smile, upper body, long hair down, white shirt, simple background';
+function imgTestPrompt(){
+  const v = imgPromptCfg().testTpl;
+  return v.trim() ? v : IMG_TEST_DEFAULT;
 }
 /* ---------- ZIP 解包（只依赖浏览器原生 DecompressionStream） ---------- */
 function imgZipEOCD(u8, dv){
@@ -8273,7 +8291,12 @@ async function imgGenerate(prompt, negative, opt){
   const wantP = (opt.aspect === 'portrait');
   if(wantL && h > w){ const t = w; w = h; h = t; }
   if(wantP && w > h){ const t = w; w = h; h = t; }
-  const seed = (opt.seed != null && opt.seed >= 0) ? (opt.seed|0) : Math.floor(Math.random() * 4294967295);
+  /* seed：`opt.seed` 优先（看图页重生成会传）；否则用**设置里钉住的 seed**（做单变量 A/B 用）；
+     两样都没有才随机。⚠️ 以前这里只认 `opt.seed`，**完全没读 `cfg.seed`** ——
+     设置页那个 seed 输入框是死的，填了也不生效，所以想「同 seed 只换一个变量」根本无法做（2026-10-29 查）。 */
+  const seedCfg = parseInt(String(cfg.seed || '').trim(), 10);
+  const seed = (opt.seed != null && opt.seed >= 0) ? (opt.seed|0)
+    : (isFinite(seedCfg) && seedCfg > 0 ? seedCfg : Math.floor(Math.random() * 4294967295));
   const body = imgBuildBody(cfg, prompt, negative, w, h, seed, opt);
   const ctl = new AbortController();
   const timer = setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 150000);
@@ -10963,6 +10986,7 @@ function initImgSettingsFields(){
   set('imgSteps', (cfg.steps|0) || IMG_CFG_DEFAULT.steps);
   set('imgScale', (Number(cfg.scale) || IMG_CFG_DEFAULT.scale));
   set('imgSampler', cfg.sampler || IMG_CFG_DEFAULT.sampler);
+  set('imgSeed', (cfg.seed == null ? '' : String(cfg.seed)));
   const h = document.getElementById('imgHint'); if(h) h.textContent = '';
   const old = document.getElementById('imgTestPreview'); if(old) old.remove();
   syncImgUI();
@@ -11006,7 +11030,8 @@ function saveImgCfg(){
     povNoPeople: npEl ? !!npEl.checked : true,
     steps: Math.max(1, Math.min(50, parseInt(g('imgSteps'), 10) || IMG_CFG_DEFAULT.steps)),
     scale: Math.min(10, Math.max(1, parseFloat(g('imgScale')) || IMG_CFG_DEFAULT.scale)),
-    sampler: g('imgSampler') || IMG_CFG_DEFAULT.sampler
+    sampler: g('imgSampler') || IMG_CFG_DEFAULT.sampler,
+    seed: String(g('imgSeed') || '').trim()
   });
 }
 /* 恢复默认画风：只改 styleDraw 一个字段并立即落盘，不碰其他配置
@@ -11018,7 +11043,12 @@ function imgResetStyle(){
   const h = document.getElementById('imgHint');
   if(h) h.textContent = '画风已恢复默认，立即生效';
 }
-/* 试生一张：花的是真额度，所以按钮上写清楚。生成后直接在这里预览，不用去聊天里看。 */
+/* 试生一张：花的是真额度，所以按钮上写清楚。生成后直接在这里预览，不用去聊天里看。
+   ⚠️ 画面内容走 `imgTestPrompt()`（提示词中心第 19 块，可看可改）。以前写死成
+      `solo, looking at viewer, soft smile, simple background` —— 没发型没服装，
+      模型自由发挥，脸容易偏中性、衣服被负面词压平，看着像"把零落画成了男生"。
+   ⚠️ 图要连 full/neg/shot 一起落库，并且能点开看图页：她调画风就靠这张，
+      以前点开只有一句"这张没留下提示词记录"，等于白出。 */
 async function imgTestGenerate(){
   const hint = document.getElementById('imgHint');
   saveImgCfg();
@@ -11027,12 +11057,14 @@ async function imgTestGenerate(){
   const gate = imgGateCheck();
   if(!gate.ok){ if(hint) hint.textContent = gate.reason; imgPaintQuota(); return; }
   if(hint) hint.textContent = '正在生成…（约 20-40 秒，占 1 张额度）';
+  /* 试生必须走跟聊天完全一样的拼装路径（imgComposeShot / imgNegFor），
+     否则「试生能出图、聊天里出不了」这种差异会被掩盖掉。 */
+  const inner = imgTestPrompt();
+  const p0 = imgComposeShot('selfie', inner, '零落', '');
+  const neg = imgNegFor('selfie');
   let r;
   try{
-    /* 试生必须走跟聊天完全一样的拼装路径（imgComposeShot / imgNegFor），
-       否则「试生能出图、聊天里出不了」这种差异会被掩盖掉。 */
-    const p0 = imgComposeShot('selfie', 'solo, looking at viewer, soft smile, simple background', '零落', '');
-    r = await imgGenerate(p0.base, imgNegFor('selfie'), { chars: p0.chars, aspect: p0.aspect });
+    r = await imgGenerate(p0.base, neg, { chars: p0.chars, aspect: p0.aspect });
   }catch(e){ r = { ok:false, error: (e && e.message) || '出错' }; }
   if(!r.ok){
     if(hint) hint.textContent = '失败：' + (r.error || '未知错误');
@@ -11040,14 +11072,21 @@ async function imgTestGenerate(){
     return;
   }
   const id = 'img_' + Date.now() + '_test';
-  try{ await imgPut({ id:id, blob:r.blob, prompt:'__test__', created: Date.now(), seed:r.seed, w:r.w, h:r.h, model: cfg.model }); }catch(e){}
+  const rec = { id:id, blob:r.blob, prompt:inner, full:p0.base, neg:neg,
+    who:'零落', withWho:'', shot:'selfie', proactive:false,
+    seed:r.seed, w:r.w, h:r.h, model:cfg.model, created:Date.now(), test:true };
+  try{ await imgPut(rec); }catch(e){}
   const q = imgQuota(); q.used = (q.used|0) + 1; q.lastAt = Date.now(); imgQuotaSave(q);
-  if(hint) hint.textContent = '✅ 成功 · ' + ((r.ms||0)/1000).toFixed(1) + ' 秒 · ' + r.w + '×' + r.h;
+  if(hint){
+    hint.textContent = '✅ 成功 · ' + ((r.ms||0)/1000).toFixed(1) + ' 秒 · ' + r.w + '×' + r.h
+      + ' · seed ' + r.seed + '（想同 seed 对照：把它填进下面的「seed」，只改一个变量）'
+      + ' · 点图可看这次的提示词';
+  }
   let box = document.getElementById('imgTestPreview');
   if(!box){
     box = document.createElement('div');
     box.id = 'imgTestPreview';
-    box.style.cssText = 'margin-top:10px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);';
+    box.style.cssText = 'margin-top:10px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);cursor:zoom-in;';
     const ql = document.getElementById('imgQuotaLine');
     if(ql && ql.parentNode) ql.parentNode.insertBefore(box, ql);
     else if(hint && hint.parentNode) hint.parentNode.appendChild(box);
@@ -11057,6 +11096,21 @@ async function imgTestGenerate(){
   im.style.cssText = 'width:100%;display:block;';
   im.alt = '试生结果';
   im.src = URL.createObjectURL(r.blob);
+  /* 点图 = 看图页 + 直接把「这次的提示词」摊开。
+     aiImgZoom 是异步的（要先从库里把 blob 读出来），所以不能写完就调 aiZoomPrompt()——
+     必须等覆盖层真的挂上（.on）再开面板，否则 aiZoomPrompt 会拿到空节点直接 return。 */
+  im.onclick = function(){
+    try{ aiImgZoom(id); }catch(e){}
+    let n = 0;
+    const t = setInterval(function(){
+      const ov = document.getElementById('aiImgZoom');
+      if(ov && ov.classList.contains('on')){
+        clearInterval(t);
+        try{ aiZoomPrompt(); }catch(e){}
+      }
+      if(++n > 60) clearInterval(t);
+    }, 50);
+  };
   box.appendChild(im);
   imgPaintQuota();
 }
@@ -12279,6 +12333,13 @@ function pcResetImgGod(){
   const h = document.getElementById('promptCenterHint');
   if(h) h.textContent = '已恢复默认的「看这一刻」画面转换说明，点「保存本页」生效。';
 }
+function pcResetImgTest(){
+  const ta = document.getElementById('pcImgTestTpl');
+  if(!ta) return;
+  ta.value = IMG_TEST_DEFAULT;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认的试生画面内容，点「保存本页」生效。';
+}
 function pcResetJournalMergeTpl(){
   const ta = document.getElementById('pcJournalMergeTpl');
   if(!ta) return;
@@ -12434,6 +12495,14 @@ function renderPromptCenter(){
     + '<br>占位符：<code>{{TIME}}</code> 当前时间 · <code>{{REL}}</code> 关系状态 · <code>{{FRAME}}</code> 两人各自在哪/在做什么/心情/心里话 · <code>{{MODE}}</code> 「他们两个（同框）」或「只有某某一个人」。<b>别删掉它们。</b>留空 = 用默认。</p>'
     + '<textarea id="pcImgGodTpl" class="prompt-body" rows="18">'+escHtml(imgGodSnapTpl())+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetImgGod()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  /* 19 · 试生一张的画面内容（2026-10-29 晚）：这张是她判断画风/锚点行不行的唯一样品，
+     以前写死且没写发型没写服装 ⇒ 模型自由发挥，脸容易偏中性、衣服被压平。 */
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">19</span><span>生图 · 「🧪 试生一张」的画面内容</span></div>'
+    + '<p class="prompt-desc">设置页那个试生按钮用的是<b>固定一张自拍（零落）</b>，内容就是这一段。它走的拼装路径跟聊天里完全一样，所以调画风时就靠它看效果。'
+    + '<br>⚠️ <b>一定要写发型和服装</b>：不写的话模型自由发挥，加上负面词里的「禁暴露」，很容易画成一件没轮廓的宽松上衣、脸偏中性 —— 那是样品不公平，不是画风坏了。'
+    + '<br>想严格 A/B：把上一张的 seed 填进下面的「seed」框，然后<b>只改一个变量</b>（画风 / 锚点 / 这一段）。留空 = 用默认。</p>'
+    + '<textarea id="pcImgTestTpl" class="prompt-body" rows="4">'+escHtml(imgTestPrompt())+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetImgTest()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
   wrap.innerHTML = sc.join('');
 }
 function savePromptCenter(){
@@ -12459,6 +12528,7 @@ function savePromptCenter(){
   const imgToolEl = document.getElementById('pcImgToolDesc');
   const imgSpontEl = document.getElementById('pcImgSpont');
   const imgGodEl = document.getElementById('pcImgGodTpl');
+  const imgTestEl = document.getElementById('pcImgTestTpl');
   
   if(sysEl) cfg.systemTpl = sysEl.value;
   if(idEl) localStorage.setItem(MEM_IDENTITY_KEY, idEl.value.trim());
@@ -12476,11 +12546,12 @@ function savePromptCenter(){
   // 生图说明（独立键，不并进 mhm_ai_cfg）
   // ⚠️ 「等于默认值就存空」：点过「恢复默认」再保存时，不能把默认文案当副本存下去
   //    —— 否则以后代码里改了默认值，她那份旧副本永远不跟着变（第 17 块就是这个规矩）。
-  if(imgToolEl || imgSpontEl || imgGodEl){
+  if(imgToolEl || imgSpontEl || imgGodEl || imgTestEl){
     const ip = {};
     if(imgToolEl) ip.toolDesc = (imgToolEl.value === IMG_TOOL_DESC_DEFAULT) ? '' : imgToolEl.value;
     if(imgSpontEl) ip.spontTpl = (imgSpontEl.value === IMG_SPONT_DEFAULT) ? '' : imgSpontEl.value;
     if(imgGodEl) ip.godTpl = (imgGodEl.value === IMG_GOD_SNAP_DEFAULT) ? '' : imgGodEl.value;
+    if(imgTestEl) ip.testTpl = (imgTestEl.value === IMG_TEST_DEFAULT) ? '' : imgTestEl.value;
     imgPromptSave(ip);
   }
   // 业务工具说明：只有改动过的才落库（等于默认值 = 删除覆盖，避免留一份会过期的副本）
