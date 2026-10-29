@@ -3090,6 +3090,11 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
               steps 28 是均衡值，超过 35 基本只是变慢。<b>scale 5</b> = 画面自由度高，<b>6~7</b> = 更听提示词但会僵硬，超过 8 容易出塑料感。<br>
               采样器/噪声调度的组合 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">k_euler_ancestral + karras</code> 是 NAI 公认最舒服的，没特别理由别换。
             </p>
+            <p class="hint" style="font-size:11px;color:#a3577a;margin:6px 0 0;line-height:1.65;">
+              ⚠️ <b>公益站（发密钥给你的那种）把这几项锁死在密钥里</b>：改了不报错、也不生效，静默忽略。判据是实测的——
+              柏宝绘那个站塞一个根本不存在的采样器名照样出图。想改就回站上重签一个密钥。<br>
+              唯一能改的是 <b>seed</b>（同 seed 基本能复现）和 <b>画面方向</b>：像素尺寸也会被吸到站上档位（要 832×1216 回来 768×1280）。
+            </p>
           </div>
         </details>
 
@@ -8131,7 +8136,19 @@ async function imgFetchModels(){
   if(hit >= 0){
     list[hit].models = ids.slice(0, 40);
     list[hit].backend = pixai ? 'pixai' : '';
+    /* PixAI 底座（柏宝绘实测）不吃 NAI 的 v4 结构化 caption：char_captions 整段被丢掉，
+       双人图两个人会长成同一张脸、穿同一件衣服；而 steps / scale / sampler 也一律忽略
+       （塞一个根本不存在的 sampler 名照样 200 出图）。
+       所以识别到 PixAI 就顺手把 v4 关掉 —— 关掉后 imgComposeShot 会把人物锚点
+       （带 left/right 标签）写进主提示词，实测反而画得对。
+       ⚠️ 只在她没手动设过（undefined）时才动；设过的一律尊重她的选择。 */
+    if(pixai && list[hit].v4 === undefined) list[hit].v4 = false;
     imgSitesSave(list);
+    if(pixai && c.siteId === list[hit].id && list[hit].v4 === false){
+      imgCfgSave({ v4: false });
+      const v4el = document.getElementById('imgV4');
+      if(v4el) v4el.checked = false;
+    }
   }
   // 当前值不在列表里就换成第一个（否则下拉还是空白）
   if(ids.indexOf(String(c.model || '')) < 0){
@@ -8143,7 +8160,8 @@ async function imgFetchModels(){
   if(hint){
     hint.textContent = '拉到 ' + ids.length + ' 个模型：' + ids.slice(0, 4).join('、') + (ids.length > 4 ? '…' : '')
       + '（已记到这一档，切回来不用再拉）'
-      + (pixai ? '。⚠️ 这站底座是 PixAI：画风建议点「填纯标签版」并勾上「不认 NAI 权重」。' : '');
+      + (pixai ? '。⚠️ 这站底座是 PixAI：画风建议点「填纯标签版」并勾上「不认 NAI 权重」；'
+        + 'V4 结构化 caption 它不认，已自动关掉（人物锚点改走主提示词）。' : '');
   }
 }
 function imgPaintSiteSel(){
@@ -8909,7 +8927,21 @@ function imgComposeShot(shot, prompt, who, withWho){
   const chars = imgShotChars(shot, who, withWho);
   const isV4 = (cfg.v4 !== false);
   const bits = [style, spec.lead];
-  if(!isV4) chars.forEach(function(c){ bits.push(c.caption); });
+  if(!isV4 && chars.length){
+    /* 非 V4 的站没有 char_captions 通道 ⇒ 锚点只能写进主提示词。
+       但两个人平铺成一串，模型分不清谁是谁 —— 柏宝绘实测：两人会长成同一张脸、穿同一件衣服。
+       加位置标签才分得开（实测 `left: 1girl…; right: 1boy…` 一次就对）。
+       左右由 IMG_SLOT 定死，和 V4 坐标用的是同一份数据，不会各说各话。 */
+    if(chars.length > 1){
+      bits.push(chars.map(function(c){
+        const x = (typeof c.x === 'number') ? c.x : 0.5;
+        const side = x < 0.45 ? 'left' : (x > 0.55 ? 'right' : 'center');
+        return side + ': ' + c.caption;
+      }).join('; '));
+    } else {
+      bits.push(chars[0].caption);
+    }
+  }
   if(body) bits.push(body);
   bits.push('very aesthetic, no text');
   const base = bits.filter(Boolean).join(', ').replace(/\s*,\s*,+/g, ', ').replace(/^\s*,\s*/, '');
