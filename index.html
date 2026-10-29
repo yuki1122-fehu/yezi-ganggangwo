@@ -1507,8 +1507,11 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .set-foot .btn{flex:1;}
 .set-hint{font-size:11px;color:var(--green-dark);margin:8px 0 0;line-height:1.55;flex:0 0 auto;}
 /* 复选框修复：.sheet input 的 padding:13px 15px + appearance:none 会把原生勾选框撑成一个大白胶囊
-   （「包含图片」那个一直是这个样子的老毛病）。这里只针对 checkbox 还原原生外观。 */
-.sheet input[type="checkbox"]{appearance:auto;-webkit-appearance:auto;padding:0;box-shadow:none;background:none;border:none;border-radius:0;accent-color:var(--green-mid);flex:0 0 auto;}
+   （「包含图片」那个一直是这个样子的老毛病）。这里只针对 checkbox 还原原生外观。
+   ⚠️ 还必须把 `width` 抢回来：上面 `.sheet input{width:100%}` 会把勾选框撑成整行宽，
+   而它又挂在 `display:flex` 的 label 里 ⇒ 把同一行的说明文字挤成**一个汉字一行的竖条**
+   （2026-10-29 叶子截图报的「格式很奇怪」）。`flex:0 0 auto` 只挡伸缩、挡不住 width:100%。 */
+.sheet input[type="checkbox"]{appearance:auto;-webkit-appearance:auto;width:auto;height:auto;min-width:0;padding:0;box-shadow:none;background:none;border:none;border-radius:0;accent-color:var(--green-mid);flex:0 0 auto;}
 .sheet h3{margin:0 0 6px;font-size:19px;color:var(--ink);font-weight:800;letter-spacing:.2px;}
 .sheet p{margin:0 0 16px;font-size:var(--fs-3);color:var(--ink-soft);line-height:1.6;}
 .sheet label{display:block;font-size:var(--fs-2);font-weight:700;color:var(--ink-soft);margin:14px 0 6px;letter-spacing:.2px;}
@@ -2982,11 +2985,13 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         <select id="imgModel"></select>
         <label style="display:flex;align-items:flex-start;gap:6px;font-size:11px;line-height:1.5;margin-top:6px;cursor:pointer;">
           <input type="checkbox" id="imgV4" style="flex:0 0 auto;margin-top:2px;">
-          <span>发 <b>V4 结构化 caption</b>（<b style="color:#a3577a;">双人图必须开</b>：两人各带坐标分开送，关了会糊在一起）</span>
+          <span>发 <b>V4 结构化 caption</b>（NAI 系站靠它分开两人；<b style="color:#a3577a;">PixAI 系站不认它</b>，那种站会自动改走主提示词）</span>
         </label>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 8px;line-height:1.6;">
-          ⚠️ 双人图靠的是上面这个开关，<b>不再看模型名</b>。模型名只是原样传给站方 ——
-          很多第三方站直接忽略它（用它自己后台配的模型），那不影响流程。<br>
+          ⚠️ 双人图能不能分开，<b>看的是站点底座，不是这个开关</b>：NAI 系（小酒那种）走结构化 caption、坐标才生效；
+          PixAI 系（柏宝绘那种）把这段<b style="color:#a3577a;">整段丢掉</b>，所以会自动改成把两人外观写进主提示词（带 left / right）。
+          开关只管 NAI 系，勾着也伤不到 PixAI 系。<br>
+          模型名只是原样传给站方 —— 很多第三方站直接忽略它（用它自己后台配的模型），那不影响出图。
           下拉里没有你要的模型就点「🔄 拉取该站模型」；站点没有这个接口（404）时，下拉里先用内置的 NAI 名字顶着即可。
         </p>
         <label>尺寸</label>
