@@ -1577,9 +1577,27 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .ai-gen-img-box{margin-top:8px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);background:rgba(255,255,255,.35);}
 .ai-gen-img{display:block;width:100%;max-width:260px;height:auto;cursor:zoom-in;}
 .ai-gen-img-box.lost{padding:10px 12px;font-size:var(--fs-2);color:var(--ink-soft);}
-.ai-img-zoom{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(12,14,18,.86);padding:16px;backdrop-filter:blur(6px);}
+.ai-img-zoom{position:fixed;inset:0;z-index:9999;display:none;flex-direction:column;align-items:center;justify-content:center;background:rgba(12,14,18,.86);padding:16px;backdrop-filter:blur(6px);}
 .ai-img-zoom.on{display:flex;}
-.ai-img-zoom img{max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+.ai-img-zoom>img{max-width:100%;max-height:calc(100% - 72px);min-height:0;object-fit:contain;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5);}
+/* 看图页的按钮条（2026-10-29）：看提示词 / 关闭。永远在图下方，不吃手势、不挡画面 */
+.ai-zoom-bar{flex:0 0 auto;display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;justify-content:center;}
+.ai-zoom-btn{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.14);color:#fff;font-size:13px;line-height:1.35;padding:8px 15px;border-radius:999px;cursor:pointer;font-family:inherit;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(8px);}
+.ai-zoom-btn:active,.ai-zoom-btn:hover{background:rgba(255,255,255,.26);}
+/* 提示词面板：浅色玻璃卡，压在图片下沿。放在 overlay 里而不是新弹窗，避免「弹窗接力」那套 animationend 坑 */
+.ai-zoom-panel{position:absolute;left:10px;right:10px;bottom:10px;max-height:76%;overflow-y:auto;display:none;box-sizing:border-box;padding:14px 14px 12px;border-radius:16px;background:rgba(250,252,249,.97);border:1px solid var(--glass-line);box-shadow:0 18px 50px rgba(0,0,0,.34);color:var(--ink);}
+.ai-zoom-panel.on{display:block;}
+.ai-zoom-panel .zp-head{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;font-weight:700;color:var(--green-dark);margin-bottom:6px;}
+.ai-zoom-panel .zp-x{flex:0 0 auto;width:26px;height:26px;border-radius:50%;border:1px solid var(--glass-line);background:#fff;color:var(--ink-soft);font-size:15px;line-height:1;cursor:pointer;}
+.ai-zoom-panel .zp-meta{font-size:11px;color:var(--ink-soft);line-height:1.6;margin:0 0 8px;}
+.ai-zoom-panel .zp-lab{display:block;font-size:11px;font-weight:700;color:var(--green-dark);margin:10px 0 4px;}
+.ai-zoom-panel textarea{width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--green-mid);border-radius:8px;padding:8px 9px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.9);color:var(--ink);min-height:74px;}
+.ai-zoom-panel .zp-err{font-size:11px;color:#a32d2d;line-height:1.55;margin-top:8px;display:none;}
+.ai-zoom-panel .zp-err.on{display:block;}
+.ai-zoom-panel .zp-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap;}
+.ai-zoom-panel .zp-foot button{flex:0 0 auto;}
+.ai-zoom-panel .zp-foot .zp-go{background:var(--green-deep);color:#fff;border-color:transparent;}
+.ai-zoom-panel .zp-foot .zp-go[disabled]{opacity:.6;}
 .sticker-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:var(--radius-2xs);background:rgba(255,255,255,.5);border:1px solid var(--glass-line);font-size:var(--fs-2);min-width:0;}
 .sticker-row img{width:34px;height:34px;object-fit:contain;border-radius:var(--radius-2xs);background:#fff;border:1px solid var(--glass-line);flex:0 0 auto;}
 .sticker-badge{flex:0 0 auto;font-size:var(--fs-1);padding:2px 6px;border-radius:var(--radius-pill);background:var(--green-soft);color:var(--green-dark);font-weight:700;white-space:nowrap;}
@@ -2940,6 +2958,19 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         <label>负面词 <span style="font-size:11px;color:var(--ink-soft)">（避雷清单，一般不用动）</span></label>
         <textarea id="imgNeg" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="lowres, bad anatomy, ..."
           style="width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 10px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.75);color:var(--ink);"></textarea>
+
+        <!-- 环境照禁人（2026-10-29）：拍空景却凭空多出一个陌生人，就是这里没开 -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 4px;">
+          <div style="font-size:12px;font-weight:700;color:var(--green-dark);">空景里不带人 <span style="font-size:11px;font-weight:400;color:var(--ink-soft)">（建议开着）</span></div>
+          <label class="switch" style="position:relative;display:inline-block;width:44px;height:24px;flex:0 0 auto;cursor:pointer;margin:0;">
+            <input type="checkbox" id="imgNoPeople" style="opacity:0;width:0;height:0;position:absolute;">
+            <span class="switch-slider" style="position:absolute;top:0;left:0;right:0;bottom:0;border-radius:999px;background:var(--ink-faint);transition:.25s;"></span>
+          </label>
+        </div>
+        <p class="hint" style="font-size:11px;color:#4a5b4d;margin:0 0 10px;line-height:1.65;">
+          开着时，第一人称拍的空景（图书馆 / 街角 / 房间）会在<b>负面词</b>里自动禁掉人物，不会凭空长出一个不认识的人。想拍有路人的热闹场面就关掉它。<br>
+          ⚠️ 只在画面本该没人的镜头生效；自拍、双人同框一个字都不加。
+        </p>
 
         <details style="margin:12px 0 0;border-top:1px dashed var(--green-mid);padding-top:10px;">
           <summary style="font-size:12px;font-weight:600;color:var(--green-dark);cursor:pointer;list-style:none;">⚙ 高级参数（一般不用动）</summary>
@@ -7696,6 +7727,14 @@ const IMG_NEG_NO_BANGS = 'blunt bangs, straight across bangs, bangs covering for
    零落的日常穿着还没定，先用负面词兜住下限；等她定了常服再写进锚点，这条就可以撤。 */
 const IMG_NEG_PLAIN = 'lingerie, underwear, revealing clothes, see-through, underboob';
 
+/* 纯环境照「别长人」（2026-10-29 实测）：NAI 看到 first-person view / POV 这种构图，
+   默认就理解成「画面里站着一个主角」，正向词写再多 scenery 也压不住 ——
+   叶子拍老图书馆空景，出来一个完全不认识的持剑女剑士。
+   ⚠️ 必须在**负面**里禁，而且**绝不能写 no humans**：那是 Danbooru 的「无人」标签，
+      塞进负面＝「不要无人」⇒ 反而更爱画人（这类反效果词很容易写反）。
+   ⚠️ 只对「画面里本来就没有人」的镜头生效（spec.chars === 'none'），自拍/同框一个字都不能加。 */
+const IMG_NEG_NO_PEOPLE = '1girl, 1boy, 2girls, 2boys, multiple girls, multiple boys, solo, person, people, crowd, character, girl, boy, from behind';
+
 const IMG_CFG_DEFAULT = {
   enabled: false,
   origin: 'https://novel.nekoprompt.top',
@@ -7714,6 +7753,8 @@ const IMG_CFG_DEFAULT = {
   // 画风指纹：全局恒定，设置页可随时改（改完对之后所有图为生效）
   styleDraw: IMG_STYLE_DEFAULT,
   negPrompt: IMG_NEG_DEFAULT,
+  // 环境照（第一人称空景）是否在负面词里禁人：默认开，见 IMG_NEG_NO_PEOPLE
+  povNoPeople: true,
   // 高级区：留空 seed = 每张随机
   seed: '',
   // 角色外观锚点：真实设定，已填好；长相要漂就回来改这里
@@ -7785,14 +7826,18 @@ function imgQuota(){
 function imgQuotaSave(q){
   try{ localStorage.setItem(IMG_QUOTA_KEY, JSON.stringify(q)); }catch(e){}
 }
-/* 闸门：本地冷却 + 每日上限。返回 {ok:false, wait, reason(给模型看的人话)} */
-function imgGateCheck(){
+/* 闸门：本地冷却 + 每日上限。返回 {ok:false, wait, reason(给模型看的人话)}
+   opt.manual = 用户自己在看图页手改提示词重生成：跳过本地冷却（调词就得能连续试，
+   真限速了服务器会自己返回「还要等 N 秒」，比本地先拦下来更有用），每日上限照旧算。 */
+function imgGateCheck(opt){
+  opt = opt || {};
   const cfg = imgCfg();
   if(!cfg.enabled) return { ok:false, reason:'生图还没开启（设置 → 连接与模型 → 🖼 生图）。' };
   if(!String(cfg.key||'').trim()) return { ok:false, reason:'还没填生图 API Key（设置 → 连接与模型 → 🖼 生图）。' };
   const q = imgQuota();
   const lim = cfg.dailyLimit|0;
   if(lim > 0 && q.used >= lim) return { ok:false, reason:'今天的生图额度已经用完了（'+q.used+'/'+lim+' 张），跟对方说一声明天再发，别再试。' };
+  if(opt.manual) return { ok:true };
   const cd = (cfg.cooldownSec|0) * 1000;
   const gap = Date.now() - (Number(q.lastAt) || 0);
   if(cd > 0 && q.lastAt > 0 && gap < cd){
@@ -8007,7 +8052,7 @@ function imgBuildBody(cfg, prompt, negative, w, h, seed, opt){
 async function imgGenerate(prompt, negative, opt){
   opt = opt || {};
   const cfg = imgCfg();
-  const gate = imgGateCheck();
+  const gate = imgGateCheck({ manual: !!opt.manual });
   if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait };
   const origin = String(cfg.origin || '').replace(/\/+$/, '');
   if(!/^https:\/\//i.test(origin)) return { ok:false, error:'生图接口地址必须是 https 开头' };
@@ -8158,12 +8203,16 @@ function imgComposeShot(shot, prompt, who, withWho){
 }
 /* 负面词 = 你的全局负面词（避雷用，不动）+ 人物专属 + 这个镜头专属的（消掉不该出现的东西）
    ⚠️ 「没有刘海」只在画面里真的有人时才加：纯 POV 拍街景时加它毫无意义，
-      还会把路人的正常发型一起改掉。 */
+      还会把路人的正常发型一起改掉。
+   ⚠️ 反过来：画面里本该没人时，必须**主动禁人**（povNoPeople，默认开）——
+      以前只在 prompt 里指望模型自己写 no humans，它一忘就凭空多出一个陌生人。 */
 function imgNegFor(shot){
   const spec = IMG_SHOTS[shot] || IMG_SHOTS.selfie;
-  const base = String(imgCfg().negPrompt || '').trim() || IMG_NEG_DEFAULT;
+  const cfg = imgCfg();
+  const base = String(cfg.negPrompt || '').trim() || IMG_NEG_DEFAULT;
   const bits = [base];
   if(spec.chars !== 'none'){ bits.push(IMG_NEG_NO_BANGS); bits.push(IMG_NEG_PLAIN); }
+  if(spec.chars === 'none' && cfg.povNoPeople !== false) bits.push(IMG_NEG_NO_PEOPLE);
   if(spec.neg) bits.push(spec.neg);
   return bits.filter(Boolean).join(', ');
 }
@@ -8498,7 +8547,7 @@ const AI_TOOLS = [
     name:'send_photo',
     description:'给对方发一张照片（你随手拍的），图会跟你的下一句话一起显示在气泡里。生成要 20-40 秒，每天有额度上限；额度用完必须如实说，不许假装已经发了。\n'
       + '【先选视角 shot，这比写画面更重要】\n'
-      + '· pov：镜头就是你的眼睛，你本人不在画面里（最多露一点手）。你一个人在外面、在房间、在吃东西、看到什么好玩的。最像真人随手拍，也最耐看。\n'
+      + '· pov：镜头就是你的眼睛，你本人不在画面里（最多露一点手）。你一个人在外面、在房间、在吃东西、看到什么好玩的。最像真人随手拍，也最耐看。⚠️ 这个视角代码里默认把画面里的人（含路人）全部禁掉了，所以别写「人群/热闹/crowd/街头艺人」这种以人为中心的画面，写那个只会得到一片空景。\n'
       + '· pov_focus：第一人称，但画面里有一个你正看着的人（对方、店员、路边的人）。\n'
       + '· selfie：自拍，你在画面里。对方问「你长什么样 / 你在干嘛 / 让我看看你」，或你想让对方看见自己。\n'
       + '· duo：两个人的合照，要填 with。\n'
@@ -9002,6 +9051,7 @@ function attachAiImage(d, img){
   el.loading = 'lazy';
   el.decoding = 'async';
   if(img.w && img.h) el.style.aspectRatio = img.w + ' / ' + img.h;
+  el.dataset.imgId = img.id;   // 重新生成后靠它把气泡里的图换成新的一张
   box.appendChild(el);
   d.appendChild(box);
   el.onclick = function(){ aiImgZoom(img.id); };
@@ -9010,21 +9060,192 @@ function attachAiImage(d, img){
     else { box.classList.add('lost'); box.textContent = '（图片没存住，可以让我重新生成一张）'; }
   }).catch(function(){ box.textContent = '（图片读取失败）'; });
 }
+/* ================= 看图页：提示词可见 + 可改后重生成（2026-10-29）=================
+   为什么要有：模型写的 prompt 在聊天里完全不可见，出来一张有陌生人的图时，
+   没法判断是「提示词没写对」还是「模型自己加的」，只能靠猜。
+   现在点开图 → 右下角「🎨 提示词」→ 看到这次真正发出去的正向/负面词（含代码自动补的部分）
+   → 直接改 → 重新生成，好用的词还能自己存下来。
+   ⚠️ 面板塞在同一个 overlay 里，不另开弹窗：弹窗接力那套 animationend 坑（一个刚弹出来就自己消失）不值得再踩一次。
+   ⚠️ 重生成走的是**跟聊天完全同一条** imgGenerate 路径，所以这里看到的就是聊天里那张的原因。 */
+let _zoomId = null;
+let _zoomRec = null;
 function aiImgZoom(id){
   imgUrlOf(id).then(function(u){
     if(!u) return;
+    _zoomId = id; _zoomRec = null;
     let ov = document.getElementById('aiImgZoom');
     if(!ov){
       ov = document.createElement('div');
       ov.id = 'aiImgZoom';
       ov.className = 'ai-img-zoom';
-      ov.innerHTML = '<img alt="照片">';
-      ov.onclick = function(){ ov.classList.remove('on'); };
+      ov.innerHTML = '<img alt="照片">'
+        + '<div class="ai-zoom-bar">'
+        +   '<button type="button" class="ai-zoom-btn" data-act="prompt">🎨 提示词</button>'
+        +   '<button type="button" class="ai-zoom-btn" data-act="close">关闭</button>'
+        + '</div>'
+        + '<div class="ai-zoom-panel"></div>';
+      // 点背景关闭；点按钮条 / 面板不关（以前是整块 onclick，面板一开就被它吃掉）
+      ov.addEventListener('click', function(ev){
+        const bar = ev.target.closest ? ev.target.closest('.ai-zoom-bar') : null;
+        if(bar){
+          const act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
+          if(act === 'prompt') aiZoomPrompt();
+          else if(act === 'close') aiZoomClose();
+          return;
+        }
+        if(ev.target.closest && ev.target.closest('.ai-zoom-panel')) return;
+        // 面板开着时，点别处只收起面板：改了一半的词不能因为误触就跟着关掉
+        const pnl = ov.querySelector('.ai-zoom-panel');
+        if(pnl && pnl.classList.contains('on')){ pnl.classList.remove('on'); return; }
+        aiZoomClose();
+      });
       document.body.appendChild(ov);
     }
     ov.querySelector('img').src = u;
+    const p = ov.querySelector('.ai-zoom-panel');
+    p.classList.remove('on'); p.innerHTML = '';
     ov.classList.add('on');
   }).catch(function(){});
+}
+function aiZoomClose(){
+  const ov = document.getElementById('aiImgZoom');
+  if(!ov) return;
+  ov.classList.remove('on');
+  const p = ov.querySelector('.ai-zoom-panel');
+  if(p){ p.classList.remove('on'); p.innerHTML = ''; }
+  _zoomRec = null;
+}
+async function aiZoomPrompt(){
+  const ov = document.getElementById('aiImgZoom');
+  if(!ov || !_zoomId) return;
+  const p = ov.querySelector('.ai-zoom-panel');
+  if(p.classList.contains('on')){ p.classList.remove('on'); return; }   // 再点一次收起
+  let rec = _zoomRec;
+  if(!rec){ try{ rec = await imgGet(_zoomId); }catch(e){ rec = null; } _zoomRec = rec || null; }
+  p.classList.add('on');
+  if(!rec || !rec.full){
+    p.innerHTML = '<div class="zp-head"><span>这次的提示词</span><button type="button" class="zp-x">×</button></div>'
+      + '<div class="zp-meta">这张没留下提示词记录（设置页「🧪 试生一张」出的图，或更早版本生成的）。等角色下次发图再点进来看。</div>';
+    p.querySelector('.zp-x').onclick = function(){ p.classList.remove('on'); };
+    return;
+  }
+  const spec = IMG_SHOTS[rec.shot] || {};
+  const label = spec.label || (rec.shot || '未知镜头');
+  p.innerHTML = '<div class="zp-head"><span>🎨 这次的提示词</span><button type="button" class="zp-x">×</button></div>'
+    + '<div class="zp-meta zp-m1"></div>'
+    + '<label class="zp-lab">正向提示词（画什么）</label>'
+    + '<textarea class="zp-base" spellcheck="false" autocapitalize="off" autocorrect="off" rows="4"></textarea>'
+    + '<label class="zp-lab">负面提示词（不要什么）</label>'
+    + '<textarea class="zp-neg" spellcheck="false" autocapitalize="off" autocorrect="off" rows="4"></textarea>'
+    + '<div class="zp-meta zp-m2" style="margin-top:8px;"></div>'
+    + '<div class="zp-err"></div>'
+    + '<div class="zp-foot">'
+    +   '<button type="button" class="btn ghost zp-reset">恢复原样</button>'
+    +   '<button type="button" class="btn zp-go">🎨 重新生成</button>'
+    + '</div>';
+  const taBase = p.querySelector('.zp-base');
+  const taNeg  = p.querySelector('.zp-neg');
+  // 用 .value 赋值，不用字符串拼进 innerHTML：提示词里可能带 < > & 之类的字符
+  taBase.value = String(rec.full || '');
+  taNeg.value  = String(rec.neg || '');
+  // 手机键盘弹起来会把输入框顶到看不见的地方：聚焦后自己滚回中间
+  [taBase, taNeg].forEach(function(ta){
+    ta.addEventListener('focus', function(){
+      setTimeout(function(){ try{ ta.scrollIntoView({ block:'center', behavior:'smooth' }); }catch(e){} }, 320);
+    });
+  });
+  const chars = imgShotChars(rec.shot || '', rec.who, rec.withWho);
+  const whoTxt = chars.length
+    ? '画面里：' + chars.map(function(c){ return c.who + ' @' + c.x; }).join(' · ') + '（站位由程序固定，不让模型填）'
+    : '画面里：没有人（纯环境）';
+  p.querySelector('.zp-m2').textContent = whoTxt;
+  const paintMeta = function(){
+    const q = imgQuota(), cfg = imgCfg();
+    p.querySelector('.zp-m1').textContent = '镜头：' + label + ' · ' + (rec.w||'?') + '×' + (rec.h||'?')
+      + ' · seed ' + (rec.seed==null?'?':rec.seed)
+      + ' · 今日已用 ' + q.used + ((cfg.dailyLimit|0) > 0 ? ('/' + (cfg.dailyLimit|0)) : '');
+  };
+  paintMeta();
+  const errBox = function(msg){
+    const e = p.querySelector('.zp-err');
+    if(!msg){ e.classList.remove('on'); e.textContent = ''; return; }
+    e.classList.add('on'); e.textContent = msg;
+  };
+  p.querySelector('.zp-x').onclick = function(){ p.classList.remove('on'); };
+  p.querySelector('.zp-reset').onclick = function(){
+    taBase.value = String(rec.full || '');
+    taNeg.value  = String(rec.neg || '');
+    errBox('');
+  };
+  const goBtn = p.querySelector('.zp-go');
+  goBtn.onclick = async function(){
+    const base = String(taBase.value || '').trim();
+    const neg  = String(taNeg.value || '').trim();
+    if(!base){ errBox('正向提示词不能为空。'); return; }
+    errBox('');
+    goBtn.disabled = true;
+    const oldTxt = goBtn.textContent;
+    goBtn.textContent = '🎨 生成中…（20-40 秒）';
+    let r;
+    try{
+      r = await imgGenerate(base, neg, {
+        chars: chars,
+        aspect: (IMG_SHOTS[rec.shot] || {}).aspect,
+        manual: true   // 手动调词：跳过本地冷却，上限照算
+      });
+    }catch(e){ r = { ok:false, error: (e && e.message) || '出错' }; }
+    goBtn.disabled = false;
+    goBtn.textContent = oldTxt;
+    if(!r.ok){ errBox('生成失败：' + (r.error || '未知错误')); paintMeta(); return; }
+    const newId = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const newRec = Object.assign({}, rec, {
+      id: newId, blob: r.blob, full: base, neg: neg,
+      seed: r.seed, w: r.w, h: r.h, created: Date.now(), regenOf: rec.id, model: imgCfg().model
+    });
+    try{ await imgPut(newRec); }catch(e){}
+    const q = imgQuota();
+    q.used = (q.used|0) + 1; q.lastAt = Date.now(); imgQuotaSave(q);
+    aiImgSwap(rec.id, newId, r.w, r.h);
+    _zoomId = newId; _zoomRec = newRec;
+    rec = newRec;
+    const ov2 = document.getElementById('aiImgZoom');
+    const u2 = await imgUrlOf(newId).catch(function(){ return ''; });
+    if(ov2 && u2) ov2.querySelector('img').src = u2;
+    paintMeta();
+    errBox('');
+    goBtn.textContent = '🎨 再生成一张';
+    setTimeout(function(){ goBtn.textContent = oldTxt; }, 1800);
+  };
+}
+/* 重新生成后把「聊天里那张图」换成新图：
+   ① 存档里的 img.id（不然刷新后变回旧图 / 图丢了）
+   ② 已经画出来的 DOM（data-img-id 是刚补的钩子）
+   ③ 旧 blob 从库里删掉 —— 消息已指向新图，旧图留着只会把 IDB 撑大 */
+function aiImgSwap(oldId, newId, w, h){
+  let hit = false;
+  try{
+    (aiConv || []).forEach(function(m){
+      if(m && m.img && m.img.id === oldId){ m.img.id = newId; if(w) m.img.w = w; if(h) m.img.h = h; hit = true; }
+    });
+  }catch(e){}
+  if(hit){ try{ saveConv(); }catch(e){} }
+  try{
+    const nodes = document.querySelectorAll('.ai-gen-img[data-img-id]');
+    for(let i=0;i<nodes.length;i++){
+      const el = nodes[i];
+      if(el.getAttribute('data-img-id') !== oldId) continue;
+      el.setAttribute('data-img-id', newId);
+      if(w && h) el.style.aspectRatio = w + ' / ' + h;
+      imgUrlOf(newId).then(function(u){ if(u) el.src = u; });
+    }
+  }catch(e){}
+  try{
+    if(_imgUrlCache.has(oldId)){
+      URL.revokeObjectURL(_imgUrlCache.get(oldId));
+      _imgUrlCache.delete(oldId);
+    }
+  }catch(e){}
+  try{ imgDel(oldId); }catch(e){}
 }
 function attachDelBtn(d, mid){
   if(!mid) return;
@@ -10417,6 +10638,7 @@ function initImgSettingsFields(){
   set('imgAnchorB', cfg.anchorB || '');
   set('imgStyle', cfg.styleDraw || IMG_STYLE_DEFAULT);
   set('imgNeg', cfg.negPrompt || IMG_NEG_DEFAULT);
+  const np = document.getElementById('imgNoPeople'); if(np) np.checked = (cfg.povNoPeople !== false);
   set('imgSteps', (cfg.steps|0) || IMG_CFG_DEFAULT.steps);
   set('imgScale', (Number(cfg.scale) || IMG_CFG_DEFAULT.scale));
   set('imgSampler', cfg.sampler || IMG_CFG_DEFAULT.sampler);
@@ -10446,6 +10668,7 @@ function saveImgCfg(){
   const on = document.getElementById('imgOn');
   // 主动发图：空着当默认值，别当成 0 —— 「清空输入框」不该等于「关掉功能」
   const pv = parseInt(g('imgProactive'), 10);
+  const npEl = document.getElementById('imgNoPeople');
   imgCfgSave({
     enabled: !!(on && on.checked),
     origin: g('imgOrigin').trim() || IMG_CFG_DEFAULT.origin,
@@ -10459,6 +10682,7 @@ function saveImgCfg(){
     anchorB: g('imgAnchorB').trim(),
     styleDraw: g('imgStyle').trim() || IMG_STYLE_DEFAULT,
     negPrompt: g('imgNeg').trim() || IMG_NEG_DEFAULT,
+    povNoPeople: npEl ? !!npEl.checked : true,
     steps: Math.max(1, Math.min(50, parseInt(g('imgSteps'), 10) || IMG_CFG_DEFAULT.steps)),
     scale: Math.min(10, Math.max(1, parseFloat(g('imgScale')) || IMG_CFG_DEFAULT.scale)),
     sampler: g('imgSampler') || IMG_CFG_DEFAULT.sampler
