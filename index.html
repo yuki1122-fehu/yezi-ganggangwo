@@ -640,6 +640,20 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 
 /* ---------- 任务列表 ---------- */
 .list{flex:1;overflow-y:auto;padding:6px 16px 150px;-webkit-overflow-scrolling:touch;}
+/* ---------- 周视图日期分隔条 ----------
+   一周摊开后任务不再是一天的事，必须让人一眼分辨「今天 / 还没到 / 已经过了」。
+   只做一条细分隔 + 一枚状态胶囊，不抢任务卡本身的主角位。 */
+.day-sep{display:flex;align-items:center;gap:8px;margin:16px 2px 9px;padding:0 4px;animation:itemIn .3s var(--ease) both;}
+.day-sep:first-child{margin-top:2px;}
+.day-sep .ds-name{font-size:var(--fs-3);font-weight:700;color:var(--ink);letter-spacing:.3px;}
+.day-sep .ds-date{font-size:var(--fs-2);color:var(--ink-faint);font-weight:600;}
+.day-sep .ds-tag{font-size:var(--fs-1);font-weight:700;color:var(--green-dark);background:var(--green-soft);
+  border:1px solid var(--green-mid);padding:2px 9px;border-radius:var(--radius-pill);}
+.day-sep .ds-line{flex:1;height:1px;background:linear-gradient(90deg,rgba(92,115,89,.16),rgba(92,115,89,0));}
+.day-sep.today .ds-name{color:var(--green-dark);}
+.day-sep.today .ds-tag{background:var(--green-deep);color:#fff;border-color:transparent;}
+.day-sep.past .ds-name{color:var(--ink-soft);}
+.day-sep.past .ds-tag{color:var(--danger);background:rgba(217,138,138,.12);border-color:rgba(217,138,138,.34);}
 /* 任务卡 stagger 入场：渲染时 inline --li 注入索引，错峰淡入上滑 */
 @keyframes itemIn{from{opacity:0;transform:translateY(10px) scale(.98);}to{opacity:1;transform:none;}}
 .item{animation:itemIn .36s var(--ease) both;animation-delay:calc(var(--li,0)*45ms);}
@@ -2862,7 +2876,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
   <div class="list" id="list"></div>
 
   <nav class="tabs glass" id="tabs">
-    <div class="tab active" data-cat="today" onclick="switchTab('today')"><span class="ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.2v2.6M12 19.2v2.6M2.2 12h2.6M19.2 12h2.6M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg></span>今天</div>
+    <div class="tab active" data-cat="week" onclick="switchTab('week')"><span class="ic"><svg viewBox="0 0 24 24"><path d="M3.8 15.2v3.6M8.3 11v7.8M12.5 6.4v12.4M16.7 11v7.8M21.2 15.2v3.6"/></svg></span>本周</div>
     <div class="tab" data-cat="study" onclick="switchTab('study')"><span class="ic"><svg viewBox="0 0 24 24"><path d="M12 6.2C10.3 5 8 4.6 4.8 4.8 4 5 3.6 5.7 3.6 6.5v11c0 .8.4 1.5 1.2 1.7 3.2.2 5.5.6 8.4-1.6M12 6.2C13.7 5 16 4.6 19.2 4.8c.8.2 1.2.9 1.2 1.7v11c0 .8-.4 1.5-1.2 1.7-3.2.2-5.5.6-8.4-1.6M12 6.2v11"/></svg></span>学习</div>
     <div class="tab" data-cat="life" onclick="switchTab('life')"><span class="ic"><svg viewBox="0 0 24 24"><path d="M4 11.4 12 4l8 7.4"/><path d="M6 10.2V19h12v-8.8"/><path d="M10 19v-4.6h4V19"/></svg></span>生活</div>
     <div class="tab" data-cat="cal" onclick="switchTab('cal')"><span class="ic"><svg viewBox="0 0 24 24"><rect x="4" y="5.2" width="16" height="14.6" rx="2.6"/><path d="M4 9.6h16"/><path d="M8 3.2v3.2M16 3.2v3.2"/><path d="M8.5 13h2.6M13 13h2.6M8.5 16.2h2.6"/></svg></span>日历</div>
@@ -4504,7 +4518,8 @@ const DEFAULT_TASKS = [
     tip:'学生有时有优惠套餐，办前问一句。'},
 ];
 
-const CAT_NAME = {study:'学习', life:'生活', today:'今天', agent:'Agent 建议', mood:'心情'};
+const CAT_NAME = {study:'学习', life:'生活', today:'今天', week:'本周', agent:'Agent 建议', mood:'心情'};
+const WEEKDAY_CN = ['周日','周一','周二','周三','周四','周五','周六'];
 const PRI_NAME = {high:'先做', mid:'建议做', low:'不着急'};
 const STORE_KEY = 'mhm_cloud_v1';
 const EXPENSE_KEY = 'mhm_expense_v1';
@@ -4818,7 +4833,7 @@ function buildICSBrief(r, fileName){
 
 /* ====== 状态 ====== */
 let tasks = [];
-let curTab = 'today';
+let curTab = 'week';
 let calY, calM, calSel;
 let expanded = {};
 let listSearch = '';
@@ -6483,9 +6498,10 @@ function setCheer(){
   const total = all.length;
   const done = all.filter(t=>t.done).length;
   const overdue = all.filter(t=>!t.done && (t.deadline||t.event_date) && (t.deadline||t.event_date) < todayStr()).length;
+  const scopeName = (curTab==='week') ? '本周' : '今天';
   let msg;
   if(total===0) msg = '慢慢来，先加一件想做的事。';
-  else if(done===total) msg = '今天全清了，太爽了。';
+  else if(done===total) msg = scopeName + '全清了，太爽了。';
   else if(overdue>0) msg = `有 ${overdue} 件过期了，别慌，先挑一件做。`;
   else if(done===0) msg = '万事开头难，先做最小的一件。';
   else {
@@ -6559,16 +6575,51 @@ function goNext(id){
 
 /* ====== 列表过滤与搜索 ====== */
 // 当前标签的“全量”范围：含已完成，不受隐藏/搜索影响。
-// 今天标签只取今天截止/发生的任务；学习/生活按分类。
+// 本周标签取本周（周一~周日）截止/发生的任务；学习/生活按分类。
 function isTodayTask(t){
   const d = todayStr();
   return (t.deadline===d) || (t.event_date===d);
 }
+/* 本周（2026-10-29：原来的「今天」标签十天有九天是空的，改成看一周）
+   口径与进度环的「本周」完全一致（同一个 weekRange），避免两处对不上。
+   ⚠️ 逾期未完成的也一并留下：上周没做完的事进了周视图就凭空消失，那才是真麻烦。 */
+function isWeekTask(t){
+  const d = t.deadline || t.event_date;
+  if(!d) return false;
+  const [ws,we] = weekRange();
+  if(d>=ws && d<=we) return true;
+  return !t.done && d < ws;
+}
 function scopeTasks(){
   let base = tasks.filter(t=>t.cat!=='mood');
-  if(curTab==='today') base = base.filter(isTodayTask);
+  if(curTab==='week') base = base.filter(isWeekTask);
   else if(curTab==='study' || curTab==='life') base = base.filter(t=>t.cat===curTab);
   return base;
+}
+/* 周视图排序：按日期升序优先（一周摊开后先看哪天），同一天再按优先级。
+   学习/生活标签仍走 sortTasks 的“优先级优先”。 */
+function sortWeekTasks(items){
+  const pVal = {high:3, mid:2, low:1};
+  const key = t => t.event_date || t.deadline || '9999-12-31';
+  return [...items].sort((a,b)=>{
+    const ka=key(a), kb=key(b);
+    if(ka!==kb) return ka<kb?-1:1;
+    if(a.done!==b.done) return a.done?1:-1;
+    const pa=pVal[a.priority]||0, pb=pVal[b.priority]||0;
+    return pb-pa;
+  });
+}
+/* 周视图的日期分隔条：一周摊开后必须一眼看出今天是哪天、哪几天已过 */
+function daySepHtml(d){
+  if(!d) return '<div class="day-sep"><span class="ds-name">没定日期</span><i class="ds-line"></i></div>';
+  const dt = new Date(d+'T00:00:00');
+  if(isNaN(dt.getTime())) return '';
+  const rel = daysTo(d);
+  const cls = rel===0 ? 'day-sep today' : (rel<0 ? 'day-sep past' : 'day-sep');
+  const tag = rel===0 ? '今天' : (rel===1 ? '明天' : (rel===-1 ? '昨天' : (rel<0 ? '已过' : rel+' 天后')));
+  return `<div class="${cls}"><span class="ds-name">${WEEKDAY_CN[dt.getDay()]}</span>`
+    + `<span class="ds-date">${dt.getMonth()+1}月${dt.getDate()}日</span>`
+    + `<span class="ds-tag">${tag}</span><i class="ds-line"></i></div>`;
 }
 // 任务的三类展示状态：未完成（未过期）/ 已过期 / 已完成
 function taskCategory(t){
@@ -6702,12 +6753,13 @@ function celebrate(x,y){
 function renderList(){
   const list = document.getElementById('list');
   if(curTab==='cal'){ renderCalendar(); return; }
-  let items = sortTasks(visibleTasks());
+  const isWeek = (curTab==='week');
+  const items = isWeek ? sortWeekTasks(visibleTasks()) : sortTasks(visibleTasks());
   const scope = scopeTasks();
   const totalAll = scope.length;
   const total = items.length;
   const done = scope.filter(t=>t.done).length;
-  document.getElementById('viewName').textContent = curTab==='today' ? '今天' : (CAT_NAME[curTab] || '全部');
+  document.getElementById('viewName').textContent = isWeek ? '本周' : (CAT_NAME[curTab] || '全部');
   document.getElementById('viewCount').textContent = totalAll ? `${done}/${totalAll}` : '';
   // 生活分类：顶部插入记账卡
   const expenseCard = (curTab==='life') ? renderExpenseCard() : '';
@@ -6717,8 +6769,15 @@ function renderList(){
     list.innerHTML = expenseCard + `<div class="empty glass">${tip}</div>`;
     return;
   }
-  list.innerHTML = expenseCard + items.map(t=>{
-    const cat = (curTab==='today') ? `<span class="cat-tag">${CAT_NAME[t.cat]}</span>` : '';
+  const parts = [];
+  let lastDay = null;
+  items.forEach((t,i)=>{
+    // 周视图：换一天就插一条日期分隔，否则一周的任务糊成一列看不出先后
+    if(isWeek){
+      const d = t.event_date || t.deadline || '';
+      if(d !== lastDay){ lastDay = d; parts.push(daySepHtml(d)); }
+    }
+    const cat = isWeek ? `<span class="cat-tag">${CAT_NAME[t.cat]}</span>` : '';
     const dl = dateLabel(t);
     const expired = isTaskExpired(t);
     const dateBadge = dl ? `<span class="badge-date">${dl}</span>` : '';
@@ -6728,7 +6787,7 @@ function renderList(){
     const isGenerating = _genStepsBusy.has(t.id);
     const genBtn = !hasSteps ? `<button class="btn primary gen-steps-btn" style="padding:8px 14px;font-size:12px;margin-top:10px;" onclick="generateSteps('${t.id}')" ${isGenerating?'disabled':''}>${isGenerating?'✨ 生成中…':'✨ 一键生成步骤'}</button>` : '';
     const detail = expanded[t.id] ? 'show' : '';
-    return `<div class="item glass ${t.done?'done':''} ${expired?'expired':''} ${justCompletedId===t.id?'completing':''}" id="item-${t.id}" style="--li:${Math.min(items.indexOf(t),12)}">
+    parts.push(`<div class="item glass ${t.done?'done':''} ${expired?'expired':''} ${justCompletedId===t.id?'completing':''}" id="item-${t.id}" style="--li:${Math.min(i,12)}">
       <div class="item-head">
         <div class="check" onclick="toggle('${t.id}')" role="button" aria-label="标记完成"><svg viewBox="0 0 24 24" fill="none" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg></div>
         <div class="txt">
@@ -6749,8 +6808,9 @@ function renderList(){
           </div>
         </div>
       </div>
-    </div>`;
-  }).join('');
+    </div>`);
+  });
+  list.innerHTML = expenseCard + parts.join('');
 }
 
 function toggle(id){
