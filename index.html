@@ -2960,8 +2960,9 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           <button class="btn ghost" type="button" onclick="imgSiteDel()" title="删除这个站点档" style="flex:0 0 auto;padding:8px 10px;font-size:13px;line-height:1;" aria-label="删除站点档">🗑</button>
         </div>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 8px;line-height:1.6;">
-          换站的正确姿势：下拉选另一个档 ⇒ 地址和 Key 自动换过来。<b>两个站各记各的额度</b>（A 站用满 20 张，切到 B 站照样能出，不会互相占）。
-          想加第三组：把地址和 Key 改好，点 <b>＋</b>。
+          换站的正确姿势：下拉选另一个档 ⇒ 地址和 Key 自动换过来。<b>每个档各记各的额度</b>（A 站用满 20 张，切到 B 站照样能出，不会互相占）。<br>
+          <b>同一个站也能存好几个档</b>：那种「先在站上配好模型/LoRA，再生成 Key」的站（柏宝绘就是），
+          <b style="color:#a3577a;">一把 Key 就是一套预设</b> —— 去站上换 LoRA 重新生成一把 Key，回来改地址旁的 Key 再点 <b>＋</b>，就是另一个可一键切换的画风档。想加第三个同样操作。
         </p>
         <div id="imgSiteLine" style="font-size:11px;color:var(--ink-soft);margin:-4px 0 8px;line-height:1.5;"></div>
         <label>接口地址</label>
@@ -8108,13 +8109,13 @@ async function imgFetchModels(){
     if(hint) hint.textContent = '拉模型失败（HTTP ' + r.status + '）。也可以不拉，直接手填模型名。';
     return;
   }
-  let ids = [];
+  let ids = [], owners = [];
   try{
     const j = JSON.parse(txt);
     const arr = (j && (j.data || j.models)) || [];
     arr.forEach(function(x){
       if(typeof x === 'string') ids.push(x);
-      else if(x && (x.id || x.model)) ids.push(x.id || x.model);
+      else if(x && (x.id || x.model)){ ids.push(x.id || x.model); if(x.owned_by) owners.push(String(x.owned_by)); }
     });
   }catch(e){}
   ids = ids.filter(function(x){ return !!String(x || '').trim(); });
@@ -8123,15 +8124,27 @@ async function imgFetchModels(){
   const c = imgCfg(), list = imgSites();
   let hit = -1;
   for(let i = 0; i < list.length; i++){ if(list[i].id === c.siteId){ hit = i; break; } }
-  if(hit >= 0){ list[hit].models = ids.slice(0, 40); imgSitesSave(list); }
+  /* `owned_by` 能看出一件事：这站的底座是不是 PixAI。
+     是的话，我们的画风指纹（NAI 数字权重 + 画师名）在它那儿等于噪音，得用纯标签那套 ——
+     常驻写在站点行上，比一闪而过的提示管用（她不会每次都记得）。 */
+  const pixai = owners.some(function(o){ return /pixai/i.test(String(o)); });
+  if(hit >= 0){
+    list[hit].models = ids.slice(0, 40);
+    list[hit].backend = pixai ? 'pixai' : '';
+    imgSitesSave(list);
+  }
   // 当前值不在列表里就换成第一个（否则下拉还是空白）
   if(ids.indexOf(String(c.model || '')) < 0){
     imgCfgSave({ model: ids[0] });
     /* ⚠️ 必须同时写回这一档：只改 cfg 不写档，切走再切回来模型又会变回旧名字（自测抓到的） */
     try{ imgSiteSyncFromCfg(); }catch(e){}
   }
-  try{ imgPaintModelSel(); }catch(e){}
-  if(hint) hint.textContent = '拉到 ' + ids.length + ' 个模型：' + ids.slice(0, 4).join('、') + (ids.length > 4 ? '…' : '') + '（已记到这一档，切回来不用再拉）';
+  try{ imgPaintModelSel(); imgPaintSiteSel(); }catch(e){}
+  if(hint){
+    hint.textContent = '拉到 ' + ids.length + ' 个模型：' + ids.slice(0, 4).join('、') + (ids.length > 4 ? '…' : '')
+      + '（已记到这一档，切回来不用再拉）'
+      + (pixai ? '。⚠️ 这站底座是 PixAI：画风建议点「填纯标签版」并勾上「不认 NAI 权重」。' : '');
+  }
 }
 function imgPaintSiteSel(){
   const sel = document.getElementById('imgSiteSel');
@@ -8150,7 +8163,11 @@ function imgPaintSiteSel(){
   const line = document.getElementById('imgSiteLine');
   if(line){
     const s = imgSiteOf(c.siteId);
-    line.textContent = s ? ('当前用：' + imgSiteLabel(s) + '　' + String(s.origin || '（还没填地址）')) : '';
+    line.textContent = s
+      ? ('当前用：' + imgSiteLabel(s) + '　' + String(s.origin || '（还没填地址）')
+         + (s.backend === 'pixai' ? '　·　底座 PixAI（画风用纯标签）' : '')
+         + ((s.models && s.models.length) ? '　·　模型数 ' + s.models.length : ''))
+      : '';
   }
 }
 function imgSiteSwitch(id){
@@ -8205,9 +8222,15 @@ function imgSiteAdd(){
       return;
     }
   }
+  /* 自动命名：同域名已经有档时加 #2 / #3。
+     ⚠️ 这一条很重要 —— 柏宝绘那类站的 **Key 就是预设本身**（模型 + LoRA + 参数都在站上配好，
+        换一把 Key 就是换一套画风），所以「同一个域名两张档」是**正常且常见**的用法，
+        不能都叫同一个域名让人分不清谁是谁。 */
   const host = imgSiteHost(v.origin) || '新站点';
+  const sameHost = list.filter(function(s){ return imgSiteHost(s.origin) === imgSiteHost(v.origin); }).length;
+  const name = sameHost > 0 ? (host + ' #' + (sameHost + 1)) : host;
   const id = imgSiteNewId();
-  list.push({ id: id, name: host, origin: v.origin, key: v.key, model: v.model,
+  list.push({ id: id, name: name, origin: v.origin, key: v.key, model: v.model,
     dailyLimit: v.dailyLimit, cooldownSec: v.cooldownSec,
     styleDraw: v.styleDraw, negPrompt: v.negPrompt, plainSyntax: !!v.plainSyntax,
     v4: (v.v4 !== false), models: [], updated: Date.now() });
@@ -8215,8 +8238,8 @@ function imgSiteAdd(){
   imgCfgSave(imgCfgFromSite(imgSiteOf(id)));
   try{ imgPaintSiteSel(); imgPaintQuota(); }catch(e){}
   const h = document.getElementById('imgHint');
-  if(h) h.textContent = '已存为新站点档「' + host + '」，额度从 0 开始算';
-  try{ toast('已存为「' + host + '」，额度从 0 开始'); }catch(e){}
+  if(h) h.textContent = '已存为新站点档「' + name + '」，额度从 0 开始算' + (sameHost > 0 ? '（同站的另一把 Key ⇒ 另一套预设，建议点 ✏️ 改成这把 Key 对应的画风名）' : '');
+  try{ toast('已存为「' + name + '」，额度从 0 开始'); }catch(e){}
 }
 function imgSiteRename(){
   const c = imgCfg(), list = imgSites();
