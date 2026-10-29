@@ -1594,6 +1594,9 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .ai-zoom-panel textarea{width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--green-mid);border-radius:8px;padding:8px 9px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.9);color:var(--ink);min-height:74px;}
 .ai-zoom-panel .zp-err{font-size:11px;color:#a32d2d;line-height:1.55;margin-top:8px;display:none;}
 .ai-zoom-panel .zp-err.on{display:block;}
+.ai-zoom-panel .zp-warn{display:none;font-size:11px;line-height:1.6;color:#8a5a1d;background:rgba(233,195,145,.22);border:1px solid rgba(233,195,145,.7);border-radius:8px;padding:8px 9px;margin-top:10px;}
+.ai-zoom-panel .zp-warn.on{display:block;}
+.ai-zoom-panel .zp-warn button{margin-left:4px;padding:3px 8px;font-size:11px;line-height:1.4;border-radius:6px;border:1px solid rgba(138,90,29,.35);background:#fff;color:#8a5a1d;cursor:pointer;font-family:inherit;}
 .ai-zoom-panel .zp-foot{display:flex;gap:8px;justify-content:flex-end;margin-top:12px;flex-wrap:wrap;}
 .ai-zoom-panel .zp-foot button{flex:0 0 auto;}
 .ai-zoom-panel .zp-foot .zp-go{background:var(--green-deep);color:#fff;border-color:transparent;}
@@ -9138,6 +9141,7 @@ async function aiZoomPrompt(){
     + '<label class="zp-lab">负面提示词（不要什么）</label>'
     + '<textarea class="zp-neg" spellcheck="false" autocapitalize="off" autocorrect="off" rows="4"></textarea>'
     + '<div class="zp-meta zp-m2" style="margin-top:8px;"></div>'
+    + '<div class="zp-warn"></div>'
     + '<div class="zp-err"></div>'
     + '<div class="zp-foot">'
     +   '<button type="button" class="btn ghost zp-reset">恢复原样</button>'
@@ -9166,6 +9170,25 @@ async function aiZoomPrompt(){
       + ' · 今日已用 ' + q.used + ((cfg.dailyLimit|0) > 0 ? ('/' + (cfg.dailyLimit|0)) : '');
   };
   paintMeta();
+  /* 这张生成于「空景禁人」上线之前（负面词里根本没有禁人词）—— 那正是陌生人出现的原因。
+     不替她偷偷改词（偷偷改了她就不知道问题出在哪、下次还会踩），只提示 + 一键补上。 */
+  const warnBox = p.querySelector('.zp-warn');
+  const needsPeopleFix = function(){
+    return (spec.chars === 'none') && (imgCfg().povNoPeople !== false)
+      && !/1girl|1boy|crowd|no people/i.test(String(taNeg.value || ''));
+  };
+  const paintWarn = function(){
+    if(!needsPeopleFix()){ warnBox.classList.remove('on'); warnBox.innerHTML = ''; return; }
+    warnBox.innerHTML = '⚠️ 这张是在「空景禁人」上线之前生成的：负面词里一条禁人词都没有，画面里那个陌生人就是这么来的。点右边补上，再按「重新生成」。'
+      + '<button type="button" class="zp-fix">补上禁人词</button>';
+    warnBox.classList.add('on');
+    warnBox.querySelector('.zp-fix').onclick = function(){
+      const cur = String(taNeg.value || '').trim().replace(/[,\s]+$/, '');
+      taNeg.value = cur ? (cur + ', ' + IMG_NEG_NO_PEOPLE) : IMG_NEG_NO_PEOPLE;
+      paintWarn();
+    };
+  };
+  paintWarn();
   const errBox = function(msg){
     const e = p.querySelector('.zp-err');
     if(!msg){ e.classList.remove('on'); e.textContent = ''; return; }
@@ -9176,6 +9199,7 @@ async function aiZoomPrompt(){
     taBase.value = String(rec.full || '');
     taNeg.value  = String(rec.neg || '');
     errBox('');
+    paintWarn();
   };
   const goBtn = p.querySelector('.zp-go');
   goBtn.onclick = async function(){
