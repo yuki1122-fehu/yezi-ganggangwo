@@ -8230,6 +8230,26 @@ function imgBuildBody(cfg, prompt, negative, w, h, seed, opt){
   }
   return { input: base, model: cfg.model, action: 'generate', parameters: params };
 }
+/* 从站点返回的正文里抠一句人话：优先 JSON 的 message/detail/error，其次截断的纯文本。
+   ⚠️ 公益站（和 NAI 本体）的报错经常就是一句中文，比如「当前没有可用的已启用上游」。
+      原样显示远比笼统的「上游出错，过一会儿再试」有用 —— 用户能立刻分清
+      「是我配置/额度的问题」还是「站点自己挂了」，不用来回猜也不用截图问人。
+   ⚠️ 正文在调用处已被截到 300 字符，所以 JSON 可能被截断 ⇒ 解析失败时用正则兜一层。 */
+function imgErrMsgOf(txt){
+  const raw = String(txt || '').trim();
+  if(!raw) return '';
+  if(raw.charAt(0) === '{' || raw.charAt(0) === '['){
+    try{
+      const j = JSON.parse(raw);
+      let m = j && (j.message || j.detail || j.error);
+      if(m && typeof m === 'object') m = m.message || m.msg || JSON.stringify(m);
+      if(typeof m === 'string' && m) return m.slice(0, 140);
+    }catch(e){}
+    const m2 = raw.match(/"(?:message|detail|msg|error)"\s*:\s*"([^"]{1,140})"/);
+    if(m2) return m2[1];
+  }
+  return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
+}
 async function imgGenerate(prompt, negative, opt){
   opt = opt || {};
   const cfg = imgCfg();
@@ -8262,21 +8282,38 @@ async function imgGenerate(prompt, negative, opt){
     clearTimeout(timer);
     // ⚠️ 读正文的 fetch 不能只靠这个超时盖住，但生图是一次性响应，这里 abort 即整段结束
     if(e && e.name === 'AbortError') return { ok:false, error:'生图超时（150 秒没返回），站点可能在排队。过一会儿再试。' };
-    return { ok:false, error:'生图请求发不出去：' + ((e && e.message) || '网络错误') };
+    /* ⚠️ 浏览器里「Failed to fetch」背后有四个完全不同的原因，光看这句话分不出来：
+       ① 地址写错/网络不通；② 站点报错时**不回跨域头**（公益站 429 时实测如此），
+          浏览器一律算成"发不出去"，而不是把 401/429 的正文给你看；
+       ③ 被 Cloudflare 拦；④ Key 不对但响应没带跨域头。
+       所以不能只说"发不出去"，否则人会跑去乱改 Key —— 四种可能一起列出来。 */
+    return { ok:false, error:'生图请求发不出去（' + ((e && e.message) || '网络错误') + '）'
+      + '。常见四种原因：接口地址写错或多余路径 / 网络不通 / 站点限速或在报错时没回跨域头（浏览器就只会计成"发不出去"，等几分钟再试）/ API Key 不对。'
+      + '先确认地址是 https 开头、末尾没有多余的 /ai。' };
   }
   clearTimeout(timer);
   if(!resp.ok){
     let txt = '';
     try{ txt = (await resp.text()).slice(0, 300); }catch(e){}
-    if(resp.status === 401 || resp.status === 403) return { ok:false, error:'生图 Key 无效或没权限（HTTP ' + resp.status + '）' + (txt ? '：' + txt : '') };
+    if(resp.status === 401 || resp.status === 403){
+      const m = imgErrMsgOf(txt);
+      return { ok:false, error:'生图 Key 无效或没权限（HTTP ' + resp.status + '）' + (m ? '：' + m : '') };
+    }
     if(resp.status === 429){
       const ra = parseInt(resp.headers.get('Retry-After') || '', 10);
       const m = txt.match(/还需等待\s*(\d+(?:\.\d+)?)\s*秒/);
       const wait = ra > 0 ? ra : (m ? Math.ceil(Number(m[1])) : 0);
       return { ok:false, wait: wait, error:'站点限速：' + (wait ? ('还要等 ' + wait + ' 秒') : '稍后再试') };
     }
-    if(resp.status >= 500) return { ok:false, error:'生图站点上游出错（HTTP ' + resp.status + '），过一会儿再试' };
-    return { ok:false, error:'生图失败（HTTP ' + resp.status + '）' + (txt ? '：' + txt : '') };
+    if(resp.status >= 500){
+      /* 公益站最常见的两种 5xx：「没有可用的已启用上游」（站点没挂上账号）、
+         Cloudflare 521/522（源站熄火）。都不是用户的配置问题，所以要把原话带出来并说明。 */
+      const m = imgErrMsgOf(txt);
+      return { ok:false, error:'生图站点自己出错了（HTTP ' + resp.status + '）' + (m ? '：' + m : '')
+        + '。这不是你配置的问题，过一会儿再试。' };
+    }
+    const m4 = imgErrMsgOf(txt);
+    return { ok:false, error:'生图失败（HTTP ' + resp.status + '）' + (m4 ? '：' + m4 : '') };
   }
   let imgs;
   try{
