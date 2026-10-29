@@ -1078,6 +1078,16 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   background:linear-gradient(150deg,rgba(255,242,247,.86),rgba(238,199,214,.34));
   box-shadow:inset 0 1px 0 rgba(255,255,255,.92),0 6px 16px rgba(206,130,160,.14);}
 .god-shot.priv .god-shot-btn svg{color:#b3628a;}
+/* 状态 / 报错行：常驻在按钮下面，**不靠 toast**。
+   ⚠️ 2026-10-29 叶子实测「点完显示正在生成就没反应了，报错了也不知道怎么回事」：
+      根因是全屏弹窗把 toast 盖住了（z-index 80 < 100）。已把 toast 抬上层级，
+      但这个功能仍然需要一条**留在原地**的状态行 —— 出图要 20-40 秒，
+      没有秒数在跑，人分不清「在干活」和「卡死了」。 */
+.god-shot-msg{display:none;margin:8px 2px 0;font-size:var(--fs-1);line-height:1.6;color:var(--ink-faint);
+  font-variant-numeric:tabular-nums;word-break:break-word;}
+.god-shot-msg.on{display:block;}
+.god-shot-msg.err{color:#a4463f;font-weight:700;}
+.god-shot-msg.ok{color:var(--green-dark);font-weight:700;}
 .god-note{font-size:var(--fs-1);color:var(--ink-faint);line-height:1.65;text-align:center;padding:2px 22px 4px;background:var(--gl-bar);
   backdrop-filter:blur(var(--blur-m));-webkit-backdrop-filter:blur(var(--blur-m));}
 /* ===== 两页深色模式：玻璃压暗、文字/描边提亮 ===== */
@@ -1554,11 +1564,17 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 @keyframes fabIn{from{transform:scale(.92);opacity:0;}to{transform:scale(1);opacity:1;}}
 
 /* ---------- Toast ---------- */
+/* ⚠️ z-index 原来是 80，而全屏弹窗 .mask 是 100 ⇒ **弹窗开着时所有 toast 都被盖在下面**。
+   2026-10-29 叶子实测：「点看这一刻显示正在生成，然后就没反应，报错了也不知道怎么回事」——
+   错误其实报了，只是看不见。抬到所有弹窗之上（#usageMask 2200 / .comp-mask 160），
+   仍低于看图页 9999（那时不该再弹 toast）。
+   ⚠️ white-space 改 normal：错误文案经常很长（HTTP 码 + 站点原话），nowrap 会直接溢出屏幕。 */
 .toast{position:fixed;bottom:120px;left:50%;transform:translateX(-50%) translateY(20px);
-  background:rgba(40,48,40,.92);color:#fff;font-size:var(--fs-3);padding:12px 22px;border-radius:var(--radius-pill);opacity:0;
+  background:rgba(40,48,40,.92);color:#fff;font-size:var(--fs-3);padding:12px 22px;border-radius:var(--radius);opacity:0;
   backdrop-filter:blur(var(--blur-s));-webkit-backdrop-filter:blur(var(--blur-s));
   border:1px solid rgba(255,255,255,.14);box-shadow:var(--shadow);
-  transition:opacity .32s var(--ease),transform .32s var(--ease);z-index:80;pointer-events:none;white-space:nowrap;max-width:90%;font-weight:600;}
+  transition:opacity .32s var(--ease),transform .32s var(--ease);z-index:2400;pointer-events:none;
+  white-space:normal;max-width:86%;font-weight:600;line-height:1.55;text-align:center;word-break:break-word;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);animation:toastIn .36s cubic-bezier(.34,1.56,.64,1);}
 @keyframes toastIn{0%{opacity:0;transform:translateX(-50%) translateY(16px) scale(.92);}100%{opacity:1;transform:translateX(-50%) translateY(0) scale(1);}}
 
@@ -20635,6 +20651,8 @@ function godClose(){
 function godNext(){
   _godSalt++;
   _godAI = null; // 换帧回到本地镜头（新随机）
+  // 上一帧的报错/秒数属于上一帧，换帧时清掉，别让它挂在新画面上误导人
+  try{ godShotMsg(''); }catch(e){}
   godRender();
 }
 function godRender(){
@@ -20874,27 +20892,79 @@ function imgTagsExtract(raw){
     .filter(function(s){ return s && !/[\u4e00-\u9fa5]/.test(s); })
     .join(', ');
 }
+/* 状态行：常驻在按钮下面。msg 为空 = 收起。kind: '' 灰（进度）/ 'err' 红 / 'ok' 绿。
+   ⚠️ 这条不是装饰：出图要 20-40 秒，没有秒数在跑，人分不清「在干活」和「卡死了」——
+      叶子 2026-10-29 报的「显示正在生成然后就没反应」有一半是这个原因。 */
+function godShotMsg(msg, kind){
+  const box = document.getElementById('godShotMsg');
+  if(!box) return;
+  if(!msg){ box.classList.remove('on', 'err', 'ok'); box.textContent = ''; return; }
+  box.textContent = String(msg);
+  box.classList.add('on');
+  box.classList.toggle('err', kind === 'err');
+  box.classList.toggle('ok', kind === 'ok');
+}
+/* 给一段异步加硬超时：宁可报「超时了」，也不要永远停在「正在生成」。
+   ⚠️ 生图自己有 150 秒 AbortController，但 **aiCall 没有硬超时** ——
+      走中转时上游卡住会一直挂着，表现就是按钮永远转下去、一个字都不报。 */
+function godSnapTimeout(p, ms, label){
+  return new Promise(function(resolve, reject){
+    let done = false;
+    const t = setTimeout(function(){
+      if(done) return;
+      done = true;
+      reject(new Error(label + '超过 ' + Math.round(ms / 1000) + ' 秒没返回'));
+    }, ms);
+    Promise.resolve(p).then(function(v){
+      if(done) return; done = true; clearTimeout(t); resolve(v);
+    }, function(e){
+      if(done) return; done = true; clearTimeout(t); reject(e);
+    });
+  });
+}
 async function godSnap(){
   if(_godSnapBusy) return;
-  const fr = (_godFrames || []).filter(function(f){ return f && f.who; });
-  if(!fr.length){ toast('等「此刻的他们」出来一帧再说'); return; }
-  /* ① 先查闸门：给的是人话，不是给模型看的那套说辞 */
-  const g = imgGateCheck({});
-  if(!g.ok){
-    const cfg = imgCfg();
-    if(!cfg.enabled || !String(cfg.key || '').trim()){ toast('还没开启生图：设置 → 连接与模型 → 🖼 生图'); return; }
-    const q = imgQuota(), lim = cfg.dailyLimit | 0;
-    if(lim > 0 && q.used >= lim){ toast('今天的生图额度用完了（' + q.used + '/' + lim + ' 张），明天再来'); return; }
-    if(Number(g.wait) > 0){ toast('站点限速：还要等 ' + g.wait + ' 秒（约 ' + Math.max(1, Math.ceil(g.wait/60)) + ' 分钟）'); return; }
-    toast(g.reason || '现在还不能生图'); return;
-  }
-  const cfgAi = getAiCfg();
-  if(!cfgAi || !cfgAi.apiKey){ toast('要看照片得先填聊天用的 API Key（设置 → 连接与模型）'); return; }
-  _godSnapBusy = true;
   const btn = document.getElementById('godShotBtn');
   const txtEl = document.getElementById('godShotTxt');
   const oldTxt = txtEl ? txtEl.textContent : '';
+  let tick = null, stage = '', stageAt = 0;
+  const stopTick = function(){ if(tick){ clearInterval(tick); tick = null; } };
+  /* ⚠️ **所有失败只走这一个出口**：弹窗里的状态行 + toast + 控制台，三处同时写。
+      只写 toast 是不够的 —— 它以前被全屏弹窗盖住（z-index 80 < .mask 100），等于没报。
+      凡「用户能不能看见」，一律以那条常驻状态行为准。 */
+  const fail = function(msg){
+    stopTick();
+    godShotMsg(msg, 'err');
+    try{ toast(msg); }catch(e){}
+    try{ console.warn('[godSnap]', msg); }catch(e){}
+  };
+  const setStage = function(s, btnTxt){
+    stage = s; stageAt = Date.now();
+    if(btnTxt && txtEl) txtEl.textContent = btnTxt;
+    godShotMsg(s);
+    if(!tick){
+      tick = setInterval(function(){
+        godShotMsg(stage + ' · ' + Math.round((Date.now() - stageAt) / 1000) + ' 秒');
+      }, 1000);
+    }
+  };
+  const fr = (_godFrames || []).filter(function(f){ return f && f.who; });
+  if(!fr.length){ fail('等「此刻的他们」出来一帧再说'); return; }
+  /* ① 先查闸门：给的是人话，不是给模型看的那套说辞 */
+  const g = imgGateCheck({});
+  if(!g.ok){
+    const cfg0 = imgCfg();
+    if(!cfg0.enabled || !String(cfg0.key || '').trim()){ fail('还没开启生图：设置 → 连接与模型 → 🖼 生图'); return; }
+    const q0 = imgQuota(), lim0 = cfg0.dailyLimit | 0;
+    if(lim0 > 0 && q0.used >= lim0){ fail('今天的生图额度用完了（' + q0.used + '/' + lim0 + ' 张），明天再来'); return; }
+    if(Number(g.wait) > 0){ fail('站点限速：还要等 ' + g.wait + ' 秒（约 ' + Math.max(1, Math.ceil(g.wait/60)) + ' 分钟）'); return; }
+    fail(g.reason || '现在还不能生图'); return;
+  }
+  const cfgAi = getAiCfg();
+  if(!cfgAi || !cfgAi.apiKey){ fail('要看照片得先填聊天用的 API Key（设置 → 连接与模型）'); return; }
+  _godSnapBusy = true;
   if(btn) btn.disabled = true;
+  godShotMsg('');   // 上一次的报错先清掉
   try{
     /* ② 决定画几个人：同一处、或有一个标了 priv，才是同框 */
     const n = Math.min(2, fr.length);
@@ -20908,47 +20978,74 @@ async function godSnap(){
         + (f.inner ? ('\n　　心里：「' + f.inner + '」') : '');
     });
     /* ③ 帧数据 → 英文标签（一次小 AI。提示词在提示词中心第 18 块，可看可改） */
-    if(txtEl) txtEl.textContent = '正在写画面…';
+    setStage('正在写画面', '正在写画面…');
     const rel = ocRelNow();
     const askTxt = imgGodSnapTpl()
       .replace(/\{\{TIME\}\}/g, nowAnchor())
       .replace(/\{\{REL\}\}/g, ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : ''))
       .replace(/\{\{FRAME\}\}/g, lines.join('\n'))
       .replace(/\{\{MODE\}\}/g, both ? '他们两个（同框）' : ('只有' + use[0].who + '一个人'));
-    const r1 = await aiCall([{role:'user', content:askTxt}], cfgAi, 1, {noTools:true});
-    if(r1 && r1.error){ toast('画面没写出来：' + String(r1.error).slice(0,50)); return; }
+    let r1;
+    try{
+      r1 = await godSnapTimeout(aiCall([{role:'user', content:askTxt}], cfgAi, 1, {noTools:true}), 70000, '写画面');
+    }catch(e){
+      fail('画面没写出来：' + String((e && e.message) || e) + '。检查一下 AI 设置里的接口和 Key（旁白能用这条就能用）。');
+      return;
+    }
+    if(r1 && r1.error){ fail('画面没写出来：' + String(r1.error).slice(0, 120) + '（再点一次按钮可重试）'); return; }
     const m1 = r1 && r1.data && r1.data.choices && r1.data.choices[0] && r1.data.choices[0].message;
-    const tags = imgTagsExtract((m1 && typeof m1.content === 'string') ? m1.content : '');
-    if(!tags){ toast('这次没写出可用的画面标签，再点一次试试'); return; }
+    const raw1 = (m1 && typeof m1.content === 'string') ? m1.content : '';
+    const tags = imgTagsExtract(raw1);
+    if(!tags){
+      fail('这次没写出可用的画面标签（模型回的是：' + (raw1.slice(0, 60) || '空') + '）。再点一次按钮试试，或去提示词中心第 18 块改改。');
+      return;
+    }
     /* ④ 拼装 + 出图。manual:true = 刚才已经按用户手动触发的规矩查过闸门，别查第二遍 */
     const shot = both ? 'godframe' : 'godself';
     const who = use[0].who;
     const withWho = both ? use[1].who : '';
     const plan = imgComposeShot(shot, tags, who, withWho);
     const neg = imgNegFor(shot);
-    if(txtEl) txtEl.textContent = '正在生成…（约 20-40 秒）';
-    const out = await imgGenerate(plan.base, neg, { chars:plan.chars, aspect:plan.aspect, manual:true });
+    setStage('正在生成图片', '正在生成…');
+    let out;
+    try{
+      out = await godSnapTimeout(imgGenerate(plan.base, neg, { chars:plan.chars, aspect:plan.aspect, manual:true }), 200000, '出图');
+    }catch(e){
+      fail('生成失败：' + String((e && e.message) || e) + '（再点一次按钮可重试）');
+      return;
+    }
     if(!out || !out.ok){
       if(out && !out.blocked && (Number(out.wait) > 0 || /429|限速/.test(String(out.error || '')))) imgQuotaMarkRateLimited(out.wait || 0);
-      toast('生成失败：' + ((out && out.error) || '未知错误')); return;
+      fail('生成失败：' + ((out && out.error) || '未知错误'));
+      return;
     }
-    /* ⑤ 落库 + 记额度，然后直接开看图页（她能当场看到用了什么词、改着重生成） */
+    /* ⑤ 落库 + 记额度，然后开看图页（她能当场看到用了什么词、改着重生成） */
     const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
     const rec = { id:id, blob:out.blob, prompt:tags, full:plan.base, neg:neg, who:who, withWho:withWho,
       shot:shot, proactive:false, seed:out.seed, w:out.w, h:out.h, model:imgCfg().model,
       created:Date.now(), god:true };
-    try{ await imgPut(rec); }catch(e){}
+    let putOk = true;
+    try{ await imgPut(rec); }catch(e){ putOk = false; }
+    if(!putOk){ fail('图生成好了，但没存进本地库（存储可能满了）。清理一下旧图片再试。'); return; }
+    /* ⚠️ 先自己把 blob 读回来验一遍，再交给看图页：
+       `aiImgZoom` 里 url 为空时会**静默 return**（一个字都不报），
+       于是「出图成功 + 存库失败 + 看图页不开」在用户眼里和「没反应」完全一样。 */
+    const u = await imgUrlOf(id).catch(function(){ return ''; });
+    if(!u){ fail('图生成好了，但从本地库读不回来（可能没存住）。再点一次按钮。'); return; }
     const q2 = imgQuota();
     q2.used = (q2.used|0) + 1;
     q2.lastAt = Date.now();
     q2.lastShot = shot;
     imgQuotaSave(q2);
     try{ if(typeof imgPaintQuota === 'function') imgPaintQuota(); }catch(e){}
+    stopTick();
+    godShotMsg('已生成 · 点图上的「🎨 提示词」能看这次用了什么词、改着再生成', 'ok');
     aiImgZoom(id);
-    setTimeout(function(){ try{ aiZoomPrompt(); }catch(e){} }, 300);
+    setTimeout(function(){ try{ aiZoomPrompt(); }catch(e){} }, 280);
   }catch(e){
-    toast('看这一刻出错：' + String((e && e.message) || e));
+    fail('看这一刻出错：' + String((e && e.message) || e) + '（再点一次按钮可重试）');
   }finally{
+    stopTick();
     _godSnapBusy = false;
     if(btn) btn.disabled = false;
     if(txtEl) txtEl.textContent = oldTxt || '看这一刻';
@@ -21325,6 +21422,7 @@ body.comp-live::after{animation-play-state:paused;}
     <button class="god-shot-btn" id="godShotBtn" onclick="godSnap()" type="button">
       <svg class="ico"><use href="#i-image"/></svg><span id="godShotTxt">看这一刻</span>
     </button>
+    <div class="god-shot-msg" id="godShotMsg"></div>
   </div>
   <div class="god-tools">
     <button class="god-btn primary" id="godAiBtn" onclick="godAskAI()" type="button"><svg class="ico" style="width:15px;height:15px;"><use href="#i-sparkle"/></svg>旁白</button>
