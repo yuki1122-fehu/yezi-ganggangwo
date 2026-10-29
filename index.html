@@ -2926,10 +2926,12 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           权重写法 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">2::artist:afire::</code>，数字越大越强调；改完对之后所有图生效，已生成的图不变。
         </p>
 
-        <label>零落 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（英文标签，已按真实设定填好）</span></label>
-        <input id="imgAnchorA" placeholder="1girl, purple eyes, long silky hair, black hair, ..." autocapitalize="off" autocorrect="off">
+        <label>零落 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（已按真实设定填好）</span></label>
+        <textarea id="imgAnchorA" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="1girl, purple eyes, long silky hair, black hair, ..."
+          style="width:100%;box-sizing:border-box;resize:vertical;min-height:88px;border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 10px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.75);color:var(--ink);"></textarea>
         <label>沈容 外观锚点</label>
-        <input id="imgAnchorB" placeholder="1boy, blue eyes, long black hair, bare forehead, ..." autocapitalize="off" autocorrect="off">
+        <textarea id="imgAnchorB" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="1boy, blue eyes, long black hair, bare forehead, ..."
+          style="width:100%;box-sizing:border-box;resize:vertical;min-height:88px;border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 10px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.75);color:var(--ink);"></textarea>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 10px;line-height:1.65;">
           两人<b style="color:#a3577a;">都没有刘海</b>（只有脸侧碎发），代码里已在负面词压掉齐刘海，不用再手写「额头」去强调。<br>
           只写头部特征，<b style="color:#a3577a;">衣服别写进来</b>：零落那件旧大衣是「借沈容的」特定场景，写进来就每张都穿同一件。要换衣就在对话画面里说清。
