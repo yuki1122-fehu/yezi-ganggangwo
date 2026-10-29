@@ -2926,10 +2926,14 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           权重写法 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">2::artist:afire::</code>，数字越大越强调；改完对之后所有图生效，已生成的图不变。
         </p>
 
-        <label>零落 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（英文标签，填了长相才稳）</span></label>
-        <input id="imgAnchorA" placeholder="1girl, long silver white hair, wolf ears, ..." autocapitalize="off" autocorrect="off">
+        <label>零落 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（英文标签，已按真实设定填好）</span></label>
+        <input id="imgAnchorA" placeholder="1girl, purple eyes, long silky hair, black hair, ..." autocapitalize="off" autocorrect="off">
         <label>沈容 外观锚点</label>
-        <input id="imgAnchorB" placeholder="1boy, short black hair, fox ears, suit, ..." autocapitalize="off" autocorrect="off">
+        <input id="imgAnchorB" placeholder="1boy, blue eyes, long black hair, bare forehead, ..." autocapitalize="off" autocorrect="off">
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 10px;line-height:1.65;">
+          两人<b style="color:#a3577a;">都没有刘海</b>（只有脸侧碎发），代码里已在负面词压掉齐刘海，不用再手写「额头」去强调。<br>
+          只写头部特征，<b style="color:#a3577a;">衣服别写进来</b>：零落那件旧大衣是「借沈容的」特定场景，写进来就每张都穿同一件。要换衣就在对话画面里说清。
+        </p>
 
         <label>负面词 <span style="font-size:11px;color:var(--ink-soft)">（避雷清单，一般不用动）</span></label>
         <textarea id="imgNeg" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="lowres, bad anatomy, ..."
@@ -4410,6 +4414,7 @@ function enterApp(){
   try{ ocRenderCard(); ocRefreshCtx(); }catch(e){ console.error(e); } // 主页角色动态卡片（他们的生活）
   try{ ocRelNow(); }catch(e){ console.error(e); } // 角色世界关系预热（tick 演化）
   try{ initPomo(); }catch(e){ console.error(e); } // 番茄钟 · 港窝小园
+  try{ imgCfgMigrate(); }catch(e){ console.error(e); } // 生图配置迁移（外观锚点/主动发图数，2026-10-29）
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
   try{ setTimeout(()=>{ convSelfHeal(); }, 1800); }catch(e){ console.error(e); } // 对话存档没读出来但记忆库有原文 → 主动问一句要不要重建（2026-09-11）
@@ -7670,6 +7675,25 @@ const IMG_STYLE_DEFAULT = 'highly detailed, 2::artist:afire::, 1.4::ash_echoes::
 /* 负面词默认值：叶子那份，比早期版多 missing fingers / fewer digits / cropped / blurry */
 const IMG_NEG_DEFAULT = 'lowres, bad anatomy, bad hands, missing fingers, extra digits, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
 
+/* ===== 角色外观锚点默认值（2026-10-29 由叶子亲定的真实设定）=====
+   ⚠️ **两人都没有刘海**，只留脸侧碎发（八字/中分那种）。NAI 对 1girl/1boy 默认就画齐刘海，
+      光靠正向词压不住（叶子之前一直手动加「额头」强调，还是会被刘海盖掉），
+      所以负面词里另有一条 IMG_NEG_NO_BANGS，见下面的 imgNegFor()。
+   ⚠️ 只写「头部特征 + 签名配饰」，**不写场景服装**：
+      零落那件「借来的男式旧大衣」是特定场景（冷、披着沈容的外套），写进锚点会让她每张都穿同一件。
+      沈容的白衬衫/灰马甲是他的常服，属例外，所以留在锚点里。 */
+const IMG_ANCHOR_DEFAULT = {
+  '零落': '1girl, purple eyes, long silky hair, black hair, single hair bun, black choker, parted bangs, curtained hair, bare forehead, {{forehead}}, medium breasts',
+  '沈容': '1boy, blue eyes, long black hair, long silky hair, parted bangs, curtained hair, bare forehead, {{forehead}}, handsome, white dress shirt, collared shirt, grey waistcoat'
+};
+/* 只禁「遮住额头的刘海」，**不禁 bangs 本身** —— 他们留的是八字/中分（parted/curtained），
+   一刀切禁掉 bangs 会把两侧碎发一起抹掉，变成贴头皮的大背头，反而更难看。 */
+const IMG_NEG_NO_BANGS = 'blunt bangs, straight across bangs, bangs covering forehead, forehead covered, hair over eyes';
+/* 锚点里没写衣服时，NAI 会自己发挥，而且往往往「露」的方向跑（2026-10-29 实测：
+   零落的锚点只写头部特征 +「咖啡店」，结果给画了件黑色蕾丝内衣）。
+   零落的日常穿着还没定，先用负面词兜住下限；等她定了常服再写进锚点，这条就可以撤。 */
+const IMG_NEG_PLAIN = 'lingerie, underwear, revealing clothes, see-through, underboob';
+
 const IMG_CFG_DEFAULT = {
   enabled: false,
   origin: 'https://novel.nekoprompt.top',
@@ -7684,15 +7708,15 @@ const IMG_CFG_DEFAULT = {
   cooldownSec: 800,
   /* AI 主动发图（没等你开口就发）：0 = 不允许，只有你提了才发。
      它是「每日上限」里的一个子集，不是额外额度 —— 主动发多了，你主动要的那张就没了。 */
-  proactivePerDay: 2,
+  proactivePerDay: 4,
   // 画风指纹：全局恒定，设置页可随时改（改完对之后所有图为生效）
   styleDraw: IMG_STYLE_DEFAULT,
   negPrompt: IMG_NEG_DEFAULT,
   // 高级区：留空 seed = 每张随机
   seed: '',
-  // 角色外观锚点：留空时每次长相都会漂，建议在设置里填一次
-  anchorA: '',   // 零落
-  anchorB: ''    // 沈容
+  // 角色外观锚点：真实设定，已填好；长相要漂就回来改这里
+  anchorA: IMG_ANCHOR_DEFAULT['零落'],   // 零落
+  anchorB: IMG_ANCHOR_DEFAULT['沈容']    // 沈容
 };
 /* 双人站位：沈容在左、零落在右（与叶子那张已验证的图一致，固定住才有「他们一直站那儿」的稳定感）。
    ⚠️ 坐标必须由代码算死，绝不让模型填 —— 模型给 0.95 就直接出画。 */
@@ -7722,6 +7746,26 @@ function imgCfgSave(patch){
   const c = Object.assign(imgCfg(), patch || {});
   try{ localStorage.setItem(IMG_CFG_KEY, JSON.stringify(c)); }catch(e){}
   return c;
+}
+/* ===== 配置迁移（2026-10-29，v2）=====
+   两处「源码默认值改了但线上不生效」的经典坑，存量必须先迁：
+   ① proactivePerDay 还停在我上一版给的 2（叶子现在要 4 张）；
+   ② 外观锚点是上一版我建议的占位（银发狼耳 / 短发狐耳），跟她真实设定不符 ——
+      她照着填了，于是「我改默认值」对她完全无效（这就是记忆里那条铁律的现场版）。
+   ⚠️ 只改「明显是我给的占位」，她自己写的一律不碰；有 cfgVer 短路，可重复调用。 */
+const IMG_CFG_VER = 2;
+function imgCfgMigrate(){
+  let c = null;
+  try{ c = JSON.parse(localStorage.getItem(IMG_CFG_KEY) || 'null'); }catch(e){ return; }
+  if(!c || typeof c !== 'object') return;          // 从没配过 ⇒ 直接用新默认值，不需要迁
+  if((c.cfgVer|0) >= IMG_CFG_VER) return;
+  const patch = { cfgVer: IMG_CFG_VER };
+  // 只在「没设过」或「还是旧默认 2」时才升到 4
+  if(c.proactivePerDay === undefined || c.proactivePerDay === 2) patch.proactivePerDay = IMG_CFG_DEFAULT.proactivePerDay;
+  const a = String(c.anchorA || ''), b = String(c.anchorB || '');
+  if(!a || /silver white hair|wolf ears|pale eyes/i.test(a)) patch.anchorA = IMG_ANCHOR_DEFAULT['零落'];
+  if(!b || /short black hair|fox ears/i.test(b)) patch.anchorB = IMG_ANCHOR_DEFAULT['沈容'];
+  imgCfgSave(patch);
 }
 function imgDayKey(){
   const d = new Date();
@@ -8079,11 +8123,16 @@ function imgComposeShot(shot, prompt, who, withWho){
   const base = bits.filter(Boolean).join(', ').replace(/\s*,\s*,+/g, ', ').replace(/^\s*,\s*/, '');
   return { base: base, chars: chars, aspect: spec.aspect, neg: spec.neg };
 }
-/* 负面词 = 你的全局负面词（避雷用，不动） + 这个镜头专属的（消掉不该出现的东西） */
+/* 负面词 = 你的全局负面词（避雷用，不动）+ 人物专属 + 这个镜头专属的（消掉不该出现的东西）
+   ⚠️ 「没有刘海」只在画面里真的有人时才加：纯 POV 拍街景时加它毫无意义，
+      还会把路人的正常发型一起改掉。 */
 function imgNegFor(shot){
   const spec = IMG_SHOTS[shot] || IMG_SHOTS.selfie;
   const base = String(imgCfg().negPrompt || '').trim() || IMG_NEG_DEFAULT;
-  return spec.neg ? (base + ', ' + spec.neg) : base;
+  const bits = [base];
+  if(spec.chars !== 'none'){ bits.push(IMG_NEG_NO_BANGS); bits.push(IMG_NEG_PLAIN); }
+  if(spec.neg) bits.push(spec.neg);
+  return bits.filter(Boolean).join(', ');
 }
 
 /* 本轮刚生成、还没挂到气泡上的图。挂载点在 aiRun 的最终回复处，
@@ -10303,6 +10352,8 @@ function imgFillSelects(){
 function initImgSettingsFields(){
   const on = document.getElementById('imgOn');
   if(!on) return;
+  // 必须在读 cfg 之前迁：否则填进去的是旧锚点，用户一按「保存本页」就把旧值又写回去了
+  try{ imgCfgMigrate(); }catch(e){}
   const cfg = imgCfg();
   imgFillSelects();
   on.checked = !!cfg.enabled;
