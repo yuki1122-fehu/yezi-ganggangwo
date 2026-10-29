@@ -7829,23 +7829,67 @@ function imgQuota(){
 function imgQuotaSave(q){
   try{ localStorage.setItem(IMG_QUOTA_KEY, JSON.stringify(q)); }catch(e){}
 }
+/* 撞上**真限速**时更新冷却：按服务器给的「还要等 X 秒」反推上一次成功的真实时刻。
+   ⚠️ 不能直接写 `lastAt = 现在`：站点是固定窗口，从此刻重算 800 秒会比站点更晚解锁，
+      人会觉得自己在等一个永远等不完的十分钟。 */
+function imgQuotaMarkRateLimited(waitSec){
+  const wMs = Number(waitSec) * 1000;
+  const cdMs = (imgCfg().cooldownSec|0) * 1000;
+  const q0 = imgQuota();
+  if(wMs > 0 && cdMs > 0 && wMs < cdMs) q0.lastAt = Date.now() - (cdMs - wMs);
+  else q0.lastAt = Date.now();   // 解析不出剩余秒数：保守地按「现在」重计一轮，别一路空打
+  imgQuotaSave(q0);
+}
+/* 冷却自愈（2026-10-29）：旧版「被本地闸门拦下」也会把 lastAt 写成现在，
+   于是计时器被越推越远（症状：过一会儿再问，还是差十分钟，甚至变成十一分钟）。
+   主 bug 已修，但**已经被推远的那一次要能自己纠回来** —— 判据很硬：
+   lastAt 不该晚于「库里最后一张图的 created」超过 1 分钟，那在物理上不可能
+   （只有真的出图才会推进 lastAt，成功瞬间两者同秒）。
+   ⚠️ 每会话只查一次（`getAll` 会把 blob 一起读上来），任何异常静默跳过，绝不影响开聊天。 */
+let _imgHealTried = false;
+function imgQuotaHealIfStale(){
+  if(_imgHealTried) return;
+  _imgHealTried = true;
+  const cd = (imgCfg().cooldownSec|0) * 1000;
+  if(cd <= 0) return;
+  const q = imgQuota();
+  if(!q.lastAt || Date.now() - q.lastAt > cd) return;   // 已经不在冷却里了，没什么可修
+  imgDBTx('readonly', function(s){ return s.getAll(); }).then(function(list){
+    let mx = 0;
+    (list || []).forEach(function(r){ const c = Number(r && r.created) || 0; if(c > mx) mx = c; });
+    if(!mx) return;
+    if(q.lastAt > mx + 60000){
+      const q2 = imgQuota();
+      q2.lastAt = mx;
+      imgQuotaSave(q2);
+      try{ if(typeof imgPaintQuota === 'function') imgPaintQuota(); }catch(e){}
+      try{ console.log('[img] 冷却时间戳已修正：', new Date(q.lastAt).toLocaleTimeString(), '→', new Date(mx).toLocaleTimeString()); }catch(e){}
+    }
+  }).catch(function(){});
+}
 /* 闸门：本地冷却 + 每日上限。返回 {ok:false, wait, reason(给模型看的人话)}
    opt.manual = 用户自己在看图页手改提示词重生成：跳过本地冷却（调词就得能连续试，
-   真限速了服务器会自己返回「还要等 N 秒」，比本地先拦下来更有用），每日上限照旧算。 */
+   真限速了服务器会自己返回「还要等 N 秒」，比本地先拦下来更有用），每日上限照旧算。
+   ⚠️ **被闸门拦下时必须带 `blocked:true`**：调用方靠它区分「本地拦下来（没花额度、绝不能动计时器）」
+      与「真发了请求、撞上站点 429」——这两件事都返回 `ok:false + wait`，
+      不区分就会出现「每被拦一次,冷却就从现在重新算 800 秒」⇒ 永远差十分钟（2026-10-29 叶子实测）。 */
 function imgGateCheck(opt){
   opt = opt || {};
   const cfg = imgCfg();
-  if(!cfg.enabled) return { ok:false, reason:'生图还没开启（设置 → 连接与模型 → 🖼 生图）。' };
-  if(!String(cfg.key||'').trim()) return { ok:false, reason:'还没填生图 API Key（设置 → 连接与模型 → 🖼 生图）。' };
+  if(!cfg.enabled) return { ok:false, blocked:true, reason:'生图还没开启（设置 → 连接与模型 → 🖼 生图）。' };
+  if(!String(cfg.key||'').trim()) return { ok:false, blocked:true, reason:'还没填生图 API Key（设置 → 连接与模型 → 🖼 生图）。' };
   const q = imgQuota();
   const lim = cfg.dailyLimit|0;
-  if(lim > 0 && q.used >= lim) return { ok:false, reason:'今天的生图额度已经用完了（'+q.used+'/'+lim+' 张），跟对方说一声明天再发，别再试。' };
+  if(lim > 0 && q.used >= lim) return { ok:false, blocked:true, reason:'今天的生图额度已经用完了（'+q.used+'/'+lim+' 张），跟对方说一声明天再发，别再试。' };
   if(opt.manual) return { ok:true };
   const cd = (cfg.cooldownSec|0) * 1000;
   const gap = Date.now() - (Number(q.lastAt) || 0);
   if(cd > 0 && q.lastAt > 0 && gap < cd){
     const wait = Math.ceil((cd - gap)/1000);
-    return { ok:false, wait:wait, reason:'刚生成过一张，站点限制每 ' + Math.round(cd/1000) + ' 秒只能生成一次，还要等 ' + wait + ' 秒。跟对方说实话，别假装发了。' };
+    const mins = Math.max(1, Math.ceil(wait/60));
+    return { ok:false, blocked:true, wait:wait,
+      reason:'上一张已经用掉了站点这次的额度：站点每 ' + Math.round(cd/1000) + ' 秒只允许生成一张，还要等 ' + wait + ' 秒（约 ' + mins + ' 分钟）。'
+        + '如实告诉对方还要等多久，别假装发了；等待期间不要再调用本工具（试也不会变快）。' };
   }
   return { ok:true };
 }
@@ -8235,7 +8279,7 @@ async function aiSendPhoto(args){
   if(rs.err) return { ok:false, error: rs.err };
   const shot = rs.shot;
   const gate = imgGateCheck();
-  if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait || 0 };
+  if(!gate.ok) return { ok:false, error: gate.reason, wait: gate.wait || 0, blocked: true };
   /* 两条路：你开口要了 → 放行；你没开口 → 走「主动发图」额度（每天上限，设置里可关）。
      prompt 里写「只在对方要求时调用」管不住模型，判据必须在代码里。 */
   const asked = imgUserAsked();
@@ -8260,11 +8304,13 @@ async function aiSendPhoto(args){
     if(step && step.parentNode) step.remove();
   }
   if(!r.ok){
-    // 限速类失败记一次时间戳，避免下一轮马上又撞上去
-    if(r.wait || /限速|429/.test(String(r.error || ''))){
-      const q0 = imgQuota(); q0.lastAt = Date.now(); imgQuotaSave(q0);
-    }
-    return { ok:false, error:'生成失败：' + (r.error || '未知错误') };
+    /* ⚠️ 只有「真发了请求、撞上站点 429」才允许动计时器。
+       被本地闸门拦下（blocked）时**一个字都不能写** —— 否则每被拦一次就把 lastAt 推到「现在」，
+       冷却永远从此刻重算 800 秒，人怎么等都是「还差十分钟」（2026-10-29 叶子实测，就是这条）。
+       撞真 429 时也不该从此刻重算：服务器说「还要等 X 秒」，就按 X 反推上一次成功的真实时刻。 */
+    if(!r.blocked && (Number(r.wait) > 0 || /429|限速/.test(String(r.error || '')))) imgQuotaMarkRateLimited(r.wait || 0);
+    // 被闸门拦下不是故障：别在模型面前说「生成失败」，否则它会跟人解释成「系统坏了」
+    return { ok:false, error: (r.blocked ? '' : '生成失败：') + (r.error || '未知错误') };
   }
   const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   const rec = { id:id, blob:r.blob, prompt:prompt, full:full, neg:neg, who:who, withWho:withWho, shot:shot,
@@ -9220,7 +9266,13 @@ async function aiZoomPrompt(){
     }catch(e){ r = { ok:false, error: (e && e.message) || '出错' }; }
     goBtn.disabled = false;
     goBtn.textContent = oldTxt;
-    if(!r.ok){ errBox('生成失败：' + (r.error || '未知错误')); paintMeta(); return; }
+    if(!r.ok){
+      // 撞真限速才动计时器；被闸门拦下（额度用完）一个字都不写
+      if(!r.blocked && (Number(r.wait) > 0 || /429|限速/.test(String(r.error || '')))) imgQuotaMarkRateLimited(r.wait || 0);
+      errBox('生成失败：' + (r.error || '未知错误'));
+      paintMeta();
+      return;
+    }
     const newId = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
     const newRec = Object.assign({}, rec, {
       id: newId, blob: r.blob, full: base, neg: neg,
@@ -10495,6 +10547,8 @@ function openAI(){
   setTimeout(toBottom, 300);
   const inp = document.getElementById('aiInput');
   if(inp) inp.focus();
+  // 生图冷却自愈（2026-10-29）：修历史 bug 推远的 lastAt，见 imgQuotaHealIfStale
+  try{ imgQuotaHealIfStale(); }catch(e){}
 }
 function closeAI(){ closeMask(document.getElementById('aiMask')); }
 
