@@ -1124,6 +1124,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   -webkit-tap-highlight-color:transparent;
 }
 .album-card:active{transform:scale(.985);box-shadow:var(--shadow),var(--shadow-inset);}
+/* 按住卡片时让三个相框停住：像伸手按住了照片，比"按下去还在飘"更实。
+   ⚠️ 只能 pause 不能改 transform —— 漂浮走的是 animation，animation 里的 transform 优先级高于普通声明。 */
+.album-card:active .al-frame{animation-play-state:paused;}
 .al-frames{position:relative;flex:0 0 96px;height:100%;}
 .al-frame{
   position:absolute;top:50%;left:0;width:54px;height:68px;box-sizing:border-box;padding:3px 3px 11px;
@@ -1167,6 +1170,10 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-tile small{font-size:9.5px;color:var(--ink-faint);font-weight:600;letter-spacing:.3px;line-height:1.2;white-space:nowrap;}
 @media (prefers-reduced-motion:reduce){
   .al-frame{animation:none !important;}
+  .alb-item{animation:none !important;}
+  .alb-item.wobble .alb-photo,.alb-item.breeze .alb-photo{animation:none !important;}
+  .alb-item.pressing .alb-photo{transform:rotate(var(--tilt,-1deg)) !important;transition:none !important;}
+  .alb-empty-frames span{animation:none !important;}
 }
 /* ---- 全屏相册页：复用 .ocf-top / .ocf-x 的玻璃顶栏，只换配色 ---- */
 .mask.album-mask{
@@ -1198,38 +1205,63 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
    月份分段：墙是按"那一阵子"记住的，10 月的照片不该和 3 月的混在一起。
    ⚠️ 只在 .alb-cols 里用 columns；月份标题在列外，所以不会被切到列里。 */
 .alb-wall{
-  flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
   padding:14px 15px calc(30px + env(safe-area-inset-bottom));
 }
 /* 月份标不是段落头，而是"贴在那个月第一张照片上"的小标签。
    ⚠️ 不按月分块：每块单独两列时，只有三五张的那个月必然有一列空出一大截（墙上一块窟窿）。
       整面墙一路排下去，只在换月的那张照片头上加一条标签。 */
-.alb-month{display:flex;align-items:center;gap:8px;margin:0 3px 9px;font-size:10px;font-weight:700;
-  letter-spacing:2px;color:var(--ink-soft);}
-.alb-month::before{content:"";flex:0 0 auto;width:5px;height:5px;border-radius:50%;background:rgba(140,155,135,.55);}
-.alb-month::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(140,155,135,.26),rgba(140,155,135,0));}
+/* 小胶囊标签，不是分隔线 —— 标签跟着那张照片走，某一列里画一条横贯的线
+   只会看起来像"半条线"，所以它不假装分隔，就当是贴在相纸角上的一枚标记。 */
+.alb-month{display:inline-flex;align-items:center;gap:6px;margin:0 3px 9px;padding:3px 10px 3px 8px;
+  border-radius:999px;background:rgba(255,255,255,.68);border:1px solid rgba(140,155,135,.22);
+  box-shadow:0 2px 6px rgba(92,115,89,.08);
+  font-size:10px;font-weight:700;letter-spacing:1.6px;color:var(--ink-soft);}
+.alb-month::before{content:"";flex:0 0 auto;width:4px;height:4px;border-radius:50%;background:rgba(140,155,135,.60);}
 /* 两列各自累加：每张照片放进「当前较矮的那一列」才算真瀑布流。
    ⚠️ 别用 column-count：它按总高度均分，只有三五张时会在一列下面留一大块空。 */
 .alb-cols{display:flex;gap:12px;align-items:flex-start;}
 .alb-col{flex:1 1 0;min-width:0;}
+/* 翻开相册：每张照片"啪"地贴上墙，落位后还要晃两下才停住。
+   ⚠️ 过冲必须写在关键帧里（从更斜 → 冲到反向 → 摆回），
+      缓动曲线本身做不到——再 bouncy 的 cubic-bezier 也只是"一路减速到终点"，
+      不会自己来回摆。 */
+@keyframes albDrop{
+  0%  {opacity:0;transform:translateY(-11px) rotate(calc(var(--tilt,-1deg) * 2.4)) scale(1.048);}
+  48% {opacity:1;transform:translateY(0) rotate(calc(var(--tilt,-1deg) * -0.35)) scale(.994);}
+  66% {transform:translateY(0) rotate(calc(var(--tilt,-1deg) * 1.3)) scale(1.005);}
+  82% {transform:translateY(0) rotate(calc(var(--tilt,-1deg) * .86)) scale(.998);}
+  92% {transform:translateY(0) rotate(calc(var(--tilt,-1deg) * 1.07)) scale(1.001);}
+  100%{opacity:1;transform:translateY(0) rotate(var(--tilt,-1deg)) scale(1);}
+}
 .alb-item{
   display:block;width:100%;margin:0 0 15px;cursor:pointer;
-  animation:ocfItemIn .42s var(--ease) both;
+  animation:albDrop .68s var(--ease) both;
+  -webkit-tap-highlight-color:transparent;
 }
+/* 抬起来的那张要压在邻居上面：瀑布流里照片挨得近，不提层级的话
+   抬起的部分会被下一张的相纸边盖住，看着像"没抬起来"。 */
+.alb-item.pressing{position:relative;z-index:5;}
 .alb-photo{
-  position:relative;display:block;width:100%;box-sizing:border-box;padding:6px 6px 0;border-radius:2px;
+  /* ⚠️ 相纸只占列宽的 92%：它是歪着贴的，旋转后的包围盒比自身宽出一截，
+     铺满列宽的话两张歪向相反的照片会把 12px 中缝吃成 3px，看着挤。
+     留出这 8% 让墙上有缝，也更接近真实照片墙（照片不会贴死在一起）。 */
+  position:relative;display:block;width:92%;margin:0 auto;box-sizing:border-box;padding:6px 6px 0;border-radius:2px;
   background:linear-gradient(#ffffff,#fdfcf8);
   box-shadow:0 9px 20px rgba(92,115,89,.15),0 1px 2px rgba(92,115,89,.15),0 0 0 .5px rgba(255,255,255,.9);
   transform:rotate(var(--tilt,-1deg));
-  transition:transform .22s var(--ease),box-shadow .3s var(--ease);
+  /* 抬起快、落下慢且带一点过冲：像手指按住一张纸再松开 */
+  transition:transform .36s cubic-bezier(.34,1.42,.5,1),box-shadow .3s var(--ease);
 }
 /* 每四张换一次倾角：整面墙都是同一个角度就成了印花壁纸。
+   ⚠️ --tilt 挂在 .alb-item 而不是 .alb-photo：入场动画 albDrop 也要读它
+      （自定义属性会继承，子元素照样拿得到）。
    ⚠️ 用 JS 给的全局序号类（v0-v3 / tape），不能用 :nth-child ——
    瀑布流是两列两个父节点，nth-child 会按列重数，结果每列第一张都贴胶带。 */
-.alb-item.v1 .alb-photo{--tilt:-1.5deg;--tapeR:-4deg;}
-.alb-item.v2 .alb-photo{--tilt:1deg;--tapeR:-2deg;}
-.alb-item.v3 .alb-photo{--tilt:-.6deg;--tapeR:-5deg;}
-.alb-item.v0 .alb-photo{--tilt:1.4deg;--tapeR:-3deg;}
+.alb-item.v1{--tilt:-1.5deg;--tapeR:-4deg;}
+.alb-item.v2{--tilt:1deg;--tapeR:-2deg;}
+.alb-item.v3{--tilt:-.6deg;--tapeR:-5deg;}
+.alb-item.v0{--tilt:1.4deg;--tapeR:-3deg;}
 /* 胶带：只贴每三张的第一张，撕纸边用 mask 虚掉两端 */
 .alb-photo::after{
   content:"";position:absolute;top:-7px;left:50%;width:54px;height:15px;margin-left:-27px;border-radius:1px;
@@ -1241,7 +1273,46 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   opacity:0;pointer-events:none;
 }
 .alb-item.tape .alb-photo::after{opacity:1;}
-.alb-item:active .alb-photo{transform:rotate(0deg) scale(.985);box-shadow:0 4px 12px rgba(92,115,89,.16);}
+/* 指尖按上去：相纸抬起来、摆正、放大一点点。
+   ⚠️ 不用 :hover —— 手机上根本没有 hover（点了之后会"粘住"不放）。
+      走 JS 加 .pressing（pointer 事件），手指一动超过 8px 立刻撤掉，
+      否则一滚动，手指底下那张会一直挂着放大的状态。 */
+.alb-item.pressing .alb-photo{
+  transform:rotate(0deg) translateY(-4px) scale(1.05);
+  box-shadow:0 18px 34px rgba(92,115,89,.24),0 3px 7px rgba(92,115,89,.18),0 0 0 .5px rgba(255,255,255,.95);
+  transition:transform .17s cubic-bezier(.2,.9,.25,1),box-shadow .17s var(--ease);
+}
+/* 「风吹过」：每隔十几秒，随机挑一张轻轻晃一下（一度以内）。
+   排三个条件才动：页面在前台、这张没被手指按着、也没在播别的晃动。
+   定时器只在相册打开时跑，关掉就清 —— 不让它在后台白耗电。 */
+@keyframes albBreeze{
+  0%  {transform:rotate(var(--tilt,-1deg));}
+  28% {transform:rotate(calc(var(--tilt,-1deg) * .62));}
+  58% {transform:rotate(calc(var(--tilt,-1deg) * 1.30));}
+  82% {transform:rotate(calc(var(--tilt,-1deg) * .93));}
+  100%{transform:rotate(var(--tilt,-1deg));}
+}
+.alb-item.breeze .alb-photo{animation:albBreeze .92s cubic-bezier(.36,.75,.4,1) both;}
+/* 起完名字让它晃一下：给"记住了"一个实体的回执，比只弹 toast 有实感。
+   ⚠️ 放在 breeze 之后：同为 0-2-1，起名是明确的回执，优先级高于随机彩蛋。 */
+@keyframes albWobble{
+  0%  {transform:rotate(var(--tilt,-1deg)) scale(1);}
+  20% {transform:rotate(calc(var(--tilt,-1deg) * -1.6)) scale(1.042);}
+  44% {transform:rotate(calc(var(--tilt,-1deg) * 1.24)) scale(1.016);}
+  66% {transform:rotate(calc(var(--tilt,-1deg) * -0.44)) scale(1.003);}
+  84% {transform:rotate(calc(var(--tilt,-1deg) * 1.11)) scale(1);}
+  100%{transform:rotate(var(--tilt,-1deg)) scale(1);}
+}
+.alb-item.wobble .alb-photo{animation:albWobble .64s cubic-bezier(.3,.85,.35,1) both;}
+/* 桌面（真有鼠标）才给 hover：抬一点、把倾角收掉大半，够提示可点就行 */
+@media (hover:hover) and (pointer:fine){
+  .alb-item:hover .alb-photo{
+    transform:rotate(calc(var(--tilt,-1deg) * .32)) translateY(-3px) scale(1.034);
+    box-shadow:0 16px 30px rgba(92,115,89,.22),0 2px 6px rgba(92,115,89,.16),0 0 0 .5px rgba(255,255,255,.95);
+  }
+  /* 放在 hover 之后：两条特异性相同（0-2-1），按下的手感必须压过悬停 */
+  .alb-item.pressing .alb-photo{transform:rotate(0deg) translateY(-4px) scale(1.05);}
+}
 .alb-photo img{display:block;width:100%;height:auto;border-radius:1px;background:var(--bg-2);}
 .alb-photo.lost{display:flex;align-items:center;justify-content:center;min-height:92px;padding:6px;
   font-size:var(--fs-1);color:var(--ink-faint);font-weight:600;text-align:center;}
@@ -1252,7 +1323,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;}
 /* ⚠️ 全局 .empty 带 padding:52px 24px，这里必须压掉，否则占位文字把相纸撑成一块白板。
    下划线用 text-decoration 而不是 border：border 会让占位行比有名行高 2px，墙上看得出参差。 */
-.alb-name b.empty{display:inline-block;padding:0;font-weight:600;color:var(--ink-faint);letter-spacing:.3px;
+/* ⚠️ 占位用 --ink-soft 而不是 --ink-faint：它是"点这里起名"的入口，太淡了没人敢点
+   （日期才是真正的次要信息，留给 faint） */
+.alb-name b.empty{display:inline-block;padding:0;font-weight:600;color:var(--ink-soft);letter-spacing:.3px;
   text-decoration:underline;text-decoration-style:dashed;text-decoration-thickness:1px;
   text-decoration-color:rgba(140,155,135,.55);text-underline-offset:4px;}
 .alb-name span{display:block;margin-top:3px;font-size:9.5px;color:var(--ink-faint);font-weight:600;letter-spacing:.3px;
@@ -1263,9 +1336,16 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .alb-empty-frames span{
   width:54px;height:68px;border-radius:3px;border:1.5px dashed rgba(140,155,135,.45);background:rgba(255,255,255,.42);
 }
-.alb-empty-frames span:nth-child(1){transform:rotate(-7deg) translateY(2px);}
-.alb-empty-frames span:nth-child(2){transform:rotate(4deg);}
-.alb-empty-frames span:nth-child(3){transform:rotate(-3deg) translateY(4px);}
+/* 空框也轻轻飘：和主页卡一个节奏，好让"空"看起来是"还等着贴"，不是"坏了" */
+.alb-empty-frames span{transform:translateY(var(--ty,0px)) rotate(var(--rot,0deg));
+  animation:albEmptyFloat 7.2s var(--ease) infinite alternate;}
+.alb-empty-frames span:nth-child(1){--rot:-7deg;--ty:2px;animation-delay:-.6s;}
+.alb-empty-frames span:nth-child(2){--rot:4deg;--ty:0px;animation-delay:-2.3s;}
+.alb-empty-frames span:nth-child(3){--rot:-3deg;--ty:4px;animation-delay:-1.5s;}
+@keyframes albEmptyFloat{
+  from{transform:translateY(var(--ty,0px)) rotate(var(--rot,0deg));}
+  to{transform:translateY(calc(var(--ty,0px) - 5px)) rotate(calc(var(--rot,0deg) * .8));}
+}
 .alb-empty b{font-size:var(--fs-3);color:var(--ink);margin-bottom:9px;font-weight:700;}
 .alb-empty p{font-size:var(--fs-1);line-height:1.8;color:var(--ink-soft);margin:0;font-weight:600;}
 .alb-empty .alb-adopt{
@@ -8985,10 +9065,86 @@ function albumOpen(){
   if(!m) return;
   openMask(m);
   albumRenderGrid();
+  albBreezeStart();          // 墙上的"风"只在翻开时吹
 }
 function albumClose(){
+  albBreezeStop();
   const m = document.getElementById('albumMask');
   if(m) closeMask(m);
+}
+/* 指尖反馈：手机上没有 hover，所以「按下的那一刻」就把相纸抬起来 ——
+   这就是叶子说的"手指上去会放大"，而且比等 hover 更即时。
+   ⚠️ 移动超过 8px 就撤掉 pressing：滚动时手指底下那张会一直挂着放大状态，很脏。 */
+function albWirePress(el){
+  if(!el || el.__pressWired) return;
+  el.__pressWired = 1;
+  let sx = 0, sy = 0, on = false;
+  const down = function(ev){
+    sx = ev.clientX; sy = ev.clientY; on = true;
+    el.classList.add('pressing');
+  };
+  const move = function(ev){
+    if(!on) return;
+    if(Math.abs(ev.clientX - sx) > 8 || Math.abs(ev.clientY - sy) > 8){
+      on = false; el.classList.remove('pressing');
+    }
+  };
+  const up = function(){ if(!on) return; on = false; el.classList.remove('pressing'); };
+  el.addEventListener('pointerdown', down);
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
+  el.addEventListener('pointerleave', up);
+}
+/* 就地改写某张照片的名字 + 让它晃一下。
+   ⚠️ 不整墙重渲染：那样会把所有照片再"贴"一遍，起个名字而已，动线太吵。 */
+function albPaintName(id, name){
+  let el = null;
+  try{ el = document.querySelector('.alb-item[data-id="' + CSS.escape(String(id)) + '"]'); }catch(e){}
+  if(!el){ try{ albumRenderGrid(); }catch(e){} return; }
+  const b = el.querySelector('.alb-name b');
+  if(!b) return;
+  if(name){ b.textContent = name; b.classList.remove('empty'); }
+  else { b.textContent = '写个名字'; b.classList.add('empty'); }
+  el.classList.remove('wobble');
+  void el.offsetWidth;                       // 强制回流重启动画：不加这句连着起两次名不会晃第二下
+  el.classList.add('wobble');
+  setTimeout(function(){ el.classList.remove('wobble'); }, 700);
+}
+/* 「风吹过」：整面墙别死着 —— 但只在相册开着时跑，关掉立刻清定时器。
+   ⚠️ 只晃当前屏幕里看得见的那几张：给看不见的照片播动画纯属白烧电。 */
+let _albBreezeT = 0;
+function albBreezeStop(){ if(_albBreezeT){ clearInterval(_albBreezeT); _albBreezeT = 0; } }
+function albBreezeStart(){
+  albBreezeStop();
+  try{
+    if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  }catch(e){}
+  _albBreezeT = setInterval(albBreezeTick, 13000);
+}
+function albBreezeTick(){
+  try{
+    /* 相册可能从别的路径被关掉（返回键、别的弹窗顶掉），这里自查一次再收工，
+       不用去追每一条关闭路径。 */
+    const m = document.getElementById('albumMask');
+    if(!m || !m.classList.contains('show')){ albBreezeStop(); return; }
+    if(document.hidden) return;
+    const items = document.querySelectorAll('.alb-item');
+    if(!items || !items.length) return;
+    const pool = [];
+    for(let i=0;i<items.length;i++){
+      const el = items[i];
+      /* 手指正按着 / 刚起完名还在晃的那张，别去抢它的 transform */
+      if(el.classList.contains('pressing') || el.classList.contains('wobble')) continue;
+      const r = el.getBoundingClientRect();
+      if(r.bottom < 0 || r.top > (window.innerHeight || 800)) continue;
+      pool.push(el);
+    }
+    if(!pool.length) return;
+    const el = pool[Math.floor(Math.random() * pool.length)];
+    el.classList.add('breeze');
+    setTimeout(function(){ try{ el.classList.remove('breeze'); }catch(e){} }, 950);
+  }catch(e){}
 }
 /* 一个月份的两列容器：返回两列，供逐张往较矮那列贴 */
 function albNewCols(grid){
@@ -9038,6 +9194,7 @@ async function albumRenderGrid(){
     curKey = key;
     const it = document.createElement('div');
     it.className = 'alb-item v' + (idx % 4) + (idx % 3 === 0 ? ' tape' : '');
+    it.dataset.id = r.id;
     it.style.animationDelay = Math.min(idx, 8) * 40 + 'ms';
     if(newMonth){
       const head = document.createElement('div');
@@ -9073,6 +9230,7 @@ async function albumRenderGrid(){
     cap.onclick = function(ev){ if(ev && ev.stopPropagation) ev.stopPropagation(); albumEditOpen(r); };
 
     it.appendChild(ph); it.appendChild(cap);
+    albWirePress(it);
     /* 放进当前较矮的那一列（offsetHeight 会触发一次回流，几十张照片的量级可以接受） */
     const col = (curCols[0].offsetHeight <= curCols[1].offsetHeight) ? curCols[0] : curCols[1];
     col.appendChild(it);
@@ -9146,7 +9304,7 @@ async function albumEditSave(){
   if(!rec){ toast('没存上，再试一次'); return; }
   _albumRows = null;
   albumEditClose();
-  try{ albumRenderGrid(); }catch(e){}
+  albPaintName(id, v);                      // 只动这一张（找不到才退回整墙重渲染）
   try{ albumRenderCard(); }catch(e){}
   try{ toast(v ? '名字记住了' : '名字清掉了'); }catch(e){}
 }
