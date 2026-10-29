@@ -2952,6 +2952,9 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
       <div id="imgFields" style="transition:opacity .25s;">
         <label>接口地址</label>
         <input id="imgOrigin" placeholder="https://novel.nekoprompt.top" autocapitalize="off" autocorrect="off">
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 8px;line-height:1.6;">
+          只填「https://域名」，<b>不要带 /ai 或 /ai/generate-image</b>（程序会自己拼）。末尾也不要加斜杠。
+        </p>
         <label>生图 API Key <span style="font-size:11px;color:var(--ink-soft)">（本地保存）</span></label>
         <div style="display:flex;gap:8px;align-items:center;">
           <input id="imgKey" type="password" placeholder="nk-..." style="flex:1 1 auto;min-width:0;" autocapitalize="off" autocorrect="off">
@@ -2959,6 +2962,11 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         </div>
         <label>模型</label>
         <select id="imgModel"></select>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 8px;line-height:1.6;">
+          ⚠️ <b>双人图必须选 4.x（4-5-full / 4-full）</b>：只有 4.x 才会把两个人的外观<b>分开</b>送过去（各带坐标）；
+          选 3.x 就只按一段纯文本理解，两人会长得糊在一起。有的第三方站会忽略这个字段、用它自己配的模型，
+          那不影响流程，但<b>我们发什么仍然由这里决定</b>。
+        </p>
         <label>尺寸</label>
         <select id="imgSize"></select>
         <div style="display:flex;gap:8px;">
