@@ -7947,11 +7947,63 @@ function imgSpontaneousBlock(opts){
   if(last > 0 && (Date.now() - last) < IMG_SPONT_GAP_MS) return '';   // 刚发过，别连着来
   if(imgUserAsked()) return '';                                       // 对方这轮本来就在要图，不用提示
   const lim = cfg.dailyLimit | 0;
-  return '<顺手拍张照片>\n'
-    + '此刻如果你眼前、手上或者身边的人有值得给对方看的画面（你在吃什么、走到哪了、外面什么天色），可以顺手拍一张发过去，不用等对方开口。'
-    + '今天还能主动发 ' + left + ' 张' + (lim > 0 ? ('（全天上限 ' + lim + ' 张）') : '') + '。\n'
-    + '画面的时间、地点、光线、穿着要和上面的「此刻」和当前时间对得上，别凭空换场景。没有值得拍的就不发——不要为了发而发，也不要在对方说正事、情绪低落时插一张图。\n'
-    + '</顺手拍张照片>';
+  // 文案本身可被用户改（设置 → 提示词中心）；{{LEFT}} / {{LIM}} 在发送时替换成真实额度
+  return imgSpontTpl()
+    .replace(/\{\{LEFT\}\}/g, String(left))
+    .replace(/\{\{LIM\}\}/g, lim > 0 ? ('（全天上限 ' + lim + ' 张）') : '');
+}
+/* ===== 生图「写给 AI 的说明书」（2026-10-29 晚，叶子要求可查看可修改）=====
+   这里有**两层**提示词，别混：
+   ① 这一层：告诉**聊天模型**「什么时候该发照片、标签怎么写」——就是 send_photo 的工具说明
+      和下面那段主动发图的时机块。模型照着它写出 `prompt`（一堆英文标签）。
+   ② 下一层：代码把模型写的标签拼成**真正发给生图站**的 final prompt
+      （`imgComposeShot` 加画风/镜头语言 → `imgNegFor` 加负面词 → 坐标由 `IMG_SLOT` 算死）。
+      那一层的成品在图上看（点图 → 🎨 提示词）。
+   ⚠️ 铁律：所有发给 AI 的提示词都要用户能看能改 ⇒ 这两段存 `mhm_img_prompt`，
+      设置 → 提示词中心里可编辑、可恢复默认，改完即时生效（不写进 `mhm_ai_cfg`，避免跟 systemTpl 的迁移逻辑缠在一起）。 */
+const IMG_PROMPT_KEY = 'mhm_img_prompt';   // { toolDesc, spontTpl }
+const IMG_TOOL_DESC_DEFAULT = `给对方发一张照片（你随手拍的），图会跟你的下一句话一起显示在气泡里。生成要 20-40 秒，每天有额度上限；额度用完必须如实说，不许假装已经发了。
+【先选视角 shot，这比写画面更重要】
+· pov：镜头就是你的眼睛，你本人不在画面里（最多露一点手）。你一个人在外面、在房间、在吃东西、看到什么好玩的。最像真人随手拍，也最耐看。⚠️ 这个视角代码里默认把画面里的人（含路人）全部禁掉了，所以别写「人群/热闹/crowd/街头艺人」这种以人为中心的画面，写那个只会得到一片空景。
+· pov_focus：第一人称，但画面里有一个你正看着的人（对方、店员、路边的人）。
+· selfie：自拍，你在画面里。对方问「你长什么样 / 你在干嘛 / 让我看看你」，或你想让对方看见自己。
+· duo：两个人的合照，要填 with。
+【怎么决定】对方只是好奇你在哪、看到什么 → pov；问到你自己、你的样子、你穿什么 → selfie；你们在一块儿、对方想看你们 → duo；你正看着对方 → pov_focus。同一个视角别连着用两次。
+【标签怎么写（NAI V4.5 吃这套）】按这个顺序写，越靠前权重越高：
+地点 → 时间/天气 → 光影 → 服装 → 动作表情 → 镜头 → 道具
+· 光影最决定成片观感，别省：warm lamp light / candlelight / dim lighting / soft window light / backlighting / golden hour / neon glow / overcast
+· 时间：morning / afternoon / dusk / sunset / evening / night
+· 镜头（按构图需要挑一个）：close-up / upper body / full body / from side / from above / wide shot / depth of field / bokeh
+· 服装要按场景写清楚（在家、吃饭、上班不一样），别只靠锚点自动补
+· 要强调某个词用 1.4::tag::，别堆一长串大括号
+· 例（餐桌对面的人）：restaurant table, evening, warm candlelight, dim lighting, man in white dress shirt sitting across the table, smiling at viewer, upper body, shallow depth of field, bokeh, wine glasses
+· 例（路边随手拍）：street corner, night, neon glow, wet asphalt, convenience store, vending machine, light rain, no humans, scenery, depth of field
+【不要写】视角词（selfie/pov/from above，shot 已决定）；谁在左谁在右（站位算死）；画风与质量词（全局已配）；角色长相（发色/耳型/发型自动补，除非这次换了发型）
+【什么时候主动发】系统提示里出现「顺手拍张照片」那块时，说明现在还有额度、也隔够久了：如果此刻场景里真有值得看的画面，就拍下来发过去，不用等对方开口。没出现那块就别主动发。对方在说正事、情绪低落、刚问了个需要回答的问题时，一律别插图。
+【画面必须成立】时间、地点、天气、穿着要和对话一致，不能凭空跳到海边或换一套衣服。`;
+/* 主动发图时机块。可用占位符：{{LEFT}}=今天还能主动发几张，{{LIM}}=「（全天上限 N 张）」或空 */
+const IMG_SPONT_DEFAULT = `<顺手拍张照片>
+此刻如果你眼前、手上或者身边的人有值得给对方看的画面（你在吃什么、走到哪了、外面什么天色），可以顺手拍一张发过去，不用等对方开口。今天还能主动发 {{LEFT}} 张{{LIM}}。
+画面的时间、地点、光线、穿着要和上面的「此刻」和当前时间对得上，别凭空换场景。没有值得拍的就不发——不要为了发而发，也不要在对方说正事、情绪低落时插一张图。
+</顺手拍张照片>`;
+function imgPromptCfg(){
+  let c = {};
+  try{ c = JSON.parse(localStorage.getItem(IMG_PROMPT_KEY)) || {}; }catch(e){ c = {}; }
+  return { toolDesc: String(c.toolDesc || ''), spontTpl: String(c.spontTpl || '') };
+}
+function imgPromptSave(patch){
+  const c = Object.assign(imgPromptCfg(), patch || {});
+  try{ localStorage.setItem(IMG_PROMPT_KEY, JSON.stringify(c)); }catch(e){}
+  return c;
+}
+/* 留空 = 用默认（跟 systemTpl 一个语义：清空输入框不该等于「关掉这个能力」） */
+function imgToolDesc(){
+  const v = imgPromptCfg().toolDesc;
+  return v.trim() ? v : IMG_TOOL_DESC_DEFAULT;
+}
+function imgSpontTpl(){
+  const v = imgPromptCfg().spontTpl;
+  return v.trim() ? v : IMG_SPONT_DEFAULT;
 }
 /* ---------- ZIP 解包（只依赖浏览器原生 DecompressionStream） ---------- */
 function imgZipEOCD(u8, dv){
@@ -8594,25 +8646,8 @@ const AI_TOOLS = [
   }},
   { type:'function', function:{
     name:'send_photo',
-    description:'给对方发一张照片（你随手拍的），图会跟你的下一句话一起显示在气泡里。生成要 20-40 秒，每天有额度上限；额度用完必须如实说，不许假装已经发了。\n'
-      + '【先选视角 shot，这比写画面更重要】\n'
-      + '· pov：镜头就是你的眼睛，你本人不在画面里（最多露一点手）。你一个人在外面、在房间、在吃东西、看到什么好玩的。最像真人随手拍，也最耐看。⚠️ 这个视角代码里默认把画面里的人（含路人）全部禁掉了，所以别写「人群/热闹/crowd/街头艺人」这种以人为中心的画面，写那个只会得到一片空景。\n'
-      + '· pov_focus：第一人称，但画面里有一个你正看着的人（对方、店员、路边的人）。\n'
-      + '· selfie：自拍，你在画面里。对方问「你长什么样 / 你在干嘛 / 让我看看你」，或你想让对方看见自己。\n'
-      + '· duo：两个人的合照，要填 with。\n'
-      + '【怎么决定】对方只是好奇你在哪、看到什么 → pov；问到你自己、你的样子、你穿什么 → selfie；你们在一块儿、对方想看你们 → duo；你正看着对方 → pov_focus。同一个视角别连着用两次。\n'
-      + '【标签怎么写（NAI V4.5 吃这套）】按这个顺序写，越靠前权重越高：\n'
-      + '地点 → 时间/天气 → 光影 → 服装 → 动作表情 → 镜头 → 道具\n'
-      + '· 光影最决定成片观感，别省：warm lamp light / candlelight / dim lighting / soft window light / backlighting / golden hour / neon glow / overcast\n'
-      + '· 时间：morning / afternoon / dusk / sunset / evening / night\n'
-      + '· 镜头（按构图需要挑一个）：close-up / upper body / full body / from side / from above / wide shot / depth of field / bokeh\n'
-      + '· 服装要按场景写清楚（在家、吃饭、上班不一样），别只靠锚点自动补\n'
-      + '· 要强调某个词用 1.4::tag::，别堆一长串大括号\n'
-      + '· 例（餐桌对面的人）：restaurant table, evening, warm candlelight, dim lighting, man in white dress shirt sitting across the table, smiling at viewer, upper body, shallow depth of field, bokeh, wine glasses\n'
-      + '· 例（路边随手拍）：street corner, night, neon glow, wet asphalt, convenience store, vending machine, light rain, no humans, scenery, depth of field\n'
-      + '【不要写】视角词（selfie/pov/from above，shot 已决定）；谁在左谁在右（站位算死）；画风与质量词（全局已配）；角色长相（发色/耳型/发型自动补，除非这次换了发型）\n'
-      + '【什么时候主动发】系统提示里出现「顺手拍张照片」那块时，说明现在还有额度、也隔够久了：如果此刻场景里真有值得看的画面，就拍下来发过去，不用等对方开口。没出现那块就别主动发。对方在说正事、情绪低落、刚问了个需要回答的问题时，一律别插图。\n'
-      + '【画面必须成立】时间、地点、天气、穿着要和对话一致，不能凭空跳到海边或换一套衣服。',
+    /* 说明文案用户可改（提示词中心第 15 块）：发送时由 aiToolsForPayload() 覆盖成当前值 */
+    description: IMG_TOOL_DESC_DEFAULT,
     parameters:{ type:'object', properties:{
       shot:{type:'string', enum:['pov','pov_focus','selfie','duo'], description:'视角。pov=你眼中所见（你不在画面里）；pov_focus=你正看着某个人；selfie=自拍（你在画面里）；duo=两人合照（须配 with）。不填时按 with/who 自动推断。'},
       prompt:{type:'string', description:'英文逗号分隔的画面标签（Danbooru 风格），只写画面本身：不写中文、不写解释、不写画风与质量词（已全局配好）。也不要写视角词（selfie/pov/first-person/from above）——shot 已经决定了，重复写会打架；不要写谁在左谁在右（站位由程序算死）；不要写角色长相（发色/耳型/默认服装会自动补，除非这套衣服变了）。拍静物/空景带上 no humans, scenery；拍人要写清在做什么。例：street market, evening, string lights, food stall, steam, wet pavement, bokeh'},
@@ -8623,6 +8658,18 @@ const AI_TOOLS = [
   }}
 ];
 
+/* 发送时浅拷贝一份工具表：`send_photo` 的说明文案用户能在提示词中心改，
+   改完必须立即生效 —— AI_TOOLS 是加载时定死的常量，直接改它等于「要重启应用」。
+   只替换有自定义说明的那一个，其余保持原引用（省钱也省心）。 */
+function aiToolsForPayload(){
+  const desc = imgToolDesc();
+  return AI_TOOLS.map(function(t){
+    if(t && t.function && t.function.name === 'send_photo'){
+      return { type:'function', function: Object.assign({}, t.function, { description: desc }) };
+    }
+    return t;
+  });
+}
 let aiConv = null;
 let aiBusy = false;
 let aiPendingFiles = []; // 待发送的图片/文件 {kind:'image'|'text', data, name}
@@ -12008,6 +12055,20 @@ function pcResetDiaryTpl(){
   const h = document.getElementById('promptCenterHint');
   if(h) h.textContent = '已恢复默认日记生成提示词，点「保存修改」生效。';
 }
+function pcResetImgToolDesc(){
+  const ta = document.getElementById('pcImgToolDesc');
+  if(!ta) return;
+  ta.value = IMG_TOOL_DESC_DEFAULT;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认的生图标签写法，点「保存本页」生效。';
+}
+function pcResetImgSpont(){
+  const ta = document.getElementById('pcImgSpont');
+  if(!ta) return;
+  ta.value = IMG_SPONT_DEFAULT;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认的主动发图时机块，点「保存本页」生效。';
+}
 function pcResetJournalMergeTpl(){
   const ta = document.getElementById('pcJournalMergeTpl');
   if(!ta) return;
@@ -12121,6 +12182,17 @@ function renderPromptCenter(){
     + '<p class="prompt-desc">把多则日记压缩成周记/月记的提示词，主角同定为【用户本人】。{N}/{TYPE}/{OUT}/{LEN} 发送时替换；不要删掉它们。</p>'
     + '<textarea id="pcJournalMergeTpl" class="prompt-body" rows="8">'+escHtml(journalMergeTpl)+'</textarea>'
     + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetJournalMergeTpl()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  /* 生图（2026-10-29 晚）：叶子要求「所有发给 AI 的提示词都要能看能改」——
+     这两块是**第一层**（教聊天模型怎么写图），下面那层（真正发给生图站的成品）在图上看。 */
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">15</span><span>生图 · 标签写法（发给 AI 的工具说明）</span></div>'
+    + '<p class="prompt-desc">这段是给聊天模型的说明书：它决定什么时候发图、选哪个视角、标签按什么顺序排。改完从下一轮对话起生效；留空 = 用默认。<br>'
+    + '⚠️ 这只是第一层 —— 最终发给生图站的那串（画风 + 镜头语言 + 负面词 + 站位）不在代码里，<b>点开聊天里的图片 →「🎨 提示词」</b>就能看到并直接改着重新生成。</p>'
+    + '<textarea id="pcImgToolDesc" class="prompt-body" rows="16">'+escHtml(imgToolDesc())+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetImgToolDesc()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">16</span><span>生图 · 主动发图时机块 &lt;顺手拍张照片&gt;</span></div>'
+    + '<p class="prompt-desc">满足条件（额度没满、隔够 40 分钟、你没在要图）时才追加这一段，让角色「自己想起来」可以拍。占位符 <code>{{LEFT}}</code> = 今天还能主动发几张，<code>{{LIM}}</code> = 「（全天上限 N 张）」或空，别删掉它们。留空 = 用默认。</p>'
+    + '<textarea id="pcImgSpont" class="prompt-body" rows="8">'+escHtml(imgSpontTpl())+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetImgSpont()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
   wrap.innerHTML = sc.join('');
 }
 function savePromptCenter(){
@@ -12143,6 +12215,8 @@ function savePromptCenter(){
   const compRulesEl = document.getElementById('pcCompanionRules');
   const diaryTplEl = document.getElementById('pcDiaryTpl');
   const journalMergeTplEl = document.getElementById('pcJournalMergeTpl');
+  const imgToolEl = document.getElementById('pcImgToolDesc');
+  const imgSpontEl = document.getElementById('pcImgSpont');
   
   if(sysEl) cfg.systemTpl = sysEl.value;
   if(idEl) localStorage.setItem(MEM_IDENTITY_KEY, idEl.value.trim());
@@ -12157,6 +12231,13 @@ function savePromptCenter(){
   if(compRulesEl) cfg.companionRules = compRulesEl.value;
   if(diaryTplEl) cfg.diaryTpl = diaryTplEl.value;
   if(journalMergeTplEl) cfg.journalMergeTpl = journalMergeTplEl.value;
+  // 生图说明（独立键，不并进 mhm_ai_cfg）；留空即回退默认，所以直接存空串
+  if(imgToolEl || imgSpontEl){
+    const ip = {};
+    if(imgToolEl) ip.toolDesc = imgToolEl.value;
+    if(imgSpontEl) ip.spontTpl = imgSpontEl.value;
+    imgPromptSave(ip);
+  }
   
   if(vOn){
     const vv = aiVoices();
@@ -12195,7 +12276,7 @@ function savePromptCenter(){
   if(aiConv && aiConv.length && aiConv[0].role === 'system') aiConv[0].content = buildSystem();
   renderPromptCenter();
   const h = document.getElementById('promptCenterHint');
-  if(h) h.textContent = '已保存：系统提示词、关系身份、关系现状规则、音色协议、表情包协议、角色名、粤语模式、上帝视角提示词与亲密尺度、陪伴规则与发送范围、回忆日记与周/月记生成提示词都已更新。';
+  if(h) h.textContent = '已保存：系统提示词、关系身份、关系现状规则、音色协议、表情包协议、角色名、粤语模式、上帝视角提示词与亲密尺度、陪伴规则与发送范围、回忆日记与周/月记生成提示词都已更新（含生图标签写法与主动发图时机块）。';
   toast('提示词已保存');
 }
 function copyPromptCenter(){
@@ -16252,7 +16333,7 @@ async function aiCall(messages, cfg, attempt, opts){
     temperature: 0.3,
     stream: false
   };
-  if(!noToolsModel && !opts.noTools){ payload.tools = AI_TOOLS; payload.tool_choice = 'auto'; }
+  if(!noToolsModel && !opts.noTools){ payload.tools = aiToolsForPayload(); payload.tool_choice = 'auto'; }
   // 记录实际发给模型的内容，供「查看发送给助理的内容」排查
   window.__lastAIPayload = { time: new Date(), mode: cfg.mode, model: payload.model, url, messages: payload.messages };
   const ctrl = new AbortController();
