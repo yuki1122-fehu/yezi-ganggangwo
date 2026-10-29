@@ -2950,6 +2950,20 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         ⚠️ Key 只存在这台设备上，不会进代码、不会上传；仓库是公开的，写进代码就等于公开泄露。
       </p>
       <div id="imgFields" style="transition:opacity .25s;">
+        <!-- 站点档位（2026-10-29）：两个公益站轮着用，换站不用重填 Key。
+             档位只存「地址 + Key + 模型 + 上限/冷却」，画风/锚点/尺寸这些是全局共用的。 -->
+        <label>生图站点 <span style="font-size:11px;font-weight:400;color:var(--ink-soft)">（存多少组都行，下拉即切）</span></label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <select id="imgSiteSel" onchange="imgSiteSwitch(this.value)" style="flex:1 1 auto;min-width:0;"></select>
+          <button class="btn ghost" type="button" onclick="imgSiteAdd()" title="把下面填好的地址/Key 另存成一个新站点档" style="flex:0 0 auto;padding:8px 10px;font-size:13px;line-height:1;" aria-label="新增站点档">＋</button>
+          <button class="btn ghost" type="button" onclick="imgSiteRename()" title="给这个站点档改名" style="flex:0 0 auto;padding:8px 10px;font-size:13px;line-height:1;" aria-label="站点档改名">✏️</button>
+          <button class="btn ghost" type="button" onclick="imgSiteDel()" title="删除这个站点档" style="flex:0 0 auto;padding:8px 10px;font-size:13px;line-height:1;" aria-label="删除站点档">🗑</button>
+        </div>
+        <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 8px;line-height:1.6;">
+          换站的正确姿势：下拉选另一个档 ⇒ 地址和 Key 自动换过来。<b>两个站各记各的额度</b>（A 站用满 20 张，切到 B 站照样能出，不会互相占）。
+          想加第三组：把地址和 Key 改好，点 <b>＋</b>。
+        </p>
+        <div id="imgSiteLine" style="font-size:11px;color:var(--ink-soft);margin:-4px 0 8px;line-height:1.5;"></div>
         <label>接口地址</label>
         <input id="imgOrigin" placeholder="https://novel.nekoprompt.top" autocapitalize="off" autocorrect="off">
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 8px;line-height:1.6;">
@@ -2980,7 +2994,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           </div>
         </div>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 10px;line-height:1.6;">
-          这个站限制每 800 秒一张、每天约 70 张。填 0 = 不限（不建议，会把额度烧光）。
+          按站点公告填（多数公益站是每 800 秒一张、每天 20 张左右）。<b>每个站点档各算各的额度</b>：A 站用满了切到 B 站照样能出。填 0 = 不限（不建议，会把额度烧光）。
         </p>
         <label>AI 主动发图（张/天） <span style="font-size:11px;color:var(--ink-soft)">（你没开口也能发）</span></label>
         <input id="imgProactive" type="number" min="0" max="6" step="1" inputmode="numeric">
@@ -4510,6 +4524,8 @@ function enterApp(){
   try{ ocRelNow(); }catch(e){ console.error(e); } // 角色世界关系预热（tick 演化）
   try{ initPomo(); }catch(e){ console.error(e); } // 番茄钟 · 港窝小园
   try{ imgCfgMigrate(); }catch(e){ console.error(e); } // 生图配置迁移（外观锚点/主动发图数，2026-10-29）
+  // 站点档位兜底：必须赶在第一次 imgQuota() 之前，否则旧额度会被记到 'default' 名下（2026-10-29）
+  try{ imgSiteEnsure(); }catch(e){ console.error(e); }
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
   try{ setTimeout(()=>{ convSelfHeal(); }, 1800); }catch(e){ console.error(e); } // 对话存档没读出来但记忆库有原文 → 主动问一句要不要重建（2026-09-11）
@@ -7801,6 +7817,7 @@ const IMG_NEG_NO_PEOPLE = '1girl, 1boy, 2girls, 2boys, multiple girls, multiple 
 
 const IMG_CFG_DEFAULT = {
   enabled: false,
+  siteId: '',              // 当前用哪个站点档（mhm_img_sites 里的 id），空 = 还没建
   origin: 'https://novel.nekoprompt.top',
   key: '',
   model: 'nai-diffusion-4-5-full',
@@ -7874,21 +7891,220 @@ function imgCfgMigrate(){
   if(!b || /short black hair|fox ears/i.test(b)) patch.anchorB = IMG_ANCHOR_DEFAULT['沈容'];
   imgCfgSave(patch);
 }
+
+/* ===== 生图站点档位（2026-10-29，叶子要「配好两个站之后随意切，不用再填一次 Key」）=====
+   设计：**单一事实源仍然是 `mhm_img_cfg`**（origin/key/model/dailyLimit/cooldownSec 就存在它里面），
+   档位只是「这套值的命名快照」。切换 = 先把表单存回旧档，再把目标档写进 cfg + 表单。
+   这样 imgGenerate / imgGateCheck / 主动发图全都不用改一行。
+   ⚠️ 档位**只存站点相关字段**：画风指纹、外观锚点、尺寸、步数这些是全局共用的，
+      绝不能跟着档位走，否则换个站画风就变了（而且会悄悄覆盖她调好的那份）。
+   ⚠️ 额度必须按档位分开记（见 imgQuotaOf）：两个公益站各自有各自的上限，
+      混着算会导致「A 站用满 20 张 → 切到 B 站也被拦」。 */
+const IMG_SITES_KEY = 'mhm_img_sites';
+/* 设置页那套表单有没有被真正填过值（只有打开过设置页才会填）。
+   ⚠️ 切站前要「先把表单存回旧档」，但如果表单从没初始化过，读到的全是空串，
+      会把旧档的地址/Key 抹成空 —— 所以必须先看这个开关。 */
+let _imgFormInited = false;
+function imgSites(){
+  let a = null;
+  try{ a = JSON.parse(localStorage.getItem(IMG_SITES_KEY) || '[]'); }catch(e){ a = null; }
+  if(!Array.isArray(a)) a = [];
+  return a.filter(function(s){ return s && s.id; });
+}
+function imgSitesSave(list){
+  try{ localStorage.setItem(IMG_SITES_KEY, JSON.stringify(list || [])); }catch(e){}
+}
+function imgSiteOf(id){
+  const list = imgSites();
+  for(let i = 0; i < list.length; i++){ if(list[i].id === id) return list[i]; }
+  return null;
+}
+function imgSiteHost(origin){
+  return String(origin || '').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+}
+function imgSiteLabel(s){
+  if(!s) return '未命名站点';
+  return String(s.name || '').trim() || imgSiteHost(s.origin) || '未命名站点';
+}
+function imgSiteNewId(){ return 'site_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+/* 首次升级：把现有那份配置就地收成一个档位，并把 siteId 指过去。
+   ⚠️ 必须在任何 imgQuota() 之前跑（启动时），否则旧额度会被算到 'default' 名下，
+      等 siteId 改了，今天的已用数就凭空清零（等于白送 20 张）。 */
+function imgSiteEnsure(){
+  const c = imgCfg();
+  let list = imgSites();
+  if(list.length === 0){
+    const id = imgSiteNewId();
+    list = [{ id: id, name: imgSiteHost(c.origin) || '默认站点',
+      origin: c.origin || '', key: c.key || '', model: c.model || IMG_CFG_DEFAULT.model,
+      dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0, updated: Date.now() }];
+    imgSitesSave(list);
+    imgCfgSave({ siteId: id });
+    return;
+  }
+  if(!c.siteId || !imgSiteOf(c.siteId)) imgCfgSave({ siteId: list[0].id });
+}
+/* 把 cfg 里那五个「站点字段」写回当前档（saveImgCfg 末尾调） */
+function imgSiteSyncFromCfg(){
+  const c = imgCfg();
+  if(!c.siteId) return;
+  const list = imgSites();
+  let hit = -1;
+  for(let i = 0; i < list.length; i++){ if(list[i].id === c.siteId){ hit = i; break; } }
+  if(hit < 0) return;
+  list[hit] = Object.assign({}, list[hit], {
+    origin: c.origin || '', key: c.key || '', model: c.model || IMG_CFG_DEFAULT.model,
+    dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0, updated: Date.now()
+  });
+  imgSitesSave(list);
+}
+function imgPaintSiteSel(){
+  const sel = document.getElementById('imgSiteSel');
+  if(!sel) return;
+  const c = imgCfg(), list = imgSites();
+  sel.innerHTML = '';
+  list.forEach(function(s){
+    const o = document.createElement('option');
+    o.value = s.id;
+    const q = imgQuotaOf(s.id);
+    const lim = s.dailyLimit | 0;
+    o.textContent = imgSiteLabel(s) + ' · 今天 ' + q.used + (lim > 0 ? ('/' + lim) : '');
+    sel.appendChild(o);
+  });
+  if(c.siteId) sel.value = c.siteId;
+  const line = document.getElementById('imgSiteLine');
+  if(line){
+    const s = imgSiteOf(c.siteId);
+    line.textContent = s ? ('当前用：' + imgSiteLabel(s) + '　' + String(s.origin || '（还没填地址）')) : '';
+  }
+}
+function imgSiteSwitch(id){
+  const c0 = imgCfg();
+  if(c0.siteId === id) return;
+  const target = imgSiteOf(id);
+  if(!target) return;
+  /* 先把表单里现在这套（可能刚改过还没保存）存回旧档，再载入目标档。
+     顺序不能反：反了就等于拿目标站的值覆盖了旧档。
+     但表单没填过值时绝不能读它（会把旧档抹空）⇒ 看 _imgFormInited。 */
+  if(_imgFormInited){ try{ saveImgCfg(); }catch(e){} }
+  imgCfgSave({ siteId: target.id, origin: target.origin || '', key: target.key || '',
+    model: target.model || IMG_CFG_DEFAULT.model, dailyLimit: target.dailyLimit | 0, cooldownSec: target.cooldownSec | 0 });
+  try{ initImgSettingsFields(); }catch(e){}
+  const h = document.getElementById('imgHint');
+  if(h) h.textContent = '已切到「' + imgSiteLabel(target) + '」' + (target.key ? '' : '⚠️ 这个档还没填 Key');
+  try{ toast('已切到「' + imgSiteLabel(target) + '」'); }catch(e){}
+}
+/* 「＋」= 把**表单里现在填的**地址/Key 另存成一个新档。
+   ⚠️ 这里绝不能先调 saveImgCfg()：它会把表单写回**当前档**（siteId 还没改），
+      于是「A 档」的地址被就地改成 B，然后去重判断还会认为「已经存在」直接返回 ——
+      表现就是「点了＋一点反应都没有，但地址变了」（2026-10-29 自测抓到的第一个坑）。 */
+function imgSiteValuesFromForm(){
+  const g = function(id){ const e = document.getElementById(id); return e ? String(e.value || '') : ''; };
+  return {
+    origin: g('imgOrigin').trim() || IMG_CFG_DEFAULT.origin,
+    key: g('imgKey').trim(),
+    model: g('imgModel') || IMG_CFG_DEFAULT.model,
+    dailyLimit: Math.max(0, Math.min(70, parseInt(g('imgDaily'), 10) || 0)),
+    cooldownSec: Math.max(0, Math.min(3600, parseInt(g('imgCooldown'), 10) || 0))
+  };
+}
+function imgSiteAdd(){
+  const c = imgCfg();
+  const v = _imgFormInited
+    ? imgSiteValuesFromForm()
+    : { origin: c.origin || '', key: c.key || '', model: c.model || IMG_CFG_DEFAULT.model,
+        dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0 };
+  const list = imgSites();
+  // 同一个地址 + 同一个 Key 已经存过 ⇒ 直接切过去，别造重复档（她会连点两下）
+  for(let i = 0; i < list.length; i++){
+    if(imgSiteHost(list[i].origin) === imgSiteHost(v.origin) && String(list[i].key || '') === String(v.key || '')){
+      imgSiteSwitch(list[i].id);
+      try{ toast('这个站已经存过档了，已切过去'); }catch(e){}
+      return;
+    }
+  }
+  const host = imgSiteHost(v.origin) || '新站点';
+  const id = imgSiteNewId();
+  list.push({ id: id, name: host, origin: v.origin, key: v.key, model: v.model,
+    dailyLimit: v.dailyLimit, cooldownSec: v.cooldownSec, updated: Date.now() });
+  imgSitesSave(list);
+  imgCfgSave({ siteId: id, origin: v.origin, key: v.key, model: v.model,
+    dailyLimit: v.dailyLimit, cooldownSec: v.cooldownSec });
+  try{ imgPaintSiteSel(); imgPaintQuota(); }catch(e){}
+  const h = document.getElementById('imgHint');
+  if(h) h.textContent = '已存为新站点档「' + host + '」，额度从 0 开始算';
+  try{ toast('已存为「' + host + '」，额度从 0 开始'); }catch(e){}
+}
+function imgSiteRename(){
+  const c = imgCfg(), list = imgSites();
+  let hit = -1;
+  for(let i = 0; i < list.length; i++){ if(list[i].id === c.siteId){ hit = i; break; } }
+  if(hit < 0) return;
+  const v = prompt('这个站点档叫什么名字？（只用来显示，随便起）', imgSiteLabel(list[hit]));
+  if(v === null) return;
+  list[hit].name = String(v).trim().slice(0, 24) || imgSiteLabel(list[hit]);
+  imgSitesSave(list);
+  try{ imgPaintSiteSel(); }catch(e){}
+  try{ toast('已改名'); }catch(e){}
+}
+function imgSiteDel(){
+  const c = imgCfg(), list = imgSites();
+  let hit = -1;
+  for(let i = 0; i < list.length; i++){ if(list[i].id === c.siteId){ hit = i; break; } }
+  if(hit < 0) return;
+  if(list.length <= 1){ try{ toast('至少要留一个站点档'); }catch(e){} return; }
+  const nm = imgSiteLabel(list[hit]);
+  if(!confirm('删除站点档「' + nm + '」？\n只删这组的地址和 Key，画风、锚点、额度记录都不动。')) return;
+  list.splice(hit, 1);
+  imgSitesSave(list);
+  const next = list[0];
+  imgCfgSave({ siteId: next.id, origin: next.origin || '', key: next.key || '',
+    model: next.model || IMG_CFG_DEFAULT.model, dailyLimit: next.dailyLimit | 0, cooldownSec: next.cooldownSec | 0 });
+  try{ initImgSettingsFields(); }catch(e){}
+  try{ toast('已删除「' + nm + '」'); }catch(e){}
+}
 function imgDayKey(){
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
-function imgQuota(){
-  let q = {};
-  try{ q = JSON.parse(localStorage.getItem(IMG_QUOTA_KEY)) || {}; }catch(e){ q = {}; }
-  if(q.day !== imgDayKey()) q = { day: imgDayKey(), used: 0, lastAt: 0, pro: 0, lastShot: '' };
+/* 额度记录（2026-10-29 起**按站点分**）：存储结构 `{ by: { <siteId>: {day,used,lastAt,pro,lastShot} } }`。
+   ⚠️ 以前是「全局一份」，两个公益站轮着用时会互相占额度：A 站用满 20 张，切到 B 站照样被判"今天已用完"。
+   ⚠️ 旧结构（顶层直接是 day/used/…）在第一次读时**就地迁移**到当前站点名下，不能丢，
+      否则今天已经用掉的张数会凭空清零（等于白送 20 张）。 */
+function imgQuotaRaw(){
+  let r = null;
+  try{ r = JSON.parse(localStorage.getItem(IMG_QUOTA_KEY) || '{}'); }catch(e){ r = null; }
+  return (r && typeof r === 'object') ? r : {};
+}
+function imgQuotaSaveRaw(raw){
+  try{ localStorage.setItem(IMG_QUOTA_KEY, JSON.stringify(raw || {})); }catch(e){}
+}
+function imgQuotaBy(){
+  const raw = imgQuotaRaw();
+  if(raw && raw.by && typeof raw.by === 'object') return raw.by;
+  const by = {};
+  const sid = String(imgCfg().siteId || 'default');
+  if(raw && raw.day){
+    by[sid] = { day: raw.day, used: raw.used|0, lastAt: Number(raw.lastAt) || 0, pro: raw.pro|0, lastShot: String(raw.lastShot || '') };
+  }
+  imgQuotaSaveRaw({ by: by });
+  return by;
+}
+/* 取某个站点档的额度（切站后显示的必须是新站自己的那一份） */
+function imgQuotaOf(siteId){
+  const by = imgQuotaBy();
+  const q = by[String(siteId || 'default')] || {};
   // ⚠️ lastAt 是 Date.now()（约 1.79e12），绝不能用 `|0`：32 位截断会变成负数，
   //    于是「现在 - lastAt」永远是巨大正数 ⇒ 本地冷却形同不存在（2026-10-29 实测踩过）
   // pro = 今天「没被要求就主动发」的张数；lastShot = 上一张的镜头（用来提醒别连着同一个视角）
+  if(q.day !== imgDayKey()) return { day: imgDayKey(), used: 0, lastAt: 0, pro: 0, lastShot: '' };
   return { day: q.day, used: q.used|0, lastAt: Number(q.lastAt) || 0, pro: q.pro|0, lastShot: String(q.lastShot || '') };
 }
+function imgQuota(){ return imgQuotaOf(imgCfg().siteId || 'default'); }
 function imgQuotaSave(q){
-  try{ localStorage.setItem(IMG_QUOTA_KEY, JSON.stringify(q)); }catch(e){}
+  const by = imgQuotaBy();
+  by[String(imgCfg().siteId || 'default')] = q;
+  imgQuotaSaveRaw({ by: by });
 }
 /* 撞上**真限速**时更新冷却：按服务器给的「还要等 X 秒」反推上一次成功的真实时刻。
    ⚠️ 不能直接写 `lastAt = 现在`：站点是固定窗口，从此刻重算 800 秒会比站点更晚解锁，
@@ -10967,8 +11183,10 @@ function initImgSettingsFields(){
   if(!on) return;
   // 必须在读 cfg 之前迁：否则填进去的是旧锚点，用户一按「保存本页」就把旧值又写回去了
   try{ imgCfgMigrate(); }catch(e){}
+  try{ imgSiteEnsure(); }catch(e){}
   const cfg = imgCfg();
   imgFillSelects();
+  try{ imgPaintSiteSel(); }catch(e){}
   on.checked = !!cfg.enabled;
   const set = function(id, v){ const e = document.getElementById(id); if(e) e.value = v; };
   set('imgOrigin', cfg.origin || '');
@@ -10989,6 +11207,7 @@ function initImgSettingsFields(){
   set('imgSeed', (cfg.seed == null ? '' : String(cfg.seed)));
   const h = document.getElementById('imgHint'); if(h) h.textContent = '';
   const old = document.getElementById('imgTestPreview'); if(old) old.remove();
+  _imgFormInited = true;
   syncImgUI();
 }
 function syncImgUI(){
@@ -11004,9 +11223,11 @@ function imgPaintQuota(){
   const cfg = imgCfg(), q = imgQuota();
   const cd = (cfg.cooldownSec | 0) * 1000;
   const left = cd - (Date.now() - (Number(q.lastAt) || 0));
-  let s = '今日已用 ' + q.used + ' 张' + ((cfg.dailyLimit | 0) > 0 ? ('（上限 ' + (cfg.dailyLimit|0) + '）') : '（不限）');
+  const siteName = imgSiteLabel(imgSiteOf(cfg.siteId));
+  let s = (siteName ? '「' + siteName + '」' : '') + '今日已用 ' + q.used + ' 张' + ((cfg.dailyLimit | 0) > 0 ? ('（上限 ' + (cfg.dailyLimit|0) + '）') : '（不限）');
   if(cd > 0 && (Number(q.lastAt) || 0) > 0 && left > 0) s += ' · 冷却中，还需等 ' + Math.ceil(left/1000) + ' 秒';
   el.textContent = s;
+  try{ imgPaintSiteSel(); }catch(e){}
 }
 function saveImgCfg(){
   const g = function(id){ const e = document.getElementById(id); return e ? String(e.value || '') : ''; };
@@ -11033,6 +11254,9 @@ function saveImgCfg(){
     sampler: g('imgSampler') || IMG_CFG_DEFAULT.sampler,
     seed: String(g('imgSeed') || '').trim()
   });
+  /* 保存本页 = 也把「站点那五个字段」存回当前档，否则切走再切回来就丢了
+     （档位是命名快照，但快照要跟着改，不然第二次切换会把它还原成旧地址） */
+  try{ imgSiteSyncFromCfg(); imgPaintSiteSel(); }catch(e){}
 }
 /* 恢复默认画风：只改 styleDraw 一个字段并立即落盘，不碰其他配置
    （整页 saveImgCfg 会把没填过的框一起写成空值，风险太大） */
