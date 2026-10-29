@@ -3004,14 +3004,22 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 
         <!-- 画风指纹：整套画风的唯一来源，随时可改（2026-10-29 增加） -->
         <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <span>画风指纹 <span style="font-size:11px;font-weight:400;color:var(--ink-soft)">（画师权重，所有图恒定生效）</span></span>
+          <span>画风指纹 <span style="font-size:11px;font-weight:400;color:var(--ink-soft)">（这一档专用，换站会跟着换）</span></span>
           <button class="btn ghost" type="button" onclick="imgResetStyle()" style="flex:0 0 auto;padding:4px 9px;font-size:11px;line-height:1.3;">恢复默认</button>
         </label>
         <textarea id="imgStyle" rows="5" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="highly detailed, 2::artist:afire::, ..."
           style="width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 10px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.75);color:var(--ink);"></textarea>
+        <div style="display:flex;gap:8px;align-items:flex-start;margin-top:6px;">
+          <label style="display:flex;align-items:flex-start;gap:6px;flex:1;min-width:0;font-size:11px;line-height:1.5;cursor:pointer;">
+            <input type="checkbox" id="imgPlainSyntax" style="flex:0 0 auto;margin-top:2px;">
+            <span>这个站<b>不认 NAI 权重</b>（发出去前自动把 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">2::…::</code> 和 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">{{…}}</code> 拆成纯词）</span>
+          </label>
+          <button class="btn ghost" type="button" onclick="imgUsePlainStyle()" style="flex:0 0 auto;padding:4px 9px;font-size:11px;line-height:1.3;">填纯标签版</button>
+        </div>
         <p class="hint" style="font-size:11px;color:#4a5b4d;margin:4px 0 10px;line-height:1.65;">
           只放「质量词 + 画师」，<b style="color:#a3577a;">不要放场景词</b>（evening / sea / deck / 日落这类）。场景每张都由 AI 现编，写死会让所有图都变成同一个黄昏海边。<br>
-          权重写法 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">2::artist:afire::</code>，数字越大越强调；改完对之后所有图生效，已生成的图不变。
+          <b>NovelAI 系站</b>（小酒等）用权重写法 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">2::artist:afire::</code>，数字越大越强调。<br>
+          <b>PixAI / SD 系站</b>（柏宝绘等）没有这几个画师、也不认这套权重 ⇒ 勾上上面的开关并点「填纯标签版」，否则那串 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">::</code> 只是噪音。
         </p>
 
         <label>零落 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（已按真实设定填好）</span></label>
@@ -7785,6 +7793,11 @@ const IMG_SIZES = [
       场景每张都不同、由 AI 现编；画风才需要恒定，否则每张图像不同人画的。
    NAI 语法 `权重::标签::`，prompt 是纯文本所以原样透传，拼接时别打乱 `::`。 */
 const IMG_STYLE_DEFAULT = 'highly detailed, 2::artist:afire::, 1.4::ash_echoes::, 0.6::ask_(askzy)::, 0.5::artist:eteru::, 0.2::artist_ciloranko::, 2.7::detailed beautiful eyes::, 0.5::shiny eyes::, 8::high detail::, 5::best quality::';
+/* 纯标签版画风（2026-10-29）：给 **非 NovelAI 后端**（比如 PixAI 系）用的那一套。
+   差别不在"提示词方法"，而在**权重语法**：NAI 用 `2::tag::`，SD/PixAI 系用 `(tag:1.2)` 或干脆不加权。
+   而且 NAI 的 `artist:xxx` 那几个画师名在 SD 系底座里根本不存在 ⇒ 留在那儿只是噪音。
+   所以这套只用通用质量词，一个画师名都不放。 */
+const IMG_STYLE_PLAIN = 'masterpiece, best quality, highly detailed, very aesthetic, sharp focus, detailed eyes, detailed face';
 /* 负面词默认值：叶子那份，比早期版多 missing fingers / fewer digits / cropped / blurry */
 const IMG_NEG_DEFAULT = 'lowres, bad anatomy, bad hands, missing fingers, extra digits, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts, signature, watermark, username, blurry';
 
@@ -7818,6 +7831,7 @@ const IMG_NEG_NO_PEOPLE = '1girl, 1boy, 2girls, 2boys, multiple girls, multiple 
 const IMG_CFG_DEFAULT = {
   enabled: false,
   siteId: '',              // 当前用哪个站点档（mhm_img_sites 里的 id），空 = 还没建
+  plainSyntax: false,      // 这一档的站认不认 NAI 权重语法；不认 ⇒ 发出去前把 {{}} 和 2::…:: 拆掉
   origin: 'https://novel.nekoprompt.top',
   key: '',
   model: 'nai-diffusion-4-5-full',
@@ -7927,6 +7941,25 @@ function imgSiteLabel(s){
   return String(s.name || '').trim() || imgSiteHost(s.origin) || '未命名站点';
 }
 function imgSiteNewId(){ return 'site_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+/* 一个档位「属于站点自己」的那几项。
+   ⚠️ 2026-10-29 下午改过一次口径：画风指纹 / 负面词 / 权重语法 **也跟着档位走**。
+      原来的理由是「换站不该改画风」，但叶子明确说她愿意为不同站准备不同画风 ——
+      而且这两站本来就不是一回事（NAI 用 `2::artist::`，PixAI 系是 LoRA + 括号权重）。
+   外观锚点、尺寸、步数仍然是**全局共用**：那两样换站也得一样。 */
+const IMG_SITE_STYLE_KEYS = ['styleDraw', 'negPrompt', 'plainSyntax'];
+/* 老档位（只有地址/Key/模型那五个字段）补上画风三件套：
+   一律用「现在全局那一份」填，保证升级那一刻她的画风没变；之后各档自己改自己的。
+   ⚠️ 判据用 `=== undefined`，不能用 `!s.styleDraw` —— 她可能**故意**把某一档的画风清空。 */
+function imgSiteFillStyle(list, c){
+  let dirty = false;
+  list.forEach(function(s){
+    if(s.styleDraw === undefined){ s.styleDraw = c.styleDraw || IMG_STYLE_DEFAULT; dirty = true; }
+    if(s.negPrompt === undefined){ s.negPrompt = c.negPrompt || IMG_NEG_DEFAULT; dirty = true; }
+    if(s.plainSyntax === undefined){ s.plainSyntax = false; dirty = true; }
+  });
+  if(dirty) imgSitesSave(list);
+  return list;
+}
 /* 首次升级：把现有那份配置就地收成一个档位，并把 siteId 指过去。
    ⚠️ 必须在任何 imgQuota() 之前跑（启动时），否则旧额度会被算到 'default' 名下，
       等 siteId 改了，今天的已用数就凭空清零（等于白送 20 张）。 */
@@ -7937,14 +7970,18 @@ function imgSiteEnsure(){
     const id = imgSiteNewId();
     list = [{ id: id, name: imgSiteHost(c.origin) || '默认站点',
       origin: c.origin || '', key: c.key || '', model: c.model || IMG_CFG_DEFAULT.model,
-      dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0, updated: Date.now() }];
+      dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0,
+      styleDraw: c.styleDraw || IMG_STYLE_DEFAULT, negPrompt: c.negPrompt || IMG_NEG_DEFAULT,
+      plainSyntax: !!c.plainSyntax, updated: Date.now() }];
     imgSitesSave(list);
     imgCfgSave({ siteId: id });
     return;
   }
+  list = imgSiteFillStyle(list, c);
   if(!c.siteId || !imgSiteOf(c.siteId)) imgCfgSave({ siteId: list[0].id });
 }
-/* 把 cfg 里那五个「站点字段」写回当前档（saveImgCfg 末尾调） */
+/* 把 cfg 里「属于站点」的那几项（地址/Key/模型/上限/冷却 + 画风三件套）写回当前档。
+   saveImgCfg 末尾调 —— 不写回去，切走再切回来就丢了。 */
 function imgSiteSyncFromCfg(){
   const c = imgCfg();
   if(!c.siteId) return;
@@ -7954,7 +7991,11 @@ function imgSiteSyncFromCfg(){
   if(hit < 0) return;
   list[hit] = Object.assign({}, list[hit], {
     origin: c.origin || '', key: c.key || '', model: c.model || IMG_CFG_DEFAULT.model,
-    dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0, updated: Date.now()
+    dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0,
+    styleDraw: (c.styleDraw === undefined ? IMG_STYLE_DEFAULT : c.styleDraw),
+    negPrompt: (c.negPrompt === undefined ? IMG_NEG_DEFAULT : c.negPrompt),
+    plainSyntax: !!c.plainSyntax,
+    updated: Date.now()
   });
   imgSitesSave(list);
 }
@@ -7987,8 +8028,12 @@ function imgSiteSwitch(id){
      顺序不能反：反了就等于拿目标站的值覆盖了旧档。
      但表单没填过值时绝不能读它（会把旧档抹空）⇒ 看 _imgFormInited。 */
   if(_imgFormInited){ try{ saveImgCfg(); }catch(e){} }
+  /* 载入目标档：**画风三件套也一起换**（这一档的站用哪套词、认不认 NAI 权重） */
   imgCfgSave({ siteId: target.id, origin: target.origin || '', key: target.key || '',
-    model: target.model || IMG_CFG_DEFAULT.model, dailyLimit: target.dailyLimit | 0, cooldownSec: target.cooldownSec | 0 });
+    model: target.model || IMG_CFG_DEFAULT.model, dailyLimit: target.dailyLimit | 0, cooldownSec: target.cooldownSec | 0,
+    styleDraw: (target.styleDraw === undefined ? IMG_STYLE_DEFAULT : target.styleDraw),
+    negPrompt: (target.negPrompt === undefined ? IMG_NEG_DEFAULT : target.negPrompt),
+    plainSyntax: !!target.plainSyntax });
   try{ initImgSettingsFields(); }catch(e){}
   const h = document.getElementById('imgHint');
   if(h) h.textContent = '已切到「' + imgSiteLabel(target) + '」' + (target.key ? '' : '⚠️ 这个档还没填 Key');
@@ -8000,12 +8045,16 @@ function imgSiteSwitch(id){
       表现就是「点了＋一点反应都没有，但地址变了」（2026-10-29 自测抓到的第一个坑）。 */
 function imgSiteValuesFromForm(){
   const g = function(id){ const e = document.getElementById(id); return e ? String(e.value || '') : ''; };
+  const cs = document.getElementById('imgPlainSyntax');
   return {
     origin: g('imgOrigin').trim() || IMG_CFG_DEFAULT.origin,
     key: g('imgKey').trim(),
     model: g('imgModel') || IMG_CFG_DEFAULT.model,
     dailyLimit: Math.max(0, Math.min(70, parseInt(g('imgDaily'), 10) || 0)),
-    cooldownSec: Math.max(0, Math.min(3600, parseInt(g('imgCooldown'), 10) || 0))
+    cooldownSec: Math.max(0, Math.min(3600, parseInt(g('imgCooldown'), 10) || 0)),
+    styleDraw: g('imgStyle').trim(),
+    negPrompt: g('imgNeg').trim(),
+    plainSyntax: cs ? !!cs.checked : false
   };
 }
 function imgSiteAdd(){
@@ -8013,7 +8062,9 @@ function imgSiteAdd(){
   const v = _imgFormInited
     ? imgSiteValuesFromForm()
     : { origin: c.origin || '', key: c.key || '', model: c.model || IMG_CFG_DEFAULT.model,
-        dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0 };
+        dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0,
+        styleDraw: c.styleDraw || IMG_STYLE_DEFAULT, negPrompt: c.negPrompt || IMG_NEG_DEFAULT,
+        plainSyntax: !!c.plainSyntax };
   const list = imgSites();
   // 同一个地址 + 同一个 Key 已经存过 ⇒ 直接切过去，别造重复档（她会连点两下）
   for(let i = 0; i < list.length; i++){
@@ -8026,10 +8077,12 @@ function imgSiteAdd(){
   const host = imgSiteHost(v.origin) || '新站点';
   const id = imgSiteNewId();
   list.push({ id: id, name: host, origin: v.origin, key: v.key, model: v.model,
-    dailyLimit: v.dailyLimit, cooldownSec: v.cooldownSec, updated: Date.now() });
+    dailyLimit: v.dailyLimit, cooldownSec: v.cooldownSec,
+    styleDraw: v.styleDraw, negPrompt: v.negPrompt, plainSyntax: !!v.plainSyntax, updated: Date.now() });
   imgSitesSave(list);
   imgCfgSave({ siteId: id, origin: v.origin, key: v.key, model: v.model,
-    dailyLimit: v.dailyLimit, cooldownSec: v.cooldownSec });
+    dailyLimit: v.dailyLimit, cooldownSec: v.cooldownSec,
+    styleDraw: v.styleDraw, negPrompt: v.negPrompt, plainSyntax: !!v.plainSyntax });
   try{ imgPaintSiteSel(); imgPaintQuota(); }catch(e){}
   const h = document.getElementById('imgHint');
   if(h) h.textContent = '已存为新站点档「' + host + '」，额度从 0 开始算';
@@ -8054,12 +8107,15 @@ function imgSiteDel(){
   if(hit < 0) return;
   if(list.length <= 1){ try{ toast('至少要留一个站点档'); }catch(e){} return; }
   const nm = imgSiteLabel(list[hit]);
-  if(!confirm('删除站点档「' + nm + '」？\n只删这组的地址和 Key，画风、锚点、额度记录都不动。')) return;
+  if(!confirm('删除站点档「' + nm + '」？\n只删这一组（地址、Key、这一档的画风词和它的额度记录），别档和外观锚点都不动。')) return;
   list.splice(hit, 1);
   imgSitesSave(list);
   const next = list[0];
   imgCfgSave({ siteId: next.id, origin: next.origin || '', key: next.key || '',
-    model: next.model || IMG_CFG_DEFAULT.model, dailyLimit: next.dailyLimit | 0, cooldownSec: next.cooldownSec | 0 });
+    model: next.model || IMG_CFG_DEFAULT.model, dailyLimit: next.dailyLimit | 0, cooldownSec: next.cooldownSec | 0,
+    styleDraw: (next.styleDraw === undefined ? IMG_STYLE_DEFAULT : next.styleDraw),
+    negPrompt: (next.negPrompt === undefined ? IMG_NEG_DEFAULT : next.negPrompt),
+    plainSyntax: !!next.plainSyntax });
   try{ initImgSettingsFields(); }catch(e){}
   try{ toast('已删除「' + nm + '」'); }catch(e){}
 }
@@ -8446,10 +8502,26 @@ function imgShrink(blob, maxSide){
   }).catch(function(){ return blob; });
 }
 /* ---------- 请求 ---------- */
+/* 语法净化（2026-10-29）：把 NAI 专属的强化写法拆成纯词，给不认权重的站（PixAI/SD 系）用。
+   - `{{forehead}}`  → `forehead`（这是锚点里代码生成的，NAI 的花括号在别家就是三个符号噪音）
+   - `2::artist:afire::` → `artist:afire`（权重要是它不认，剩一堆 `::` 只会污染提示词）
+   ⚠️ 只在**发出去的那一刻**拆，`rec.full` 里仍存她原本写的版本 ——
+      否则看图页的「🎨 提示词」会显示一份她没写过的文本，改词重生成时也越改越乱。
+   ⚠️ 必须幂等：同一条被拆两次不能变样（看图页重生成会把 full 再发一遍）。 */
+function imgSyntaxClean(txt){
+  let s = String(txt || '');
+  if(!imgCfg().plainSyntax) return s;
+  s = s.replace(/\{\{([^{}]+)\}\}/g, '$1');
+  // 权重段里可能含冒号（artist:afire），所以不能写 [^:]，要用「到下一个 :: 为止」
+  s = s.replace(/(\d+(?:\.\d+)?)\s*::([^,]*?)::/g, '$2');
+  return s.replace(/\s*,\s*,+/g, ', ').replace(/\s{2,}/g, ' ').trim();
+}
 function imgBuildBody(cfg, prompt, negative, w, h, seed, opt){
   opt = opt || {};
-  const base = String(prompt || '').trim();
-  const neg  = String(negative || '').trim();
+  /* ⚠️ 净化放在这个**唯一出口**上：input / v4 base_caption / char_captions / 两组 negative
+     全都要过一遍。以前只在 base 上处理，char_captions 是另一条通道（锚点走这里），会漏。 */
+  const base = imgSyntaxClean(String(prompt || '').trim());
+  const neg  = imgSyntaxClean(String(negative || '').trim());
   const params = {
     width: w, height: h, n_samples: 1, steps: Math.max(1, Math.min(50, cfg.steps|0)),
     scale: Math.min(10, Math.max(1, Number(cfg.scale) || 5)), sampler: cfg.sampler || 'k_euler_ancestral',
@@ -8460,7 +8532,7 @@ function imgBuildBody(cfg, prompt, negative, w, h, seed, opt){
   if(/^nai-diffusion-4/.test(cfg.model)){
     const chars = Array.isArray(opt.chars) ? opt.chars.filter(function(c){ return c && String(c.caption||'').trim(); }) : [];
     const charCaps = chars.map(function(c){
-      return { char_caption: String(c.caption).trim(),
+      return { char_caption: imgSyntaxClean(String(c.caption).trim()),
                centers: [{ x: (typeof c.x === 'number' ? c.x : 0.5), y: (typeof c.y === 'number' ? c.y : 0.5) }] };
     });
     params.v4_prompt = {
@@ -9099,7 +9171,18 @@ function aiToolsForPayload(){
     const nm = t && t.function && t.function.name;
     if(!nm) return t;
     let desc = null;
-    if(nm === 'send_photo') desc = imgToolDesc();
+    if(nm === 'send_photo'){
+      desc = imgToolDesc();
+      /* 当前这一档的站不认 NAI 权重时，把「用 1.4::tag:: 强调」那条就地作废。
+         否则模型照着她那份说明书写出权重，发出去前虽然会被 imgSyntaxClean 拆掉（不影响画面），
+         但她看着提示词会以为"我写的强调生效了"，实则全被剥了 —— 说明书跟现实必须一致。 */
+      try{
+        if(imgCfg().plainSyntax){
+          desc = String(desc).replace(/要强调某个词用\s*[\d.]+\s*::[^:]*::[^\n]*/g, '要强调某个词就把它往前排（本站不认权重语法，别写 1.4::tag:: 这种）')
+            + '\n【本站在用的语法】当前生图站不认 NovelAI 的权重写法（2::tag:: / {{tag}}），这两种一个都别写，直接写普通英文标签。';
+        }
+      }catch(e){}
+    }
     else if(ov[nm] && String(ov[nm]).trim()) desc = String(ov[nm]);
     if(desc == null) return t;
     return { type:'function', function: Object.assign({}, t.function, { description: desc }) };
@@ -11199,6 +11282,7 @@ function initImgSettingsFields(){
   set('imgAnchorA', cfg.anchorA || '');
   set('imgAnchorB', cfg.anchorB || '');
   set('imgStyle', cfg.styleDraw || IMG_STYLE_DEFAULT);
+  const ps = document.getElementById('imgPlainSyntax'); if(ps) ps.checked = !!cfg.plainSyntax;
   set('imgNeg', cfg.negPrompt || IMG_NEG_DEFAULT);
   const np = document.getElementById('imgNoPeople'); if(np) np.checked = (cfg.povNoPeople !== false);
   set('imgSteps', (cfg.steps|0) || IMG_CFG_DEFAULT.steps);
@@ -11252,10 +11336,11 @@ function saveImgCfg(){
     steps: Math.max(1, Math.min(50, parseInt(g('imgSteps'), 10) || IMG_CFG_DEFAULT.steps)),
     scale: Math.min(10, Math.max(1, parseFloat(g('imgScale')) || IMG_CFG_DEFAULT.scale)),
     sampler: g('imgSampler') || IMG_CFG_DEFAULT.sampler,
-    seed: String(g('imgSeed') || '').trim()
+    seed: String(g('imgSeed') || '').trim(),
+    plainSyntax: (function(){ const e = document.getElementById('imgPlainSyntax'); return e ? !!e.checked : false; })()
   });
-  /* 保存本页 = 也把「站点那五个字段」存回当前档，否则切走再切回来就丢了
-     （档位是命名快照，但快照要跟着改，不然第二次切换会把它还原成旧地址） */
+  /* 保存本页 = 也把「这一档的地址/Key/模型/上限/冷却 + 画风三件套」存回当前档，
+     否则切走再切回来就丢了（档位是命名快照，快照必须跟着改） */
   try{ imgSiteSyncFromCfg(); imgPaintSiteSel(); }catch(e){}
 }
 /* 恢复默认画风：只改 styleDraw 一个字段并立即落盘，不碰其他配置
@@ -11264,8 +11349,21 @@ function imgResetStyle(){
   const e = document.getElementById('imgStyle');
   if(e) e.value = IMG_STYLE_DEFAULT;
   imgCfgSave({ styleDraw: IMG_STYLE_DEFAULT });
+  try{ imgSiteSyncFromCfg(); }catch(e){}
   const h = document.getElementById('imgHint');
-  if(h) h.textContent = '画风已恢复默认，立即生效';
+  if(h) h.textContent = '画风已恢复默认（NAI 权重版），立即生效';
+}
+/* 一键换成「纯标签版画风」并把语法开关勾上 —— 给 PixAI/SD 系站用。
+   只动这一档的画风指纹 + plainSyntax 两个字段，负面词和锚点不碰。 */
+function imgUsePlainStyle(){
+  const e = document.getElementById('imgStyle');
+  const cs = document.getElementById('imgPlainSyntax');
+  if(e) e.value = IMG_STYLE_PLAIN;
+  if(cs) cs.checked = true;
+  imgCfgSave({ styleDraw: IMG_STYLE_PLAIN, plainSyntax: true });
+  try{ imgSiteSyncFromCfg(); }catch(e){}
+  const h = document.getElementById('imgHint');
+  if(h) h.textContent = '已换成纯标签版画风，并勾上「不认 NAI 权重」——这个站发出去的就是干净的质量词了';
 }
 /* 试生一张：花的是真额度，所以按钮上写清楚。生成后直接在这里预览，不用去聊天里看。
    ⚠️ 画面内容走 `imgTestPrompt()`（提示词中心第 19 块，可看可改）。以前写死成
