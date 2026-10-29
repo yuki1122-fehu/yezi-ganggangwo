@@ -1060,6 +1060,24 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 .god-tag svg{width:11px;height:11px;}
 .god-tag.sleep{color:var(--cool);background:rgba(124,164,190,.14);border:1px solid rgba(124,164,190,.34);}
 .god-tag.priv{color:#a85a78;background:rgba(214,138,168,.15);border:1px solid rgba(214,138,168,.4);}
+/* 「看这一刻」操作带（2026-10-29 晚）：夹在镜头列表与底部工具条之间的一条独立带。
+   ⚠️ 不塞进 .god-tools —— 那里已经两个按钮，手机上三个并排会把字挤成一坨。
+   ⚠️ 只在真有帧时显示（godShotPaint 控制 display），空帧时整条不占位。
+   ⚠️ 私密帧是粉调而不是红调：这是「他们自己的卧室」，不是警告。 */
+.god-shot{flex:0 0 auto;padding:10px 15px 0;background:var(--gl-bar);
+  backdrop-filter:blur(var(--blur-xl)) saturate(190%);-webkit-backdrop-filter:blur(var(--blur-xl)) saturate(190%);}
+.god-shot-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px 12px;
+  border-radius:var(--radius-pill);font-size:var(--fs-2);font-weight:800;letter-spacing:.3px;cursor:pointer;
+  color:var(--ink);border:1px dashed var(--line);background:linear-gradient(150deg,rgba(255,255,255,.62),rgba(200,220,193,.2));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.8);
+  transition:transform .18s var(--ease),opacity .18s;-webkit-tap-highlight-color:transparent;}
+.god-shot-btn svg{width:16px;height:16px;}
+.god-shot-btn:active{transform:scale(.975);}
+.god-shot-btn:disabled{opacity:.55;}
+.god-shot.priv .god-shot-btn{color:#8f3f61;border:1px solid rgba(214,138,168,.52);
+  background:linear-gradient(150deg,rgba(255,242,247,.86),rgba(238,199,214,.34));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.92),0 6px 16px rgba(206,130,160,.14);}
+.god-shot.priv .god-shot-btn svg{color:#b3628a;}
 .god-note{font-size:var(--fs-1);color:var(--ink-faint);line-height:1.65;text-align:center;padding:2px 22px 4px;background:var(--gl-bar);
   backdrop-filter:blur(var(--blur-m));-webkit-backdrop-filter:blur(var(--blur-m));}
 /* ===== 两页深色模式：玻璃压暗、文字/描边提亮 ===== */
@@ -7991,6 +8009,13 @@ const IMG_TOOL_DESC_DEFAULT = `给对方发一张照片（你随手拍的），�
 · 要强调某个词用 1.4::tag::，别堆一长串大括号
 · 例（餐桌对面的人）：restaurant table, evening, warm candlelight, dim lighting, man in white dress shirt sitting across the table, smiling at viewer, upper body, shallow depth of field, bokeh, wine glasses
 · 例（路边随手拍）：street corner, night, neon glow, wet asphalt, convenience store, vending machine, light rain, no humans, scenery, depth of field
+【写人的硬规矩（双人图最容易翻车，照做）】
+· 双人 tag 数要平衡：两边各写 8-12 个，相差别超过 5 个。一边写得多一边写得少，少的那边会被画小、糊掉、挤进角落。合照两个人各自的服装、动作、表情都要分别落笔。
+· 写男性：以他为主就把 male_focus 放第一个词，紧跟 1boy。⚠️ 绝不能写 delicate_features / boyish / petite / dainty / cute_face，这些词会把他画回少年感；slender 要写成 lean。男角色的服装比女角色更容易被省掉，一定要写。
+· 局部出镜（只拍到手、背影、半张脸）就只写画面上看得见的部位。多写一句发色或发型，那个人会整个人挤进画面，或者把自己的发色串到另一个人身上。
+· 禁抽象形容词：beautiful / cute / pretty / handsome / gorgeous / amazing / nice 一律别写，模型不吃这套。表情要写具体动作：smiling softly / looking away / lips parted / eyes closed / frowning slightly / biting lip / gaze lowered。
+· 发长查表（写错长度会直接变成另一个人）：到下巴=short_hair；到锁骨=medium_hair；到胸口或腰=long_hair；过腰=very_long_hair。有挑染写 streaked_hair，前面加 1.5::streaked_hair:: 压一下。
+【拍哪一瞬间】每张图只能是一个瞬间，别把一件事的全过程塞进去。优先级从高到低：① 眼前正在发生的具体画面（手上在做什么、桌上有什么、窗外什么天色）② 有冲击力的静帧（一个姿势、一个眼神）③ 纯情绪 ④ 某段剧情的「代表瞬间」。越往下越容易拍成一张没内容的空图 —— 挑最容易画出来的那一刻，不是信息量最大的那一刻。
 【不要写】视角词（selfie/pov/from above，shot 已决定）；谁在左谁在右（站位算死）；画风与质量词（全局已配）；角色长相（发色/耳型/发型自动补，除非这次换了发型）
 【什么时候主动发】系统提示里出现「顺手拍张照片」那块时，说明现在还有额度、也隔够久了：如果此刻场景里真有值得看的画面，就拍下来发过去，不用等对方开口。没出现那块就别主动发。对方在说正事、情绪低落、刚问了个需要回答的问题时，一律别插图。
 【画面必须成立】时间、地点、天气、穿着要和对话一致，不能凭空跳到海边或换一套衣服。`;
@@ -8002,7 +8027,7 @@ const IMG_SPONT_DEFAULT = `<顺手拍张照片>
 function imgPromptCfg(){
   let c = {};
   try{ c = JSON.parse(localStorage.getItem(IMG_PROMPT_KEY)) || {}; }catch(e){ c = {}; }
-  return { toolDesc: String(c.toolDesc || ''), spontTpl: String(c.spontTpl || '') };
+  return { toolDesc: String(c.toolDesc || ''), spontTpl: String(c.spontTpl || ''), godTpl: String(c.godTpl || '') };
 }
 function imgPromptSave(patch){
   const c = Object.assign(imgPromptCfg(), patch || {});
@@ -8017,6 +8042,34 @@ function imgToolDesc(){
 function imgSpontTpl(){
   const v = imgPromptCfg().spontTpl;
   return v.trim() ? v : IMG_SPONT_DEFAULT;
+}
+/* ===== 上帝视角「看这一刻」的画面转换提示词（2026-10-29 晚）=====
+   为什么需要它：帧数据（place/doing/mood/inner）全是中文散文，而生图站只吃英文标签，
+   代码拼不出来 —— 所以点按钮时**额外调一次小 AI** 把这一帧翻成标签。
+   那这次调用也属于「发给 AI 的提示词」，按铁律必须可看可改 ⇒ 存 mhm_img_prompt.godTpl，
+   在提示词中心第 18 块。占位符：{{TIME}} {{REL}} {{FRAME}} {{MODE}}，别删。
+   ⚠️ 输出要求里「不写外貌、不写画风、两人标签数接近」这三条不是客气话：
+      外貌重写会跟 char_captions 打架把人糊掉；画风重写会跟 styleDraw 抵消；
+      两边标签数差太多，少的那个会被画小挤到角落。 */
+const IMG_GOD_SNAP_DEFAULT = `下面这一刻，是他们两个人真实生活里的一瞬间。请把它写成一组 NovelAI（Danbooru 风格）的英文画面标签。
+<这一刻>
+时间：{{TIME}}
+他们之间：{{REL}}
+{{FRAME}}
+</这一刻>
+[输出要求]
+1. 只输出一行英文标签，用半角逗号分隔，最多 40 个。不要中文、不要编号、不要解释、不要引号。
+2. 画面里是{{MODE}}。
+3. 不要写任何外貌特征（发色、瞳色、发型、耳型、身材、衣服以外的长相）—— 这些由程序自动补，重复写会把人画糊。
+4. 不要写画风与质量词（best quality / masterpiece / illustration / photorealistic 之类）—— 已全局配好，重复写会互相抵消。
+5. 不要写视角词（POV / first-person / selfie / from above）—— 构图已经定好。
+6. 要写的是：地点与空间、时间与光线、道具、两个人各自的姿势动作与表情。两人的标签数量要接近，相差别超过 5 个。
+7. 只取「此刻正在发生的那一个瞬间」，不要叙述一段过程、不要写前后因果。
+8. 表情要写具体的：smiling softly / looking away / eyes closed / lips parted / gaze lowered / frowning slightly。不要写 beautiful / cute / pretty / handsome 这类模型看不懂的抽象词。
+9. 如果这一帧是卧室里的亲密，可以直白地写身体接触与姿态（他们是成年夫妻、始终自愿）。不要写任何未成年人相关的词，也不要写暴力、伤害、羞辱。`;
+function imgGodSnapTpl(){
+  const v = imgPromptCfg().godTpl;
+  return v.trim() ? v : IMG_GOD_SNAP_DEFAULT;
 }
 /* ---------- ZIP 解包（只依赖浏览器原生 DecompressionStream） ---------- */
 function imgZipEOCD(u8, dv){
@@ -8274,13 +8327,36 @@ const IMG_SHOTS = {
     lead: 'duo, hetero, side by side',
     neg: '',
     chars: 'two', aspect: 'landscape'
+  },
+  /* ===== 上帝视角「看这一刻」（2026-10-29 晚，叶子要的）=====
+     这两个镜头**不对外开放**：模型调不到（见 IMG_MODEL_SHOTS 白名单），
+     只有 `godSnap()` 会用到。它不是「角色发来的照片」，是把弹窗里那一帧画出来。
+     ⚠️ 构图只给最低限度的第三人称语言，具体姿势/距离交给标签正文 ——
+        亲密场景写成 side by side 会打架（duo 那条就是给摆拍合照用的）。
+     ⚠️ `plainOff`：跳过 IMG_NEG_PLAIN（那条禁内衣/透/露）。那是为了防止
+        「锚点没写衣服时 NAI 自作主张画成蕾丝内衣」；到了卧室里它就是反作用，
+        会把该有的画面整段否定掉。人像两点（NO_BANGS）照旧保留。 */
+  godframe: {
+    label: '上帝视角·这一刻（双人）',
+    lead: 'third-person view, candid snapshot, two people in one scene, natural framing',
+    neg: '', plainOff: true,
+    chars: 'two', aspect: 'landscape'
+  },
+  godself: {
+    label: '上帝视角·这一刻（单人）',
+    lead: 'third-person view, candid snapshot, one person in frame, natural framing',
+    neg: '', plainOff: true,
+    chars: 'one', center: 0.5, aspect: 'landscape'
   }
 };
+/* 模型能填的 shot 只有这四个。godframe/godself 是内部镜头：一旦放开，
+   模型会拿它绕开「duo 必须带 with」这类自查，花一张额度换一张错图。 */
+const IMG_MODEL_SHOTS = { pov:1, pov_focus:1, selfie:1, duo:1 };
 /* 镜头 + 画面里的人数必须自洽。模型经常想当然地填出「纯 POV + 指定主角」这种自相矛盾的组合：
    宁可报错让它改一次（不花额度），也别静默降级 —— 降级等于花 1 张额度换一张错的图。 */
 function imgResolveShot(shot, who, withWho){
   let s = String(shot || '').trim();
-  if(!IMG_SHOTS[s]) s = '';
+  if(!IMG_MODEL_SHOTS[s]) s = '';   // 内部镜头（godframe/godself）不认，等同没填
   if(s === 'duo' && !withWho) return { shot:'duo', err:'shot=duo 要在 with 里填另一个人（零落或沈容，不能和 who 相同）。' };
   if(s === 'pov' && withWho) s = 'duo';
   if(!s) s = withWho ? 'duo' : (who === 'none' ? 'pov' : 'selfie');
@@ -8323,7 +8399,7 @@ function imgNegFor(shot){
   const cfg = imgCfg();
   const base = String(cfg.negPrompt || '').trim() || IMG_NEG_DEFAULT;
   const bits = [base];
-  if(spec.chars !== 'none'){ bits.push(IMG_NEG_NO_BANGS); bits.push(IMG_NEG_PLAIN); }
+  if(spec.chars !== 'none'){ bits.push(IMG_NEG_NO_BANGS); if(!spec.plainOff) bits.push(IMG_NEG_PLAIN); }
   if(spec.chars === 'none' && cfg.povNoPeople !== false) bits.push(IMG_NEG_NO_PEOPLE);
   if(spec.neg) bits.push(spec.neg);
   return bits.filter(Boolean).join(', ');
@@ -12135,6 +12211,13 @@ function pcResetImgSpont(){
   const h = document.getElementById('promptCenterHint');
   if(h) h.textContent = '已恢复默认的主动发图时机块，点「保存本页」生效。';
 }
+function pcResetImgGod(){
+  const ta = document.getElementById('pcImgGodTpl');
+  if(!ta) return;
+  ta.value = IMG_GOD_SNAP_DEFAULT;
+  const h = document.getElementById('promptCenterHint');
+  if(h) h.textContent = '已恢复默认的「看这一刻」画面转换说明，点「保存本页」生效。';
+}
 function pcResetJournalMergeTpl(){
   const ta = document.getElementById('pcJournalMergeTpl');
   if(!ta) return;
@@ -12283,6 +12366,13 @@ function renderPromptCenter(){
     + '<br>⚠️ 改坏了对应功能会变哑（模型不知道有这个工具、或把参数填错方向），拿不准就点「恢复默认」；改完从下一轮对话起生效。'
     + '<br><span style="color:var(--ink-faint);">生图的说明书不在这里，是上面第 15 / 16 块。</span></p>'
     + tdBits + '</div>');
+  /* 18 · 上帝视角「看这一刻」（2026-10-29 晚）：点按钮时把这一帧翻成英文标签的提示词。
+     和上面 15/16 一样属于「发给 AI 的话」，所以同样可看可改。 */
+  sc.push('<div class="prompt-section"><div class="prompt-title"><span class="prompt-order">18</span><span>生图 · 上帝视角「看这一刻」画面转换</span></div>'
+    + '<p class="prompt-desc">上帝视角里点「看这一刻」时，先把这一帧的<b>中文帧数据</b>交给 AI 翻成英文标签，再拿去生图（帧数据是散文，生图站只吃英文标签，代码翻不出来）。这段就是那次转换的说明书。'
+    + '<br>占位符：<code>{{TIME}}</code> 当前时间 · <code>{{REL}}</code> 关系状态 · <code>{{FRAME}}</code> 两人各自在哪/在做什么/心情/心里话 · <code>{{MODE}}</code> 「他们两个（同框）」或「只有某某一个人」。<b>别删掉它们。</b>留空 = 用默认。</p>'
+    + '<textarea id="pcImgGodTpl" class="prompt-body" rows="18">'+escHtml(imgGodSnapTpl())+'</textarea>'
+    + '<div class="prompt-actions"><button class="btn ghost" type="button" onclick="pcResetImgGod()" style="padding:4px 10px;font-size:11px;">恢复默认</button></div></div>');
   wrap.innerHTML = sc.join('');
 }
 function savePromptCenter(){
@@ -12307,6 +12397,7 @@ function savePromptCenter(){
   const journalMergeTplEl = document.getElementById('pcJournalMergeTpl');
   const imgToolEl = document.getElementById('pcImgToolDesc');
   const imgSpontEl = document.getElementById('pcImgSpont');
+  const imgGodEl = document.getElementById('pcImgGodTpl');
   
   if(sysEl) cfg.systemTpl = sysEl.value;
   if(idEl) localStorage.setItem(MEM_IDENTITY_KEY, idEl.value.trim());
@@ -12321,11 +12412,14 @@ function savePromptCenter(){
   if(compRulesEl) cfg.companionRules = compRulesEl.value;
   if(diaryTplEl) cfg.diaryTpl = diaryTplEl.value;
   if(journalMergeTplEl) cfg.journalMergeTpl = journalMergeTplEl.value;
-  // 生图说明（独立键，不并进 mhm_ai_cfg）；留空即回退默认，所以直接存空串
-  if(imgToolEl || imgSpontEl){
+  // 生图说明（独立键，不并进 mhm_ai_cfg）
+  // ⚠️ 「等于默认值就存空」：点过「恢复默认」再保存时，不能把默认文案当副本存下去
+  //    —— 否则以后代码里改了默认值，她那份旧副本永远不跟着变（第 17 块就是这个规矩）。
+  if(imgToolEl || imgSpontEl || imgGodEl){
     const ip = {};
-    if(imgToolEl) ip.toolDesc = imgToolEl.value;
-    if(imgSpontEl) ip.spontTpl = imgSpontEl.value;
+    if(imgToolEl) ip.toolDesc = (imgToolEl.value === IMG_TOOL_DESC_DEFAULT) ? '' : imgToolEl.value;
+    if(imgSpontEl) ip.spontTpl = (imgSpontEl.value === IMG_SPONT_DEFAULT) ? '' : imgSpontEl.value;
+    if(imgGodEl) ip.godTpl = (imgGodEl.value === IMG_GOD_SNAP_DEFAULT) ? '' : imgGodEl.value;
     imgPromptSave(ip);
   }
   // 业务工具说明：只有改动过的才落库（等于默认值 = 删除覆盖，避免留一份会过期的副本）
@@ -20523,6 +20617,11 @@ function godViewState(who, idx, salt, rel, plan){
 }
 let _godAI = null;      // AI 旁白帧：{rel, roles, ts}
 let _godAiBusy = false;
+/* 当前这一帧的帧数据（godRender 每渲染一次就写一份）。
+   「看这一刻」要拿它去写画面标签 —— 帧数据原本是 godRender 的局部变量，不留一份就摸不到。
+   ⚠️ 存的是**已渲染出来的那一帧**，不是重新摇一次：看到的和画出来的必须是同一刻。 */
+let _godFrames = [];
+let _godSnapBusy = false;
 function godOpen(){
   const m = document.getElementById('godMask');
   if(m) openMask(m);
@@ -20577,7 +20676,7 @@ function godRender(){
       }
       prevDoing = s.doing; prevPlace = s.place;
     }
-    frames.push({who:s.who, place:s.place, doing:s.doing, mood:s.mood, priv:!!s.priv, asleep:!!s.asleep,
+    frames.push({who:s.who, place:s.place, doing:s.doing, mood:s.mood, inner:(s.inner||''), priv:!!s.priv, asleep:!!s.asleep,
       dur:(s.dur || (s.asleep ? 0 : 45))});
     // 午后打盹 ≠ 到点就寝（10-28 修：13-15 点曾显示「作息按时 · 已就寝」，看着像 bug）
     const sleepWord = godNapHour(new Date().getHours()) ? '小憩' : '已睡';
@@ -20599,6 +20698,9 @@ function godRender(){
   const sleepNote = (plan && (plan.asleep[0] || plan.asleep[1]))
     ? (godNapHour(new Date().getHours()) ? ' · 午后小憩' : ' · 到点就寝') : '';
   list.innerHTML = '<div class="god-time">' + phLabel + sleepNote + (useAI ? ' · AI 旁白' : ' · 此刻的他们') + '</div>' + cards;
+  // 「看这一刻」要画的就是刚渲染出来的这一帧：留一份，别让它随局部变量一起消失
+  _godFrames = frames.slice();
+  try{ godShotPaint(); }catch(e){}
   // 把这一帧交给对话侧：用户看完镜头转头去聊天时，角色知道自己手还搭在对方身上
   if(frames.length === 2){
     const t = Date.now();
@@ -20720,6 +20822,137 @@ async function godAskAI(){
   finally{
     _godAiBusy = false;
     if(btn){ btn.innerHTML = '<svg class="ico" style="width:15px;height:15px;"><use href="#i-sparkle"/></svg>旁白'; btn.disabled = false; }
+  }
+}
+/* ===== 上帝视角「看这一刻」：把弹窗里这一帧画出来（2026-10-29 晚，叶子要的）=====
+   她的原话：「上帝视角两个人在亲密，就可以点击一个按钮看照片（生图）」。
+   链路：帧数据 →（小 AI 翻成英文标签）→ imgComposeShot 拼画风/镜头/站位
+        → imgGenerate → 落 mhm_img_db → 直接打开看图页（那里有 🎨 提示词，能改着重生成）。
+   ⚠️ 为什么中间要过一道 AI：帧数据是中文散文，生图站只吃英文标签，代码翻不出来。
+      这次调用的提示词在提示词中心第 18 块，她能看见、能改（铁律）。
+   ⚠️ 不写进对话、不写朋友圈：这是「看」，不是「角色发来的照片」。
+      写进对话会变成角色莫名给自己发了一张他俩的合照，世界当场穿帮。
+   ⚠️ 额度照算（真出图就花了站点额度），但**先查闸门**：冷却中 / 额度满当场说人话，
+      不让她盯着弹窗干等 20 秒才看到报错（聊天那条路等得起，这里等不起）。
+   ⚠️ 一帧两颗卡是**同一个场景的两面** ⇒ 只给一个按钮，不是每张卡一个。
+      两人不在一处、也没在亲密，就只画第一张卡那个人（硬画同框＝把两个房间拼在一起）。 */
+function godShotPaint(){
+  const wrap = document.getElementById('godShotWrap');
+  const btn  = document.getElementById('godShotBtn');
+  const txt  = document.getElementById('godShotTxt');
+  if(!wrap || !btn) return;
+  const fr = _godFrames || [];
+  if(!fr.length){ wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  const anyPriv = fr.some(function(f){ return f && f.priv; });
+  const allAsleep = fr.every(function(f){ return f && f.asleep; });
+  const samePlace = fr.length === 2 && String(fr[0].place||'') === String(fr[1].place||'');
+  wrap.classList.toggle('priv', anyPriv);
+  let t = '看这一刻';
+  if(anyPriv) t = '看这一刻 · 私密';
+  else if(allAsleep) t = '看他们睡着的样子';
+  else if(samePlace) t = '看他们此刻这一格';
+  else t = '看 ' + fr[0].who + ' 这一刻';
+  if(txt) txt.textContent = t;
+  btn.disabled = !!_godSnapBusy;
+}
+/* 从模型回复里抠出一行标签：能容忍它前面写一句中文、或包在 ``` 里。
+   判定「像标签」= 逗号 ≥3 个且几乎没有中文；一行都不像就把全文当候选再筛。 */
+function imgTagsExtract(raw){
+  const txt = String(raw || '').replace(/```[a-zA-Z]*/g, ' ').replace(/```/g, ' ');
+  const lines = txt.split(/\n/).map(function(s){ return s.trim(); }).filter(Boolean);
+  let pick = '';
+  for(let i = 0; i < lines.length; i++){
+    const L = lines[i];
+    const commas = (L.match(/,/g) || []).length;
+    const cn = (L.match(/[\u4e00-\u9fa5]/g) || []).length;
+    if(commas >= 3 && cn <= Math.max(2, L.length * 0.15)){ pick = L; break; }
+  }
+  if(!pick) pick = lines.join(' ');
+  return pick.split(/[,，]+/)
+    .map(function(s){ return s.trim().replace(/^[-·•*\d.、\s]+/, ''); })
+    .filter(function(s){ return s && !/[\u4e00-\u9fa5]/.test(s); })
+    .join(', ');
+}
+async function godSnap(){
+  if(_godSnapBusy) return;
+  const fr = (_godFrames || []).filter(function(f){ return f && f.who; });
+  if(!fr.length){ toast('等「此刻的他们」出来一帧再说'); return; }
+  /* ① 先查闸门：给的是人话，不是给模型看的那套说辞 */
+  const g = imgGateCheck({});
+  if(!g.ok){
+    const cfg = imgCfg();
+    if(!cfg.enabled || !String(cfg.key || '').trim()){ toast('还没开启生图：设置 → 连接与模型 → 🖼 生图'); return; }
+    const q = imgQuota(), lim = cfg.dailyLimit | 0;
+    if(lim > 0 && q.used >= lim){ toast('今天的生图额度用完了（' + q.used + '/' + lim + ' 张），明天再来'); return; }
+    if(Number(g.wait) > 0){ toast('站点限速：还要等 ' + g.wait + ' 秒（约 ' + Math.max(1, Math.ceil(g.wait/60)) + ' 分钟）'); return; }
+    toast(g.reason || '现在还不能生图'); return;
+  }
+  const cfgAi = getAiCfg();
+  if(!cfgAi || !cfgAi.apiKey){ toast('要看照片得先填聊天用的 API Key（设置 → 连接与模型）'); return; }
+  _godSnapBusy = true;
+  const btn = document.getElementById('godShotBtn');
+  const txtEl = document.getElementById('godShotTxt');
+  const oldTxt = txtEl ? txtEl.textContent : '';
+  if(btn) btn.disabled = true;
+  try{
+    /* ② 决定画几个人：同一处、或有一个标了 priv，才是同框 */
+    const n = Math.min(2, fr.length);
+    const samePlace = n === 2 && String(fr[0].place||'') === String(fr[1].place||'');
+    const anyPriv = fr.some(function(f){ return f.priv; });
+    const both = n === 2 && (samePlace || anyPriv);
+    const use = both ? [fr[0], fr[1]] : [fr[0]];
+    const lines = use.map(function(f){
+      return f.who + '：在' + f.place + '，' + f.doing
+        + '（心情：' + f.mood + (f.asleep ? '；已经睡着了' : '') + '）'
+        + (f.inner ? ('\n　　心里：「' + f.inner + '」') : '');
+    });
+    /* ③ 帧数据 → 英文标签（一次小 AI。提示词在提示词中心第 18 块，可看可改） */
+    if(txtEl) txtEl.textContent = '正在写画面…';
+    const rel = ocRelNow();
+    const askTxt = imgGodSnapTpl()
+      .replace(/\{\{TIME\}\}/g, nowAnchor())
+      .replace(/\{\{REL\}\}/g, ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : ''))
+      .replace(/\{\{FRAME\}\}/g, lines.join('\n'))
+      .replace(/\{\{MODE\}\}/g, both ? '他们两个（同框）' : ('只有' + use[0].who + '一个人'));
+    const r1 = await aiCall([{role:'user', content:askTxt}], cfgAi, 1, {noTools:true});
+    if(r1 && r1.error){ toast('画面没写出来：' + String(r1.error).slice(0,50)); return; }
+    const m1 = r1 && r1.data && r1.data.choices && r1.data.choices[0] && r1.data.choices[0].message;
+    const tags = imgTagsExtract((m1 && typeof m1.content === 'string') ? m1.content : '');
+    if(!tags){ toast('这次没写出可用的画面标签，再点一次试试'); return; }
+    /* ④ 拼装 + 出图。manual:true = 刚才已经按用户手动触发的规矩查过闸门，别查第二遍 */
+    const shot = both ? 'godframe' : 'godself';
+    const who = use[0].who;
+    const withWho = both ? use[1].who : '';
+    const plan = imgComposeShot(shot, tags, who, withWho);
+    const neg = imgNegFor(shot);
+    if(txtEl) txtEl.textContent = '正在生成…（约 20-40 秒）';
+    const out = await imgGenerate(plan.base, neg, { chars:plan.chars, aspect:plan.aspect, manual:true });
+    if(!out || !out.ok){
+      if(out && !out.blocked && (Number(out.wait) > 0 || /429|限速/.test(String(out.error || '')))) imgQuotaMarkRateLimited(out.wait || 0);
+      toast('生成失败：' + ((out && out.error) || '未知错误')); return;
+    }
+    /* ⑤ 落库 + 记额度，然后直接开看图页（她能当场看到用了什么词、改着重生成） */
+    const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const rec = { id:id, blob:out.blob, prompt:tags, full:plan.base, neg:neg, who:who, withWho:withWho,
+      shot:shot, proactive:false, seed:out.seed, w:out.w, h:out.h, model:imgCfg().model,
+      created:Date.now(), god:true };
+    try{ await imgPut(rec); }catch(e){}
+    const q2 = imgQuota();
+    q2.used = (q2.used|0) + 1;
+    q2.lastAt = Date.now();
+    q2.lastShot = shot;
+    imgQuotaSave(q2);
+    try{ if(typeof imgPaintQuota === 'function') imgPaintQuota(); }catch(e){}
+    aiImgZoom(id);
+    setTimeout(function(){ try{ aiZoomPrompt(); }catch(e){} }, 300);
+  }catch(e){
+    toast('看这一刻出错：' + String((e && e.message) || e));
+  }finally{
+    _godSnapBusy = false;
+    if(btn) btn.disabled = false;
+    if(txtEl) txtEl.textContent = oldTxt || '看这一刻';
+    try{ godShotPaint(); }catch(e){}
   }
 }
 function buildRoleProtocol(){
@@ -21088,11 +21321,16 @@ body.comp-live::after{animation-play-state:paused;}
   </div>
   <div class="god-rel" id="godRel"></div>
   <div class="god-list" id="godList"></div>
+  <div class="god-shot" id="godShotWrap" style="display:none;">
+    <button class="god-shot-btn" id="godShotBtn" onclick="godSnap()" type="button">
+      <svg class="ico"><use href="#i-image"/></svg><span id="godShotTxt">看这一刻</span>
+    </button>
+  </div>
   <div class="god-tools">
     <button class="god-btn primary" id="godAiBtn" onclick="godAskAI()" type="button"><svg class="ico" style="width:15px;height:15px;"><use href="#i-sparkle"/></svg>旁白</button>
     <button class="god-btn ghost" onclick="godNext()" type="button"><svg class="ico" style="width:15px;height:15px;"><use href="#i-refresh"/></svg>换一帧</button>
    </div>
-  <div class="god-note">他们是活的：这里发生的关系波折与共同事件会写进「他们的世界」，朋友圈与对话都接得住；即时镜头细节仅供观看。<b>他们也有自己的作息</b>——到点就睡，偶尔有事（赶东西、收衣服、夜里没睡稳）才熬夜；你熬夜不等于他们熬夜。夫妻私生活按最大尺度写（他们是一对成年夫妻，不设分档）。AI 旁白每次会调用一次 AI 生成剧情（与你自己的 API Key 计费）。</div>
+  <div class="god-note">他们是活的：这里发生的关系波折与共同事件会写进「他们的世界」，朋友圈与对话都接得住；即时镜头细节仅供观看。<b>他们也有自己的作息</b>——到点就睡，偶尔有事（赶东西、收衣服、夜里没睡稳）才熬夜；你熬夜不等于他们熬夜。夫妻私生活按最大尺度写（他们是一对成年夫妻，不设分档）。AI 旁白每次会调用一次 AI 生成剧情（与你自己的 API Key 计费）。<br><b>看这一刻</b>：把这一帧画成一张图 —— 会额外调一次 AI 写画面标签、再出一次图，都算你自己的用量，并计入每日生图额度（受站点冷却限制）；生成的图画成后可以直接点「🎨 提示词」看它用了什么词、改着重新生成。</div>
 </div>
 <div class="mask comp-mask" id="compMask">
   <div class="comp-video-wrap">
