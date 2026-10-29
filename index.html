@@ -2974,12 +2974,19 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           <input id="imgKey" type="password" placeholder="nk-..." style="flex:1 1 auto;min-width:0;" autocapitalize="off" autocorrect="off">
           <button class="btn ghost" type="button" onclick="aiToggleKey('imgKey',this)" style="flex:0 0 auto;padding:8px 10px;font-size:13px;line-height:1;" aria-label="显示或隐藏 Key">👁</button>
         </div>
-        <label>模型</label>
+        <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <span>模型 <span style="font-size:11px;font-weight:400;color:var(--ink-soft)">（这一档的站用哪个）</span></span>
+          <button class="btn ghost" type="button" onclick="imgFetchModels()" style="flex:0 0 auto;padding:4px 9px;font-size:11px;line-height:1.3;">🔄 拉取该站模型</button>
+        </label>
         <select id="imgModel"></select>
+        <label style="display:flex;align-items:flex-start;gap:6px;font-size:11px;line-height:1.5;margin-top:6px;cursor:pointer;">
+          <input type="checkbox" id="imgV4" style="flex:0 0 auto;margin-top:2px;">
+          <span>发 <b>V4 结构化 caption</b>（<b style="color:#a3577a;">双人图必须开</b>：两人各带坐标分开送，关了会糊在一起）</span>
+        </label>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 8px;line-height:1.6;">
-          ⚠️ <b>双人图必须选 4.x（4-5-full / 4-full）</b>：只有 4.x 才会把两个人的外观<b>分开</b>送过去（各带坐标）；
-          选 3.x 就只按一段纯文本理解，两人会长得糊在一起。有的第三方站会忽略这个字段、用它自己配的模型，
-          那不影响流程，但<b>我们发什么仍然由这里决定</b>。
+          ⚠️ 双人图靠的是上面这个开关，<b>不再看模型名</b>。模型名只是原样传给站方 ——
+          很多第三方站直接忽略它（用它自己后台配的模型），那不影响流程。<br>
+          下拉里没有你要的模型就点「🔄 拉取该站模型」；站点没有这个接口（404）时，下拉里先用内置的 NAI 名字顶着即可。
         </p>
         <label>尺寸</label>
         <select id="imgSize"></select>
@@ -2994,7 +3001,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           </div>
         </div>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:6px 0 10px;line-height:1.6;">
-          按站点公告填（多数公益站是每 800 秒一张、每天 20 张左右）。<b>每个站点档各算各的额度</b>：A 站用满了切到 B 站照样能出。填 0 = 不限（不建议，会把额度烧光）。
+          按站点公告填：有的站每 800 秒只允许一张、每天 20 张；有的站<b>不限速、每天 50 张</b>（那就把冷却填 <b>0</b>、上限填 50）。<b>每个站点档各算各的</b>：A 站用满了切到 B 站照样能出。上限填 0 = 不限（不建议，会把额度烧光）。
         </p>
         <label>AI 主动发图（张/天） <span style="font-size:11px;color:var(--ink-soft)">（你没开口也能发）</span></label>
         <input id="imgProactive" type="number" min="0" max="6" step="1" inputmode="numeric">
@@ -7832,6 +7839,7 @@ const IMG_CFG_DEFAULT = {
   enabled: false,
   siteId: '',              // 当前用哪个站点档（mhm_img_sites 里的 id），空 = 还没建
   plainSyntax: false,      // 这一档的站认不认 NAI 权重语法；不认 ⇒ 发出去前把 {{}} 和 2::…:: 拆掉
+  v4: true,                // 这一档要不要发 V4 结构化 caption（双人坐标就靠它；与模型名解耦）
   origin: 'https://novel.nekoprompt.top',
   key: '',
   model: 'nai-diffusion-4-5-full',
@@ -7956,6 +7964,10 @@ function imgSiteFillStyle(list, c){
     if(s.styleDraw === undefined){ s.styleDraw = c.styleDraw || IMG_STYLE_DEFAULT; dirty = true; }
     if(s.negPrompt === undefined){ s.negPrompt = c.negPrompt || IMG_NEG_DEFAULT; dirty = true; }
     if(s.plainSyntax === undefined){ s.plainSyntax = false; dirty = true; }
+    /* v4 从「模型名像不像 NAI4」推出来，保证升级那一刻行为不变；
+       之后就由她自己勾，不再看模型名（模型名现在只是传给站方的字符串）。 */
+    if(s.v4 === undefined){ s.v4 = /^nai-diffusion-4/.test(String(s.model || '')) || !s.model; dirty = true; }
+    if(!Array.isArray(s.models)){ s.models = []; dirty = true; }
   });
   if(dirty) imgSitesSave(list);
   return list;
@@ -7995,9 +8007,111 @@ function imgSiteSyncFromCfg(){
     styleDraw: (c.styleDraw === undefined ? IMG_STYLE_DEFAULT : c.styleDraw),
     negPrompt: (c.negPrompt === undefined ? IMG_NEG_DEFAULT : c.negPrompt),
     plainSyntax: !!c.plainSyntax,
+    v4: (c.v4 !== false),
     updated: Date.now()
   });
   imgSitesSave(list);
+}
+/* 一个档位 → 要写进 cfg 的那一整包字段（切站/新增/删档三处共用，避免漏字段） */
+function imgCfgFromSite(s){
+  return {
+    siteId: s.id,
+    origin: s.origin || '', key: s.key || '',
+    model: s.model || IMG_CFG_DEFAULT.model,
+    dailyLimit: s.dailyLimit | 0, cooldownSec: s.cooldownSec | 0,
+    styleDraw: (s.styleDraw === undefined ? IMG_STYLE_DEFAULT : s.styleDraw),
+    negPrompt: (s.negPrompt === undefined ? IMG_NEG_DEFAULT : s.negPrompt),
+    plainSyntax: !!s.plainSyntax,
+    v4: (s.v4 === undefined ? true : !!s.v4)
+  };
+}
+/* ===== 模型下拉（2026-10-29）=====
+   ⚠️ 以前是写死的 5 个 NAI 模型名。第三方站的模型名完全可能不一样 ——
+      柏宝绘 `/v1/models` 只返回一个 pixai 的数字 id（`1983308862240288769`），
+      于是切到它那一档时 `select.value` 赋了一个不存在的值 ⇒ **下拉变空白**，
+      叶子看到的正是「换了那个之后没办法选择模型」。
+   现在下拉按「这一档自己拉回来的列表 + 当前值」重建；当前值永远给一个 option，
+   哪怕它是数字 id 或者她手填的怪名字。 */
+function imgModelLabelOf(id){
+  for(let i = 0; i < IMG_MODELS.length; i++){ if(IMG_MODELS[i].id === id) return IMG_MODELS[i].label; }
+  return String(id);
+}
+function imgPaintModelSel(){
+  const sel = document.getElementById('imgModel');
+  if(!sel) return;
+  const c = imgCfg();
+  const site = imgSiteOf(c.siteId);
+  const cur = String(c.model || '') || IMG_CFG_DEFAULT.model;
+  const list = [];
+  const push = function(id){ id = String(id || '').trim(); if(id && list.indexOf(id) < 0) list.push(id); };
+  push(cur);                                   // 当前值必须在最前面，否则 select 会显示空白
+  ((site && site.models) || []).forEach(push);
+  if(!(site && site.models && site.models.length)) IMG_MODELS.forEach(function(m){ push(m.id); });
+  sel.innerHTML = list.map(function(id){
+    const isPreset = IMG_MODELS.some(function(m){ return m.id === id; });
+    return '<option value="' + id.replace(/"/g, '&quot;') + '">' + imgModelLabelOf(id) + (isPreset ? '' : '（该站）') + '</option>';
+  }).join('');
+  sel.value = cur;
+}
+/* 向当前这一档的站拉模型列表：`GET {origin}/v1/models`（OpenAI 兼容那套）。
+   - 实测柏宝绘返回 `{"data":[{"id":"1983…","owned_by":"pixai"}]}` ⇒ 顺便证实了它后台是 pixai。
+   - 老 NAI 系站可能没有这个端点（404）⇒ 那就退回内置的 5 个 NAI 模型名，并如实说明。
+   - ⚠️ 拉回来的只是**站方认的模型名**，我们这边拿它做两件事：显示、以及原样传给站。
+     它**不再决定要不要发 V4 结构化**（那个已经拆成 `cfg.v4`，见 imgUseV4）。 */
+async function imgFetchModels(){
+  const hint = document.getElementById('imgHint');
+  const g = function(id){ const e = document.getElementById(id); return e ? String(e.value || '').trim() : ''; };
+  const origin = (g('imgOrigin') || imgCfg().origin || '').replace(/\/+$/, '');
+  const key = g('imgKey') || String(imgCfg().key || '');
+  if(!/^https:\/\//i.test(origin)){ if(hint) hint.textContent = '先把接口地址填好（https://域名），再拉模型'; return; }
+  if(!key){ if(hint) hint.textContent = '先填好 API Key，再拉模型（多数站要先鉴权）'; return; }
+  if(hint) hint.textContent = '正在向该站拉取模型列表…';
+  let r;
+  try{
+    r = await fetch(origin + '/v1/models', { headers: { 'Authorization': 'Bearer ' + key } });
+  }catch(e){
+    if(hint) hint.textContent = '拉不到模型列表（请求发不出去）：地址错 / 网络不通 / 站点没回跨域头 / Key 不对，四种都可能。也可以不拉，直接手填模型名。';
+    return;
+  }
+  let txt = '';
+  try{ txt = await r.text(); }catch(e){}
+  if(!r.ok){
+    if(r.status === 401 || r.status === 403){ if(hint) hint.textContent = '拉模型被拒（HTTP ' + r.status + '）：Key 不对或没权限。'; return; }
+    if(r.status === 404){
+      /* 这个站没实现 /v1/models（自家翻译层只做了生成）。退回内置 NAI 模型名，不报错。 */
+      const c = imgCfg(); const list0 = imgSites();
+      for(let i = 0; i < list0.length; i++){ if(list0[i].id === c.siteId){ list0[i].models = []; imgSitesSave(list0); break; } }
+      try{ imgPaintModelSel(); }catch(e){}
+      if(hint) hint.textContent = '这个站没有模型列表接口（404），下拉里先用内置的 NAI 模型名顶着 —— 多数第三方站会忽略这个字段，不影响出图。';
+      return;
+    }
+    if(hint) hint.textContent = '拉模型失败（HTTP ' + r.status + '）。也可以不拉，直接手填模型名。';
+    return;
+  }
+  let ids = [];
+  try{
+    const j = JSON.parse(txt);
+    const arr = (j && (j.data || j.models)) || [];
+    arr.forEach(function(x){
+      if(typeof x === 'string') ids.push(x);
+      else if(x && (x.id || x.model)) ids.push(x.id || x.model);
+    });
+  }catch(e){}
+  ids = ids.filter(function(x){ return !!String(x || '').trim(); });
+  if(!ids.length){ if(hint) hint.textContent = '这个站返回了模型列表，但里面没读到模型名（格式不认识）。直接手填也行。'; return; }
+  // 存到这一档名下，切回来不用再拉
+  const c = imgCfg(), list = imgSites();
+  let hit = -1;
+  for(let i = 0; i < list.length; i++){ if(list[i].id === c.siteId){ hit = i; break; } }
+  if(hit >= 0){ list[hit].models = ids.slice(0, 40); imgSitesSave(list); }
+  // 当前值不在列表里就换成第一个（否则下拉还是空白）
+  if(ids.indexOf(String(c.model || '')) < 0){
+    imgCfgSave({ model: ids[0] });
+    /* ⚠️ 必须同时写回这一档：只改 cfg 不写档，切走再切回来模型又会变回旧名字（自测抓到的） */
+    try{ imgSiteSyncFromCfg(); }catch(e){}
+  }
+  try{ imgPaintModelSel(); }catch(e){}
+  if(hint) hint.textContent = '拉到 ' + ids.length + ' 个模型：' + ids.slice(0, 4).join('、') + (ids.length > 4 ? '…' : '') + '（已记到这一档，切回来不用再拉）';
 }
 function imgPaintSiteSel(){
   const sel = document.getElementById('imgSiteSel');
@@ -8028,12 +8142,8 @@ function imgSiteSwitch(id){
      顺序不能反：反了就等于拿目标站的值覆盖了旧档。
      但表单没填过值时绝不能读它（会把旧档抹空）⇒ 看 _imgFormInited。 */
   if(_imgFormInited){ try{ saveImgCfg(); }catch(e){} }
-  /* 载入目标档：**画风三件套也一起换**（这一档的站用哪套词、认不认 NAI 权重） */
-  imgCfgSave({ siteId: target.id, origin: target.origin || '', key: target.key || '',
-    model: target.model || IMG_CFG_DEFAULT.model, dailyLimit: target.dailyLimit | 0, cooldownSec: target.cooldownSec | 0,
-    styleDraw: (target.styleDraw === undefined ? IMG_STYLE_DEFAULT : target.styleDraw),
-    negPrompt: (target.negPrompt === undefined ? IMG_NEG_DEFAULT : target.negPrompt),
-    plainSyntax: !!target.plainSyntax });
+  /* 载入目标档：**画风三件套 + v4 也一起换**（这一档的站用哪套词、认不认 NAI 权重、要不要 V4 结构化） */
+  imgCfgSave(imgCfgFromSite(target));
   try{ initImgSettingsFields(); }catch(e){}
   const h = document.getElementById('imgHint');
   if(h) h.textContent = '已切到「' + imgSiteLabel(target) + '」' + (target.key ? '' : '⚠️ 这个档还没填 Key');
@@ -8054,7 +8164,8 @@ function imgSiteValuesFromForm(){
     cooldownSec: Math.max(0, Math.min(3600, parseInt(g('imgCooldown'), 10) || 0)),
     styleDraw: g('imgStyle').trim(),
     negPrompt: g('imgNeg').trim(),
-    plainSyntax: cs ? !!cs.checked : false
+    plainSyntax: cs ? !!cs.checked : false,
+    v4: (function(){ const e = document.getElementById('imgV4'); return e ? !!e.checked : true; })()
   };
 }
 function imgSiteAdd(){
@@ -8064,7 +8175,7 @@ function imgSiteAdd(){
     : { origin: c.origin || '', key: c.key || '', model: c.model || IMG_CFG_DEFAULT.model,
         dailyLimit: c.dailyLimit | 0, cooldownSec: c.cooldownSec | 0,
         styleDraw: c.styleDraw || IMG_STYLE_DEFAULT, negPrompt: c.negPrompt || IMG_NEG_DEFAULT,
-        plainSyntax: !!c.plainSyntax };
+        plainSyntax: !!c.plainSyntax, v4: (c.v4 !== false) };
   const list = imgSites();
   // 同一个地址 + 同一个 Key 已经存过 ⇒ 直接切过去，别造重复档（她会连点两下）
   for(let i = 0; i < list.length; i++){
@@ -8078,11 +8189,10 @@ function imgSiteAdd(){
   const id = imgSiteNewId();
   list.push({ id: id, name: host, origin: v.origin, key: v.key, model: v.model,
     dailyLimit: v.dailyLimit, cooldownSec: v.cooldownSec,
-    styleDraw: v.styleDraw, negPrompt: v.negPrompt, plainSyntax: !!v.plainSyntax, updated: Date.now() });
+    styleDraw: v.styleDraw, negPrompt: v.negPrompt, plainSyntax: !!v.plainSyntax,
+    v4: (v.v4 !== false), models: [], updated: Date.now() });
   imgSitesSave(list);
-  imgCfgSave({ siteId: id, origin: v.origin, key: v.key, model: v.model,
-    dailyLimit: v.dailyLimit, cooldownSec: v.cooldownSec,
-    styleDraw: v.styleDraw, negPrompt: v.negPrompt, plainSyntax: !!v.plainSyntax });
+  imgCfgSave(imgCfgFromSite(imgSiteOf(id)));
   try{ imgPaintSiteSel(); imgPaintQuota(); }catch(e){}
   const h = document.getElementById('imgHint');
   if(h) h.textContent = '已存为新站点档「' + host + '」，额度从 0 开始算';
@@ -8111,11 +8221,7 @@ function imgSiteDel(){
   list.splice(hit, 1);
   imgSitesSave(list);
   const next = list[0];
-  imgCfgSave({ siteId: next.id, origin: next.origin || '', key: next.key || '',
-    model: next.model || IMG_CFG_DEFAULT.model, dailyLimit: next.dailyLimit | 0, cooldownSec: next.cooldownSec | 0,
-    styleDraw: (next.styleDraw === undefined ? IMG_STYLE_DEFAULT : next.styleDraw),
-    negPrompt: (next.negPrompt === undefined ? IMG_NEG_DEFAULT : next.negPrompt),
-    plainSyntax: !!next.plainSyntax });
+  imgCfgSave(imgCfgFromSite(next));
   try{ initImgSettingsFields(); }catch(e){}
   try{ toast('已删除「' + nm + '」'); }catch(e){}
 }
@@ -8516,6 +8622,11 @@ function imgSyntaxClean(txt){
   s = s.replace(/(\d+(?:\.\d+)?)\s*::([^,]*?)::/g, '$2');
   return s.replace(/\s*,\s*,+/g, ', ').replace(/\s{2,}/g, ' ').trim();
 }
+/* 「要不要发 V4 结构化 caption」不再靠模型名猜（2026-10-29）。
+   原因：第三方站的模型名可能是一串数字（柏宝绘 `/v1/models` 返回的就是 pixai 的数字 id），
+   按 `^nai-diffusion-4` 判断会直接判成"不是 V4" ⇒ **双人坐标整条通道丢失**，两个人会糊在一起。
+   现在拆成独立的布尔位 `cfg.v4`（跟站点档走），模型名只负责传给站方 / 显示。 */
+function imgUseV4(){ return imgCfg().v4 !== false; }
 function imgBuildBody(cfg, prompt, negative, w, h, seed, opt){
   opt = opt || {};
   /* ⚠️ 净化放在这个**唯一出口**上：input / v4 base_caption / char_captions / 两组 negative
@@ -8529,7 +8640,7 @@ function imgBuildBody(cfg, prompt, negative, w, h, seed, opt){
     negative_prompt: neg, sm: false, sm_dyn: false, cfg_rescale: 0
   };
   // V4 / V4.5 必须带结构化 caption，否则上游只按 input 理解、人物常崩
-  if(/^nai-diffusion-4/.test(cfg.model)){
+  if((cfg.v4 !== false)){
     const chars = Array.isArray(opt.chars) ? opt.chars.filter(function(c){ return c && String(c.caption||'').trim(); }) : [];
     const charCaps = chars.map(function(c){
       return { char_caption: imgSyntaxClean(String(c.caption).trim()),
@@ -8753,7 +8864,7 @@ function imgComposeShot(shot, prompt, who, withWho){
   const style = String(cfg.styleDraw || '').trim() || 'best quality, highly detailed';
   const body = String(prompt || '').trim();
   const chars = imgShotChars(shot, who, withWho);
-  const isV4 = /^nai-diffusion-4/.test(String(cfg.model || ''));
+  const isV4 = (cfg.v4 !== false);
   const bits = [style, spec.lead];
   if(!isV4) chars.forEach(function(c){ bits.push(c.caption); });
   if(body) bits.push(body);
@@ -11252,10 +11363,8 @@ function saveSettings(){
 
 /* ---------- 生图设置区（2026-10-29） ---------- */
 function imgFillSelects(){
-  const mSel = document.getElementById('imgModel');
-  if(mSel && !mSel.options.length){
-    mSel.innerHTML = IMG_MODELS.map(function(m){ return '<option value="' + m.id + '">' + m.label + '</option>'; }).join('');
-  }
+  // 模型下拉按「这一档的列表 + 当前值」重建（写死的 5 个名字装不下第三方站的模型 id）
+  try{ imgPaintModelSel(); }catch(e){}
   const sSel = document.getElementById('imgSize');
   if(sSel && !sSel.options.length){
     sSel.innerHTML = IMG_SIZES.map(function(s){ return '<option value="' + s.v + '">' + s.label + '</option>'; }).join('');
@@ -11283,6 +11392,7 @@ function initImgSettingsFields(){
   set('imgAnchorB', cfg.anchorB || '');
   set('imgStyle', cfg.styleDraw || IMG_STYLE_DEFAULT);
   const ps = document.getElementById('imgPlainSyntax'); if(ps) ps.checked = !!cfg.plainSyntax;
+  const v4el = document.getElementById('imgV4'); if(v4el) v4el.checked = (cfg.v4 !== false);
   set('imgNeg', cfg.negPrompt || IMG_NEG_DEFAULT);
   const np = document.getElementById('imgNoPeople'); if(np) np.checked = (cfg.povNoPeople !== false);
   set('imgSteps', (cfg.steps|0) || IMG_CFG_DEFAULT.steps);
@@ -11337,7 +11447,8 @@ function saveImgCfg(){
     scale: Math.min(10, Math.max(1, parseFloat(g('imgScale')) || IMG_CFG_DEFAULT.scale)),
     sampler: g('imgSampler') || IMG_CFG_DEFAULT.sampler,
     seed: String(g('imgSeed') || '').trim(),
-    plainSyntax: (function(){ const e = document.getElementById('imgPlainSyntax'); return e ? !!e.checked : false; })()
+    plainSyntax: (function(){ const e = document.getElementById('imgPlainSyntax'); return e ? !!e.checked : false; })(),
+    v4: (function(){ const e = document.getElementById('imgV4'); return e ? !!e.checked : true; })()
   });
   /* 保存本页 = 也把「这一档的地址/Key/模型/上限/冷却 + 画风三件套」存回当前档，
      否则切走再切回来就丢了（档位是命名快照，快照必须跟着改） */
