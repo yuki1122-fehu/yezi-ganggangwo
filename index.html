@@ -3345,6 +3345,12 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           <span>画风指纹 <span style="font-size:11px;font-weight:400;color:var(--ink-soft)">（这一档专用，换站会跟着换）</span></span>
           <button class="btn ghost" type="button" onclick="imgResetStyle()" style="flex:0 0 auto;padding:4px 9px;font-size:11px;line-height:1.3;">恢复默认</button>
         </label>
+        <!-- PixAI 底座的站：画风框整个不发送（2026-10-30）。这里必须常驻写出来，
+             否则她在框里改了半天、一个字都没发出去，还以为改生效了 —— 静默失效最可恨。 -->
+        <div id="imgStyleOff" style="display:none;font-size:11px;line-height:1.65;color:#6d4a1e;background:rgba(255,209,140,.38);border:1px solid rgba(176,132,52,.4);border-radius:8px;padding:7px 9px;margin:0 0 7px;">
+          这个站底座是 <b>PixAI</b>：<b>下面框里的内容一个字都不会发出去</b>。画风全靠站上那个 Key 自带的 LoRA，
+          在这儿填反而会让你以为改过、其实没改。
+        </div>
         <textarea id="imgStyle" rows="5" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="highly detailed, 2::artist:afire::, ..."
           style="width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 10px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.75);color:var(--ink);"></textarea>
         <div style="display:flex;gap:8px;align-items:flex-start;margin-top:6px;">
@@ -3357,7 +3363,8 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         <p class="hint" style="font-size:11px;color:#4a5b4d;margin:4px 0 10px;line-height:1.65;">
           只放「质量词 + 画师」，<b style="color:#a3577a;">不要放场景词</b>（evening / sea / deck / 日落这类）。场景每张都由 AI 现编，写死会让所有图都变成同一个黄昏海边。<br>
           <b>NovelAI 系站</b>（小酒等）用权重写法 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">2::artist:afire::</code>，数字越大越强调。<br>
-          <b>PixAI / SD 系站</b>（柏宝绘等）没有这几个画师、也不认这套权重 ⇒ 勾上上面的开关并点「填纯标签版」，否则那串 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">::</code> 只是噪音。
+          <b>底座是 PixAI 的站</b>（柏宝绘等）<b style="color:#a3577a;">整个画风框都不发送</b>：画风由站上那个 Key 自带的 LoRA 定死，上面会挂一条黄条提醒。框里填什么都不生效，别在这儿花时间。<br>
+          纯标签版（<code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">masterpiece, best quality…</code>）留给<b>非 PixAI 的 SD 系站</b>，那种站要发画风、只是不认 NAI 权重。
         </p>
 
         <label>零落 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（<b style="color:#4a5b4d">两站共用</b>，换站不变）</span></label>
@@ -8606,7 +8613,7 @@ async function imgFetchModels(){
   if(hint){
     hint.textContent = '拉到 ' + ids.length + ' 个模型：' + ids.slice(0, 4).join('、') + (ids.length > 4 ? '…' : '')
       + '（已记到这一档，切回来不用再拉）'
-      + (pixai ? '。⚠️ 这站底座是 PixAI：画风建议点「填纯标签版」并勾上「不认 NAI 权重」；'
+      + (pixai ? '。⚠️ 这站底座是 PixAI：画风框里的内容今后一个字都不发（画风全靠站上 LoRA）；'
         + 'V4 结构化 caption 它不认，已自动关掉（人物锚点改走主提示词）。' : '');
   }
 }
@@ -8629,7 +8636,7 @@ function imgPaintSiteSel(){
     const s = imgSiteOf(c.siteId);
     line.textContent = s
       ? ('当前用：' + imgSiteLabel(s) + '　' + String(s.origin || '（还没填地址）')
-         + (s.backend === 'pixai' ? '　·　底座 PixAI（画风用纯标签）' : '')
+         + (s.backend === 'pixai' ? '　·　底座 PixAI（画风不发送，全靠站上 LoRA）' : '')
          + ((s.models && s.models.length) ? '　·　模型数 ' + s.models.length : ''))
       : '';
   }
@@ -9808,11 +9815,28 @@ function imgCharsDeconflict(chars){
     return Object.assign({}, c, { caption: String(c.caption || '').trim() + ', hair down, loose hair' });
   });
 }
+/* 这一张该带什么画风（2026-10-30，叶子定）。
+   ⚠️ **PixAI 底座的站一个画风词都不发。** 那种站的 Key 里已经锁死了 LoRA + 配方，
+      画风是站上决定的；我们这边再拼一份，等于两套指令抢同一个位置。
+      而且 `2::artist:afire::` 这套是 NAI 独有语法，PixAI 不认识，只会当普通文字读，
+      占字数、稀释权重 —— 实测它连「有没有眼睛」都照读，空景里等于催模型画一张脸。
+   NAI 系站照旧：档里填什么发什么，空着兜一句质量词。
+   判据用 `backend === 'pixai'`，那是拉模型时从 `/v1/models` 的 owned_by 自动认出来的，
+   不靠站名、不靠 Key 前缀。 */
+function imgStyleOffNow(){
+  const s = imgSiteOf(imgCfg().siteId);
+  return !!(s && s.backend === 'pixai');
+}
+function imgStyleFor(){
+  if(imgStyleOffNow()) return '';
+  const cfg = imgCfg();
+  return String(cfg.styleDraw || '').trim() || 'best quality, highly detailed';
+}
 function imgComposeShot(shot, prompt, who, withWho, opts){
   const cfg = imgCfg();
   const o = opts || {};
   const spec = IMG_SHOTS[shot] || IMG_SHOTS.selfie;
-  const style = String(cfg.styleDraw || '').trim() || 'best quality, highly detailed';
+  const style = imgStyleFor();
   const body = String(prompt || '').trim();
   const chars = imgCharsDeconflict(imgShotChars(shot, who, withWho, o));
   const isV4 = imgUseV4Structured();
@@ -9836,7 +9860,9 @@ function imgComposeShot(shot, prompt, who, withWho, opts){
     }
   }
   if(body) bits.push(body);
-  bits.push('very aesthetic, no text');
+  /* `very aesthetic` 是 NAI 的质量词，PixAI 档一句画风都不发时它也一并省掉；
+     `no text` 留着 —— 那不是画风，是压掉画面上乱冒的字。 */
+  bits.push(style ? 'very aesthetic, no text' : 'no text');
   const base = bits.filter(Boolean).join(', ').replace(/\s*,\s*,+/g, ', ').replace(/^\s*,\s*/, '');
   return { base: base, chars: chars, aspect: spec.aspect, neg: spec.neg };
 }
@@ -12577,6 +12603,7 @@ function initImgSettingsFields(){
   const h = document.getElementById('imgHint'); if(h) h.textContent = '';
   const old = document.getElementById('imgTestPreview'); if(old) old.remove();
   _imgFormInited = true;
+  try{ imgPaintStyleOff(); }catch(e){}
   syncImgUI();
 }
 function syncImgUI(){
@@ -12585,6 +12612,19 @@ function syncImgUI(){
   f.style.opacity = on.checked ? '1' : '.45';
   f.style.pointerEvents = on.checked ? '' : 'none';
   imgPaintQuota();
+}
+/* 画风框在 PixAI 底座的站上是失效的（`imgStyleFor()` 直接返回空）⇒ 让它看起来也失效：
+   常驻黄条 + 输入框变淡 + 只读。只给一条一闪而过的提示，她下次还是会去里面改。 */
+function imgPaintStyleOff(){
+  const box = document.getElementById('imgStyleOff');
+  const ta = document.getElementById('imgStyle');
+  if(!box) return;
+  const off = imgStyleOffNow();
+  box.style.display = off ? '' : 'none';
+  if(ta){
+    ta.style.opacity = off ? '.45' : '1';
+    ta.readOnly = off;
+  }
 }
 function imgPaintQuota(){
   const el = document.getElementById('imgQuotaLine');
@@ -12637,7 +12677,9 @@ function imgResetStyle(){
   imgCfgSave({ styleDraw: IMG_STYLE_DEFAULT });
   try{ imgSiteSyncFromCfg(); }catch(e){}
   const h = document.getElementById('imgHint');
-  if(h) h.textContent = '画风已恢复默认（NAI 权重版），立即生效';
+  if(h) h.textContent = imgStyleOffNow()
+    ? '已写回 NAI 权重版 —— 但当前这个站是 PixAI 底座，画风框整个不发送，这次改动不会影响出图'
+    : '画风已恢复默认（NAI 权重版），立即生效';
 }
 /* 一键换成「纯标签版画风」并把语法开关勾上 —— 给 PixAI/SD 系站用。
    只动这一档的画风指纹 + plainSyntax 两个字段，负面词和锚点不碰。 */
@@ -12649,7 +12691,9 @@ function imgUsePlainStyle(){
   imgCfgSave({ styleDraw: IMG_STYLE_PLAIN, plainSyntax: true });
   try{ imgSiteSyncFromCfg(); }catch(e){}
   const h = document.getElementById('imgHint');
-  if(h) h.textContent = '已换成纯标签版画风，并勾上「不认 NAI 权重」——这个站发出去的就是干净的质量词了';
+  if(h) h.textContent = imgStyleOffNow()
+    ? '已填成纯标签版 —— 但当前这个站是 PixAI 底座，画风框整个不发送，所以这次改动不会影响出图'
+    : '已换成纯标签版画风，并勾上「不认 NAI 权重」——这个站发出去的就是干净的质量词了';
 }
 /* 试生一张：花的是真额度，所以按钮上写清楚。生成后直接在这里预览，不用去聊天里看。
    ⚠️ 画面内容走 `imgTestPrompt()`（提示词中心第 19 块，可看可改）。以前写死成
