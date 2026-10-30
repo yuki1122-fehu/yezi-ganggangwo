@@ -3350,20 +3350,34 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           <b>PixAI / SD 系站</b>（柏宝绘等）没有这几个画师、也不认这套权重 ⇒ 勾上上面的开关并点「填纯标签版」，否则那串 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">::</code> 只是噪音。
         </p>
 
-        <label>零落 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（已按真实设定填好）</span></label>
+        <label>零落 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（<b style="color:#4a5b4d">两站共用</b>，换站不变）</span></label>
         <textarea id="imgAnchorA" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="1girl, purple eyes, long silky hair, black hair, ..."
           style="width:100%;box-sizing:border-box;resize:vertical;min-height:88px;border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 10px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.75);color:var(--ink);"></textarea>
-        <label>沈容 外观锚点</label>
+        <label>沈容 外观锚点 <span style="font-size:11px;color:var(--ink-soft)">（<b style="color:#4a5b4d">两站共用</b>，换站不变）</span></label>
         <textarea id="imgAnchorB" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="1boy, blue eyes, long black hair, bare forehead, ..."
           style="width:100%;box-sizing:border-box;resize:vertical;min-height:88px;border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 10px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.75);color:var(--ink);"></textarea>
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 10px;line-height:1.65;">
           两人<b style="color:#a3577a;">都没有刘海</b>（只有脸侧碎发），代码里已在负面词压掉齐刘海，不用再手写「额头」去强调。<br>
-          只写头部特征，<b style="color:#a3577a;">衣服别写进来</b>：零落那件旧大衣是「借沈容的」特定场景，写进来就每张都穿同一件。要换衣就在对话画面里说清。
+          只写头部特征，<b style="color:#a3577a;">衣服别写进来</b>：零落那件旧大衣是「借沈容的」特定场景，写进来就每张都穿同一件。要换衣就在对话画面里说清。<br>
+          <b style="color:#4a5b4d;">这两份只有一份，几个站都用它</b> —— 换站之后零落还是零落。两站写法的差别全自动处理：
+          <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">{{…}}</code> 权重在 PixAI 站会被拆成普通词；
+          双人图在 NAI 站走坐标、在 PixAI 站自动写成 <code style="font-size:10px;background:rgba(0,0,0,.05);padding:1px 4px;border-radius:4px;">left: …; right: …</code>；
+          一人束发时另一个人会自动补上「头发散着」，免得丸子头跑到别人头上。<b>不用为两个站准备两套锚点。</b>
         </p>
 
-        <label>负面词 <span style="font-size:11px;color:var(--ink-soft)">（避雷清单，一般不用动）</span></label>
+        <label>负面词 <span style="font-size:11px;color:var(--ink-soft)">（<b style="color:#a3577a">这一档专用</b>，换站会跟着换）</span></label>
         <textarea id="imgNeg" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="lowres, bad anatomy, ..."
           style="width:100%;box-sizing:border-box;resize:vertical;border:1px solid var(--green-mid);border-radius:var(--radius-sm);padding:8px 10px;font-size:11px;line-height:1.55;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.75);color:var(--ink);"></textarea>
+        <!-- 2026-10-30：叶子问「镜头会自己变的负面词，和我填的怎么算」⇒ 把分层写在这儿，别再让她猜 -->
+        <p class="hint" style="font-size:11px;color:#4a5b4d;margin:6px 0 10px;line-height:1.7;">
+          这一框是<b>清单的最前面一层</b>，<b style="color:#a3577a">永远都会发出去、一个字都不会被删</b>。每次出图，代码会按当时的画面在后面<b>追加</b>几层，
+          所以同一份词在不同照片上最终长度不一样：<br>
+          · <b>只要画面里有人</b> → 追加「不要齐刘海」（连着禁掉整个人像会变贴头皮大背头，只禁遮额头那种）<br>
+          · <b>不是亲密场景</b> → 再追加「禁内衣/透/露」（上帝视角那两张是亲密戏，会跳过这条，免得跟画面打架）<br>
+          · <b>拍的是空景</b> → 反过来追加一整套「禁人」，免得凭空多出一个陌生人；这时<b>不会</b>加禁刘海那条<br>
+          · <b>自拍/第一人称空景</b> → 再加几条镜头自己的（不要镜子反光、不要出现摄影师的手之类）<br>
+          ⚠️ 反过来说：你写在这儿的词对<b>所有</b>照片都生效，包括空景。所以别写「indoor」「night」这类场景词，那会把别的场景一起压掉。
+        </p>
 
         <!-- 环境照禁人（2026-10-29）：拍空景却凭空多出一个陌生人，就是这里没开 -->
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:12px 0 4px;">
