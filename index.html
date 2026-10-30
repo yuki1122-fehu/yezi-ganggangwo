@@ -8278,6 +8278,43 @@ const IMG_CFG_DEFAULT = {
 /* 双人站位：沈容在左、零落在右（与叶子那张已验证的图一致，固定住才有「他们一直站那儿」的稳定感）。
    ⚠️ 坐标必须由代码算死，绝不让模型填 —— 模型给 0.95 就直接出画。 */
 const IMG_SLOT = { '沈容': 0.3, '零落': 0.7 };
+/* ===== 双人姿势（2026-10-30）=====
+   叶子问：「两个人的互动，这个提示词该怎么写？」—— 查出来根本写不出来：
+   坐标写死 0.30 / 0.70（中间隔着四成画幅），lead 还写死 `side by side`。
+   于是双人图永远是「两个人在画面里各站一边」，抱在一起/依偎/贴脸全画不出来，
+   所以「互动」只能靠 prompt 硬塞，塞了也没用 —— 位置本身就是分开的。
+   现在拆成四档，模型只选档、不填数字（它填 0.95 人物就出画）。
+   ⚠️ lead 只描述「两人在画面里的距离关系」，**不写具体动作**（hugging / kissing 交给 prompt）：
+      两套指令同时说动作，模型会各听一半，姿势反而更糊。 */
+const IMG_POSE = {
+  side:    { xs: [0.30, 0.70], lead: 'duo, hetero, side by side' },
+  close:   { xs: [0.40, 0.60], lead: 'duo, hetero, close together' },
+  embrace: { xs: [0.44, 0.56], lead: 'duo, hetero, close together, embracing' },
+  apart:   { xs: [0.20, 0.80], lead: 'duo, hetero, standing apart, facing each other' }
+};
+function imgPoseOf(p){
+  const k = String(p || '').trim();
+  return IMG_POSE[k] ? k : 'side';
+}
+/* ===== 换装（2026-10-30）=====
+   问题：沈容的锚点里写死了常服（white dress shirt, collared shirt, grey waistcoat），
+   那是**身体描述的一部分**，没法单独改。换上睡衣/西装/浴衣时，两套衣服挤在同一个
+   char_caption 里互相抢，谁的权重高谁赢 —— 结果是她改了半天 prompt 也没用。
+   做法：本次如果指定了 outfit，就把锚点里「服装语义」的逗号段剥掉再接新的。
+   ⚠️ 只在真的给了 outfit 时才剥：没给就一个字不动，存量行为完全不变。
+   ⚠️ 只认具体服装名词，不靠「猜哪段是衣服」；`\btie\b` 是为了不误伤 necktie 之外的东西。 */
+const IMG_OUTFIT_RE = /(shirt|blouse|t-?shirt|sweater|hoodie|jacket|coat|waistcoat|vest|suit|dress|skirt|trousers|pants|jeans|shorts|uniform|robe|kimono|yukata|pajamas?|nightgown|nightdress|necktie|\btie\b|scarf|apron|socks|stockings|thighhighs|boots|shoes|loafers|gloves)/i;
+function imgStripOutfit(caption){
+  return String(caption || '').split(',').map(function(s){ return s.trim(); })
+    .filter(function(s){ return !!s && !IMG_OUTFIT_RE.test(s); }).join(', ');
+}
+/* 一个角色的 char_caption = 锚点（去掉默认服装）+ 本次穿着 */
+function imgCharCaption(who, outfits){
+  const outfit = String(((outfits || {})[who]) || '').trim();
+  const anchor = imgAnchorOf(who) || IMG_ANCHOR_FB[who] || '';
+  if(!outfit) return anchor;
+  return imgStripOutfit(anchor) + ', ' + outfit;
+}
 function imgCharCenters(n){
   if(n <= 1) return [0.5];
   if(n === 2) return [0.3, 0.7];
@@ -8879,6 +8916,9 @@ const IMG_TOOL_DESC_DEFAULT = `给对方发一张照片（你随手拍的），�
 · 例（路边随手拍）：street corner, night, neon glow, wet asphalt, convenience store, vending machine, light rain, no humans, scenery, depth of field
 【写人的硬规矩（双人图最容易翻车，照做）】
 · 双人 tag 数要平衡：两边各写 8-12 个，相差别超过 5 个。一边写得多一边写得少，少的那边会被画小、糊掉、挤进角落。合照两个人各自的服装、动作、表情都要分别落笔。
+· ⚠️ **衣服要分人填**：两人穿得不一样时，who 那件填 outfitA、with 那件填 outfitB。写进 prompt 的服装是两人共用的 —— 你在 prompt 里写 white pajamas，他们俩会一起穿上同一件睡衣。所以「各自穿什么」走 outfitA / outfitB，「两人在做什么、谁看谁」才写 prompt。
+· ⚠️ **距离用 pose 选，别在 prompt 里描述站位**：并排站着=side；肩挨肩/坐一起=close；抱着/依偎/贴脸=embrace；分开站/隔桌对坐=apart。只在 prompt 里写 hugging，两个人照样会被摆成隔着半个画面 —— 位置是代码定的，你没有别的办法改它。
+· 单人自拍换睡衣、换泳衣、换运动服也填 outfitA（但 shot=duo 时它是另一个人，别看错）。
 · 写男性：以他为主就把 male_focus 放第一个词，紧跟 1boy。⚠️ 绝不能写 delicate_features / boyish / petite / dainty / cute_face，这些词会把他画回少年感；slender 要写成 lean。男角色的服装比女角色更容易被省掉，一定要写。
 · 局部出镜（只拍到手、背影、半张脸）就只写画面上看得见的部位。多写一句发色或发型，那个人会整个人挤进画面，或者把自己的发色串到另一个人身上。
 · 禁抽象形容词：beautiful / cute / pretty / handsome / gorgeous / amazing / nice 一律别写，模型不吃这套。表情要写具体动作：smiling softly / looking away / lips parted / eyes closed / frowning slightly / biting lip / gaze lowered。
@@ -9635,14 +9675,19 @@ async function imgGenerate(prompt, negative, opt){
    ⚠️ 外观锚点绝不能同时出现在 base 和 char 里 —— 两边打架会把角色特征糊成一团。
    ⚠️ 顺序必须按坐标升序（左→右），否则 NAI 会把特征配错人。 */
 const IMG_ANCHOR_FB = { '零落': '1girl', '沈容': '1boy' };
-function imgBuildChars(whoA, whoB){
+function imgBuildChars(whoA, whoB, opts){
+  const o = opts || {};
   const list = [];
   [whoA, whoB].forEach(function(w){
     if(w === '零落' || w === '沈容'){ if(list.indexOf(w) < 0) list.push(w); }
   });
+  /* 排序仍按 IMG_SLOT（沈容 0.3 在前、零落 0.7 在后），保证「谁在左」跟以前一致；
+     距离由 pose 决定，顺序不变 —— 只把 0.3/0.7 换成本档的 xs。 */
   list.sort(function(a, b){ return (IMG_SLOT[a] || 0.5) - (IMG_SLOT[b] || 0.5); });
-  return list.map(function(w){
-    return { who: w, caption: imgAnchorOf(w) || IMG_ANCHOR_FB[w], x: IMG_SLOT[w], y: 0.5 };
+  const xs = (IMG_POSE[imgPoseOf(o.pose)] || IMG_POSE.side).xs;
+  return list.map(function(w, i){
+    return { who: w, caption: imgCharCaption(w, o.outfits),
+             x: (xs[i] != null ? xs[i] : (IMG_SLOT[w] || 0.5)), y: 0.5 };
   });
 }
 /* ================= 镜头层（2026-10-29）=================
@@ -9723,12 +9768,13 @@ function imgResolveShot(shot, who, withWho){
 }
 /* 这个镜头画面里有谁、各在哪。坐标全部由代码算，单人也带坐标（NAI V4 单人用 coords 会更稳，
    不会把人物甩到角落）；pov 返回空数组 ⇒ use_coords 自动关掉，画面里就不会凭空长人。 */
-function imgShotChars(shot, who, withWho){
+function imgShotChars(shot, who, withWho, opts){
   const spec = IMG_SHOTS[shot] || IMG_SHOTS.selfie;
+  const o = opts || {};
   if(spec.chars === 'none') return [];
-  if(spec.chars === 'two') return imgBuildChars(who, withWho);
+  if(spec.chars === 'two') return imgBuildChars(who, withWho, o);
   if(who !== '零落' && who !== '沈容') return [];
-  return [{ who: who, caption: imgAnchorOf(who) || IMG_ANCHOR_FB[who], x: (spec.center || 0.5), y: 0.5 }];
+  return [{ who: who, caption: imgCharCaption(who, o.outfits), x: (spec.center || 0.5), y: 0.5 }];
 }
 /* 拼装：画风 → 镜头语言 → 画面内容 → 尾部约束。外观锚点只走 char_captions，绝不重复写进 base
    （两边都写会打架，把角色特征糊成一团）。非 V4 模型没有 char_captions 通道，才退回写 base。 */
@@ -9749,14 +9795,18 @@ function imgCharsDeconflict(chars){
     return Object.assign({}, c, { caption: String(c.caption || '').trim() + ', hair down, loose hair' });
   });
 }
-function imgComposeShot(shot, prompt, who, withWho){
+function imgComposeShot(shot, prompt, who, withWho, opts){
   const cfg = imgCfg();
+  const o = opts || {};
   const spec = IMG_SHOTS[shot] || IMG_SHOTS.selfie;
   const style = String(cfg.styleDraw || '').trim() || 'best quality, highly detailed';
   const body = String(prompt || '').trim();
-  const chars = imgCharsDeconflict(imgShotChars(shot, who, withWho));
+  const chars = imgCharsDeconflict(imgShotChars(shot, who, withWho, o));
   const isV4 = imgUseV4Structured();
-  const bits = [style, spec.lead];
+  /* duo 的「并排」不再是写死的：跟着 pose 换档（并排/靠近/依偎/分开）。
+     不传 pose 时 imgPoseOf() 给 'side'，字串与旧版完全一致 ⇒ 存量行为不变。 */
+  const lead = (shot === 'duo' && o.pose) ? (IMG_POSE[imgPoseOf(o.pose)] || IMG_POSE.side).lead : spec.lead;
+  const bits = [style, lead];
   if(!isV4 && chars.length){
     /* 非 V4 的站没有 char_captions 通道 ⇒ 锚点只能写进主提示词。
        但两个人平铺成一串，模型分不清谁是谁 —— 柏宝绘实测：两人会长成同一张脸、穿同一件衣服。
@@ -9850,7 +9900,11 @@ function imgRetryArm(args, r){
   }
   _imgRetry = {
     args: { prompt:String(a.prompt || '').trim(), who:String(a.who || ''), with:String(a.with || ''),
-            shot:String(a.shot || ''), note:String(a.note || '') },
+            shot:String(a.shot || ''), note:String(a.note || ''),
+            /* 换装与姿势也要留住：只挑这五个旧字段的话，点「重试」会把两人各自的衣服
+               和距离一起打回默认 —— 而重试的全部意义就是「同一张再画一次」（2026-10-30） */
+            outfitA:String(a.outfitA || '').trim(), outfitB:String(a.outfitB || '').trim(),
+            pose:String(a.pose || '').trim() },
     reason: reason,
     wait: wait,
     readyAt: readyAt,
@@ -9964,7 +10018,19 @@ async function imgSendCore(argsIn, opts){
     if(!pa.ok) return { ok:false, error: pa.reason, asked: asked };
   }
   const cfg = imgCfg();
-  const plan = imgComposeShot(shot, prompt, who, withWho);
+  /* ===== 换装 + 姿势（2026-10-30）=====
+     两个人的穿着必须**分别**进各自的 char_caption：只写进 prompt 的话，那句话落在
+     共用的 base_caption 上，结果是两个人一起穿上同一件衣服（叶子 2026-10-30 报的就是这个）。
+     outfitA 给 who，outfitB 给 with；单人图只认 outfitA（自拍换睡衣也走这条）。 */
+  const outfits = {};
+  if(who === '零落' || who === '沈容'){
+    const v = String(args.outfitA || '').trim(); if(v) outfits[who] = v;
+  }
+  if(withWho){
+    const v = String(args.outfitB || '').trim(); if(v) outfits[withWho] = v;
+  }
+  const pose = imgPoseOf(args.pose);
+  const plan = imgComposeShot(shot, prompt, who, withWho, { outfits: outfits, pose: pose });
   const full = plan.base;
   const neg = imgNegFor(shot);
   const opt = { chars: plan.chars, aspect: plan.aspect };
@@ -9991,7 +10057,10 @@ async function imgSendCore(argsIn, opts){
   }
   const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   const rec = { id:id, blob:r.blob, prompt:prompt, full:full, neg:neg, who:who, withWho:withWho, shot:shot,
-                proactive: !asked, seed:r.seed, w:r.w, h:r.h, model: cfg.model, created: Date.now() };
+                proactive: !asked, seed:r.seed, w:r.w, h:r.h, model: cfg.model, created: Date.now(),
+                /* 换装与姿势也存进来：看图页「重新生成」要按 rec 重算 char_captions，
+                   不存这两样，改一个词重试就会把两人的衣服和距离全打回默认（2026-10-30） */
+                outfits: outfits, pose: pose };
   try{ await imgPut(rec); }catch(e){}
   const q = imgQuota();
   const prevShot = q.lastShot;
@@ -10289,9 +10358,12 @@ const AI_TOOLS = [
     description: IMG_TOOL_DESC_DEFAULT,
     parameters:{ type:'object', properties:{
       shot:{type:'string', enum:['pov','pov_focus','selfie','duo'], description:'视角。pov=你眼中所见（你不在画面里）；pov_focus=你正看着某个人；selfie=自拍（你在画面里）；duo=两人合照（须配 with）。不填时按 with/who 自动推断。'},
-      prompt:{type:'string', description:'英文逗号分隔的画面标签（Danbooru 风格），只写画面本身：不写中文、不写解释、不写画风与质量词（已全局配好）。也不要写视角词（selfie/pov/first-person/from above）——shot 已经决定了，重复写会打架；不要写谁在左谁在右（站位由程序算死）；不要写角色长相（发色/耳型/默认服装会自动补，除非这套衣服变了）。拍静物/空景带上 no humans, scenery；拍人要写清在做什么。例：street market, evening, string lights, food stall, steam, wet pavement, bokeh'},
+      prompt:{type:'string', description:'英文逗号分隔的画面标签（Danbooru 风格），只写画面本身：不写中文、不写解释、不写画风与质量词（已全局配好）。也不要写视角词（selfie/pov/first-person/from above）——shot 已经决定了，重复写会打架；不要写谁在左谁在右（站位由程序算死）；不要写角色长相（发色/耳型/默认服装会自动补）；换装不要写在这里，填 outfitA / outfitB。拍静物/空景带上 no humans, scenery；拍人要写清在做什么。例：street market, evening, string lights, food stall, steam, wet pavement, bokeh'},
       who:{type:'string', enum:['零落','沈容','none'], description:'画面里最主要的那个真人：自拍填你自己，拍对方填对方，纯风景/静物填 none。shot=pov 时这个字段被忽略。'},
       with:{type:'string', enum:['零落','沈容'], description:'只在 shot=duo 时用：画面里的另一个人（不能和 who 相同）。填了之后站位、画幅、外观全由程序安排。'},
+      outfitA:{type:'string', description:'画面里 who 这个人这次穿什么（英文标签，如 white knit sweater, grey shorts, bare feet）。不填就按默认常服。换装必须填这里，不要写进 prompt —— prompt 里的服装是两人共用的。'},
+      outfitB:{type:'string', description:'只在 shot=duo 时用：with 那个人这次穿什么。两人穿得不一样时要分别填 outfitA 和 outfitB，否则两个人会穿成同一件。'},
+      pose:{type:'string', enum:['side','close','embrace','apart'], description:'只在 shot=duo 时用：两人在画面里的距离。side=并排站着（默认，适合摆拍）；close=靠得近（肩挨肩、坐在一起）；embrace=抱在一起/依偎/贴脸；apart=分开站、隔着距离或隔桌对坐。'},
       note:{type:'string', description:'跟图一起显示的短句，用你自己的语气（如"喏，刚拍的"）。不要描述画面、不要复述标签。可以留空'}
     }, required:['prompt']}
   }}
@@ -10952,7 +11024,7 @@ async function aiZoomPrompt(){
       setTimeout(function(){ try{ ta.scrollIntoView({ block:'center', behavior:'smooth' }); }catch(e){} }, 320);
     });
   });
-  const chars = imgShotChars(rec.shot || '', rec.who, rec.withWho);
+  const chars = imgShotChars(rec.shot || '', rec.who, rec.withWho, { outfits: rec.outfits, pose: rec.pose });
   const whoTxt = chars.length
     ? '画面里：' + chars.map(function(c){ return c.who + ' @' + c.x; }).join(' · ') + '（站位由程序固定，不让模型填）'
     : '画面里：没有人（纯环境）';
@@ -12572,7 +12644,10 @@ async function imgTestGenerate(){
   saveImgCfg();
   const cfg = imgCfg();
   if(!String(cfg.key||'').trim()){ if(hint) hint.textContent = '先填 API Key'; return; }
-  const gate = imgGateCheck();
+  /* ⚠️ manual:true —— 试生按钮跟「看图页改词重生成」是同一类操作（人手调词、人手点），
+     却因为漏了这个参数被 800 秒本地冷却拦下，两个入口行为不一致（2026-10-30 修）。
+     每日上限照旧算；真撞上站点 429 会由 imgQuotaMarkRateLimited() 反推冷却，不会更糟。 */
+  const gate = imgGateCheck({ manual: true });
   if(!gate.ok){ if(hint) hint.textContent = gate.reason; imgPaintQuota(); return; }
   if(hint) hint.textContent = '正在生成…（约 20-40 秒，占 1 张额度）';
   /* 试生必须走跟聊天完全一样的拼装路径（imgComposeShot / imgNegFor），
