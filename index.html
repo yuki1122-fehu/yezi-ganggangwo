@@ -1907,8 +1907,11 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
    记录里的 w/h 是**请求尺寸**，站方实际出图比例常常不同（要 832×1216 可能回 768×1280；
    公益站被密钥锁死、只保方向时差得更多）。拿请求尺寸当比例 ⇒ 图片被真的拉歪。
    现在交给 img 自己的自然比例，只限最大宽高（长图不再撑满气泡，宽图也不会挤成一条）。
-   box 用 inline-block 贴合图片宽度，右/下不再留白底条。 */
-.ai-gen-img-box{margin-top:8px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);background:rgba(255,255,255,.35);display:inline-block;max-width:100%;vertical-align:top;}
+   ⚠️ 必须是 block + fit-content，**不能用 inline-block**（2026-10-30 傍晚踩到）：
+   气泡里的正文是行内元素，inline-block 的容器会跟文字挤在同一行 ⇒
+   图跑到左边、文字被压成图片右边一条窄缝（症状：「喏，刚拍的」被截断）。
+   fit-content 让容器独占一行、宽度又贴合图片，不留白底条。 */
+.ai-gen-img-box{margin-top:8px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);background:rgba(255,255,255,.35);display:block;width:fit-content;max-width:100%;}
 .ai-gen-img{display:block;width:auto;height:auto;max-width:260px;max-height:320px;object-fit:contain;cursor:zoom-in;}
 .ai-gen-img-box.lost{padding:10px 12px;font-size:var(--fs-2);color:var(--ink-soft);}
 /* 生图失败的重试卡（2026-10-29）：提示词还在，点一下直接重画，不用模型重写一份。
