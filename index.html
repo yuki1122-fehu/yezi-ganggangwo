@@ -9728,7 +9728,16 @@ function imgBuildChars(whoA, whoB, opts){
 const IMG_SHOTS = {
   pov: {
     label: '第一人称·我看到的',
-    lead: 'first-person view, POV, from own eyes, camera at eye level, casual snapshot composition',
+    /* 2026-10-30 晚改：原来写的是 first-person view, POV, from own eyes, camera at eye level。
+       实测（同一份提示词，柏宝绘三张）——
+         · 网页端两张：画面右下角**一只握着锅柄的手**，锅是主体；
+         · API 端一张：干脆画成**一个人占半张脸**，锅退成背景。
+       POV 那几句在 SD 系里等于「镜头后面站着一个人」，模型必须把拍摄者的身体补进来。
+       大场景（街道/建筑）时手被广角压掉了，所以以前偶尔能空；一到小物件特写就必然露手。
+       ⇒ 只保留「广角 + 平视 + 随手拍」，把「这是谁的眼睛」整段删掉。
+       ⚠️ 一次只改这一处：负面词一个字都没动 —— 下一张要是还露手，才能咬定是「去 POV」不够，
+          而不是又搅进了别的变量。 */
+    lead: 'wide shot, eye level view looking ahead, casual snapshot composition',
     neg: 'selfie, mirror, reflection, reflective glass, water reflection, photographer, own face, own body, third-person view',
     chars: 'none', aspect: 'landscape'
   },
