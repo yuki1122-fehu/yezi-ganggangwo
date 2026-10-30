@@ -4522,6 +4522,9 @@ const CAT_NAME = {study:'学习', life:'生活', today:'今天', week:'本周', 
 const WEEKDAY_CN = ['周日','周一','周二','周三','周四','周五','周六'];
 const PRI_NAME = {high:'先做', mid:'建议做', low:'不着急'};
 const STORE_KEY = 'mhm_cloud_v1';
+// 列表勾选（未完成/已过期/已完成）的记忆位。跟任务数据分开存：
+// 它是「怎么看」不是「有什么」，混进 tasks 会让 saveLocal 每次都多写一遍，也容易被全量导入盖掉。
+const TASK_FILTER_KEY = 'mhm_task_filter_v1';
 const EXPENSE_KEY = 'mhm_expense_v1';
 const EXPENSE_CATS = ['餐饮','交通','购物','学习','住宿','医疗','其他'];
 const DEFAULT_BUDGET = 5000;
@@ -4929,6 +4932,8 @@ function enterApp(){
 function loadTasks(){
   setSync('syncing');
   try{
+    // 先把勾选状态恢复回来，再渲染列表：反过来的话会先闪一下「全选」的列表再跳成实际状态
+    loadTaskFilter(); renderFilter();
     const raw = localStorage.getItem(STORE_KEY);
     if(raw){
       tasks = JSON.parse(raw);
@@ -6654,8 +6659,22 @@ function clearListSearch(){
 }
 function toggleFilter(key){
   taskFilter[key] = !taskFilter[key];
+  saveTaskFilter();   // 勾完就落盘：叶子嫌"每次进来都要重勾一次"
   renderFilter();
   renderList();
+}
+/* 勾选记忆：只认三个已知键的布尔值，别的一律忽略（旧版本/脏数据不该把界面弄成空白） */
+function loadTaskFilter(){
+  try{
+    const raw = JSON.parse(localStorage.getItem(TASK_FILTER_KEY) || 'null');
+    if(!raw || typeof raw !== 'object') return;
+    ['undone','overdue','done'].forEach(k=>{
+      if(typeof raw[k] === 'boolean') taskFilter[k] = raw[k];
+    });
+  }catch(e){}
+}
+function saveTaskFilter(){
+  try{ localStorage.setItem(TASK_FILTER_KEY, JSON.stringify(taskFilter)); }catch(e){}
 }
 function renderFilter(){
   document.querySelectorAll('#filterChecks .chip-toggle').forEach(btn=>{
