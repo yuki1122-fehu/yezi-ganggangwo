@@ -1327,7 +1327,9 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   /* 放在 hover 之后：两条特异性相同（0-2-1），按下的手感必须压过悬停 */
   .alb-item.pressing .alb-photo{transform:rotate(0deg) translateY(-4px) scale(1.05);}
 }
-.alb-photo img{display:block;width:100%;height:auto;border-radius:1px;background:var(--bg-2);}
+/* object-fit:cover 是兜底（2026-10-30）：相册靠 aspect-ratio 占位来分列，不能撤掉，
+   但记录尺寸是「请求尺寸」、出图比例可能不同 ⇒ 比例不合时宁可裁掉一点，也不许拉变形。 */
+.alb-photo img{display:block;width:100%;height:auto;border-radius:1px;background:var(--bg-2);object-fit:cover;}
 .alb-photo.lost{display:flex;align-items:center;justify-content:center;min-height:92px;padding:6px;
   font-size:var(--fs-1);color:var(--ink-faint);font-weight:600;text-align:center;}
 .alb-photo.lost img{display:none;}
@@ -1901,8 +1903,13 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .ai-msg.ai{align-self:flex-start;background-color:var(--glass-strong);color:var(--ink);border-bottom-left-radius:6px;border:1px solid var(--glass-line);box-shadow:var(--shadow-sm);}
 .ai-msg .ai-sticker{display:inline-block;max-width:132px;max-height:118px;width:auto;height:auto;margin:2px 4px 0 0;vertical-align:middle;border-radius:var(--radius-2xs);box-shadow:0 3px 10px rgba(0,0,0,.14);object-fit:contain;background:#fff;}
 /* 生图气泡（2026-10-29）：图在气泡里，点一下全屏看。max-width 跟着气泡走，别撑破 82% 的限制 */
-.ai-gen-img-box{margin-top:8px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);background:rgba(255,255,255,.35);}
-.ai-gen-img{display:block;width:100%;max-width:260px;height:auto;cursor:zoom-in;}
+/* ⚠️ 这里**不许**用 aspect-ratio 定死比例（2026-10-30）：
+   记录里的 w/h 是**请求尺寸**，站方实际出图比例常常不同（要 832×1216 可能回 768×1280；
+   公益站被密钥锁死、只保方向时差得更多）。拿请求尺寸当比例 ⇒ 图片被真的拉歪。
+   现在交给 img 自己的自然比例，只限最大宽高（长图不再撑满气泡，宽图也不会挤成一条）。
+   box 用 inline-block 贴合图片宽度，右/下不再留白底条。 */
+.ai-gen-img-box{margin-top:8px;border-radius:12px;overflow:hidden;border:1px solid var(--glass-line);background:rgba(255,255,255,.35);display:inline-block;max-width:100%;vertical-align:top;}
+.ai-gen-img{display:block;width:auto;height:auto;max-width:260px;max-height:320px;object-fit:contain;cursor:zoom-in;}
 .ai-gen-img-box.lost{padding:10px 12px;font-size:var(--fs-2);color:var(--ink-soft);}
 /* 生图失败的重试卡（2026-10-29）：提示词还在，点一下直接重画，不用模型重写一份。
    虚线框 = 「这张还没成」，跟实线的气泡区分开；只在刚失败那段时间存在，用完就没。 */
@@ -8919,12 +8926,15 @@ const IMG_TOOL_DESC_DEFAULT = `给对方发一张照片（你随手拍的），�
 · ⚠️ **衣服要分人填**：两人穿得不一样时，who 那件填 outfitA、with 那件填 outfitB。写进 prompt 的服装是两人共用的 —— 你在 prompt 里写 white pajamas，他们俩会一起穿上同一件睡衣。所以「各自穿什么」走 outfitA / outfitB，「两人在做什么、谁看谁」才写 prompt。
 · ⚠️ **距离用 pose 选，别在 prompt 里描述站位**：并排站着=side；肩挨肩/坐一起=close；抱着/依偎/贴脸=embrace；分开站/隔桌对坐=apart。只在 prompt 里写 hugging，两个人照样会被摆成隔着半个画面 —— 位置是代码定的，你没有别的办法改它。
 · 单人自拍换睡衣、换泳衣、换运动服也填 outfitA（但 shot=duo 时它是另一个人，别看错）。
-· 写男性：以他为主就把 male_focus 放第一个词，紧跟 1boy。⚠️ 绝不能写 delicate_features / boyish / petite / dainty / cute_face，这些词会把他画回少年感；slender 要写成 lean。男角色的服装比女角色更容易被省掉，一定要写。
-· 局部出镜（只拍到手、背影、半张脸）就只写画面上看得见的部位。多写一句发色或发型，那个人会整个人挤进画面，或者把自己的发色串到另一个人身上。
+· 写男性：以他为主就把 male_focus 放第一个词，紧跟 1boy。⚠️ 绝不能写 delicate_features / boyish / petite / dainty / cute_face，这些词会把他画回少年感；slender 要写成 lean。男角色的服装比女角色更容易被省掉，所以「他穿什么」一定别忘 —— 但填进 outfitA / outfitB，不要写进 prompt。
+· 局部出镜（只拍到手、背影、半张脸）就只写那个部位在做什么。别为了"画面完整"去补发色或发型 —— 那个人会整个人挤进画面，或者把自己的发色串到另一个人身上。
 · 禁抽象形容词：beautiful / cute / pretty / handsome / gorgeous / amazing / nice 一律别写，模型不吃这套。表情要写具体动作：smiling softly / looking away / lips parted / eyes closed / frowning slightly / biting lip / gaze lowered。
-· 发长查表（写错长度会直接变成另一个人）：到下巴=short_hair；到锁骨=medium_hair；到胸口或腰=long_hair；过腰=very_long_hair。有挑染写 streaked_hair，前面加 1.5::streaked_hair:: 压一下。
+· 发长查表**只在这次真的换了发型/长度时才用**（写错长度会直接变成另一个人）：到下巴=short_hair；到锁骨=medium_hair；到胸口或腰=long_hair；过腰=very_long_hair。有挑染写 streaked_hair，前面加 1.5::streaked_hair:: 压一下。没换发型就一个字别写 —— 锚点带的就是对的。
 【拍哪一瞬间】每张图只能是一个瞬间，别把一件事的全过程塞进去。优先级从高到低：① 眼前正在发生的具体画面（手上在做什么、桌上有什么、窗外什么天色）② 有冲击力的静帧（一个姿势、一个眼神）③ 纯情绪 ④ 某段剧情的「代表瞬间」。越往下越容易拍成一张没内容的空图 —— 挑最容易画出来的那一刻，不是信息量最大的那一刻。
-【不要写】视角词（selfie/pov/from above，shot 已决定）；谁在左谁在右（站位算死）；画风与质量词（全局已配）；角色长相（发色/耳型/发型自动补，除非这次换了发型）
+【不要写】视角词（selfie/pov/from above，shot 已决定）；谁在左谁在右（站位算死）；画风与质量词（全局已配）。
+【⚠️ 绝对不要写身体和脸】发色、瞳色、发型、耳型、身高、体型、纹身、痣、胎记、疤痕、配饰、默认服装 —— 一个都别写。锚点里已经是全套，你再写一遍＝同一件事发两遍，权重互相抢。
+更要紧的是：**你多写一句「左眼下有颗白色小胎记」「眼角一点痣」这种话，它就会被真的画上去**。有些特征是对方故意不画的（画不准、也不想要），你顺手提一句就等于替她决定了。所以没人要你描述长相时，一个字都别碰她的脸和身体。
+只有一种例外：这次真的换了发型（那锚点里那份就是旧的了）。
 【什么时候主动发】系统提示里出现「顺手拍张照片」那块时，说明现在还有额度、也隔够久了：如果此刻场景里真有值得看的画面，就拍下来发过去，不用等对方开口。没出现那块就别主动发。对方在说正事、情绪低落、刚问了个需要回答的问题时，一律别插图。
 【画面必须成立】时间、地点、天气、穿着要和对话一致，不能凭空跳到海边或换一套衣服。`;
 /* 主动发图时机块。可用占位符：{{LEFT}}=今天还能主动发几张，{{LIM}}=「（全天上限 N 张）」或空 */
@@ -10358,7 +10368,7 @@ const AI_TOOLS = [
     description: IMG_TOOL_DESC_DEFAULT,
     parameters:{ type:'object', properties:{
       shot:{type:'string', enum:['pov','pov_focus','selfie','duo'], description:'视角。pov=你眼中所见（你不在画面里）；pov_focus=你正看着某个人；selfie=自拍（你在画面里）；duo=两人合照（须配 with）。不填时按 with/who 自动推断。'},
-      prompt:{type:'string', description:'英文逗号分隔的画面标签（Danbooru 风格），只写画面本身：不写中文、不写解释、不写画风与质量词（已全局配好）。也不要写视角词（selfie/pov/first-person/from above）——shot 已经决定了，重复写会打架；不要写谁在左谁在右（站位由程序算死）；不要写角色长相（发色/耳型/默认服装会自动补）；换装不要写在这里，填 outfitA / outfitB。拍静物/空景带上 no humans, scenery；拍人要写清在做什么。例：street market, evening, string lights, food stall, steam, wet pavement, bokeh'},
+      prompt:{type:'string', description:'英文逗号分隔的画面标签（Danbooru 风格），只写画面本身：不写中文、不写解释、不写画风与质量词（已全局配好）。也不要写视角词（selfie/pov/first-person/from above）——shot 已经决定了，重复写会打架；不要写谁在左谁在右（站位由程序算死）；⚠️ 绝对不要写身体与脸：发色、瞳色、发型、耳型、体型、痣、胎记、疤痕、纹身、配饰、默认服装（锚点里全套都有，写一遍＝发两遍）。尤其不能写「左眼下有颗胎记」这类细节——写了它就会真的被画上去，哪怕对方故意不想要；换装不要写在这里，填 outfitA / outfitB。拍静物/空景带上 no humans, scenery；拍人要写清在做什么。例：street market, evening, string lights, food stall, steam, wet pavement, bokeh'},
       who:{type:'string', enum:['零落','沈容','none'], description:'画面里最主要的那个真人：自拍填你自己，拍对方填对方，纯风景/静物填 none。shot=pov 时这个字段被忽略。'},
       with:{type:'string', enum:['零落','沈容'], description:'只在 shot=duo 时用：画面里的另一个人（不能和 who 相同）。填了之后站位、画幅、外观全由程序安排。'},
       outfitA:{type:'string', description:'画面里 who 这个人这次穿什么（英文标签，如 white knit sweater, grey shorts, bare feet）。不填就按默认常服。换装必须填这里，不要写进 prompt —— prompt 里的服装是两人共用的。'},
@@ -10908,10 +10918,15 @@ function attachAiImage(d, img){
   const el = document.createElement('img');
   el.className = 'ai-gen-img';
   el.alt = img.alt || '照片';
-  el.loading = 'lazy';
+  /* ⚠️ 不能 lazy（2026-10-30）：图在加载前没有固有尺寸、也不再有 aspect-ratio 占位 ⇒ 高度是 0，
+     零面积元素在某些情况下不会触发懒加载，于是永远 0 高 = 图永远不出现。
+     气泡里最多几张图、又都是本地 blob，eager 的代价可以忽略；相册那边才需要 lazy。 */
+  el.loading = 'eager';
   el.decoding = 'async';
-  if(img.w && img.h) el.style.aspectRatio = img.w + ' / ' + img.h;
   el.dataset.imgId = img.id;   // 重新生成后靠它把气泡里的图换成新的一张
+  /* ⚠️ 不要用 img.w/img.h 设 aspect-ratio：那是**请求**尺寸，不是出图比例。
+     两站都会把尺寸吸到自己的档位（要 832×1216 可能回 768×1280），
+     拿请求尺寸定比例 ⇒ 图被拉歪（症状：有些图看着被压扁/拉长）。交给自然比例。 */
   box.appendChild(el);
   d.appendChild(box);
   el.onclick = function(){ aiImgZoom(img.id); };
@@ -11131,7 +11146,7 @@ function aiImgSwap(oldId, newId, w, h){
       const el = nodes[i];
       if(el.getAttribute('data-img-id') !== oldId) continue;
       el.setAttribute('data-img-id', newId);
-      if(w && h) el.style.aspectRatio = w + ' / ' + h;
+      /* 同理不写 aspect-ratio：w/h 是请求尺寸，不是出图比例（见 attachAiImage 那条注释） */
       imgUrlOf(newId).then(function(u){ if(u) el.src = u; });
     }
   }catch(e){}
