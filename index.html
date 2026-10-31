@@ -21540,6 +21540,8 @@ async function renderOcFeed(){
    状态由「时段 + 每日种子 + 换帧盐」推导，当天同盐稳定、换帧即变；
    可叠加真实相关性（今日任务/今日心情/天气）作为角色的"内心惦记"。
    隔离铁律：这里发生的一切绝不写入 oc_posts、绝不注入对话上下文。 */
+/* ⚠️ _godSalt 已弃用（10-31）：它初值 0、只活在内存里，曾让上帝视角与对话各摇一帧。
+   现在帧的种子统一走 ocNowSeed() = 时间片 + ocNowBump()（后者存 localStorage）。别再拿它当种子。 */
 let _godSalt = 0;
 function ocRand(seedStr){
   let h = 1779033703 | 0;
@@ -22204,6 +22206,14 @@ function ocWorldAppend(w, text, src){
 const OC_NOW_KEY = 'mhm_oc_now';
 const OC_NOW_TTL = 45*60000;   // 整帧寿命：超过就整体重摇（单卡另有自己的 until）
 function ocNowSalt(){ return Math.floor(Date.now()/(30*60000)); } // 30 分钟一片：帧稳定，不会每轮跳
+/* 手动换帧的扰动量（10-31 加）：存在 localStorage，刷新页面不丢。
+   ⚠️ 为什么不再用 _godSalt：那个变量初值 0、只活在内存里 ⇒ 上帝视角拿它当种子，
+      对话侧拿「时间片」当种子，两边摇同一套 godViewState 却永远摇出两帧不同的画面。
+      现在种子统一 = 时间片 + 这个扰动，谁都跑不掉。 */
+const OC_NOW_BUMP_KEY = 'mhm_oc_now_bump';
+function ocNowBump(){ try{ return Number(localStorage.getItem(OC_NOW_BUMP_KEY)) || 0; }catch(e){ return 0; } }
+function ocNowBumpSet(v){ try{ localStorage.setItem(OC_NOW_BUMP_KEY, String(v||0)); }catch(e){} }
+function ocNowSeed(){ return ocNowSalt() + '|' + ocNowBump(); }
 function ocNowSave(f){
   try{ localStorage.setItem(OC_NOW_KEY, JSON.stringify(f)); }catch(e){}
 }
@@ -22213,17 +22223,35 @@ function ocNowGet(){
 // 打包成一卡：dur=0 表示不按时长过期（睡着的人不会因为"到点"就自己醒）
 function ocNowPack(s, now){
   const dur = Math.max(0, Math.min(360, Number(s && s.dur) || 0));
-  return {who:s.who, place:s.place, doing:s.doing, mood:s.mood, inner:(s.inner||''),
+  return {who:s.who, place:s.place, doing:s.doing, mood:s.mood, inner:(s.inner||''), since:(s.since||''),
     priv:!!s.priv, asleep:!!s.asleep, dur:dur, until:(dur > 0 ? now + dur*60000 : 0)};
 }
 function ocNowBuild(){
   const rel = ocRelNow();
-  const salt = ocNowSalt();
-  const plan = godSleepPlan(salt, rel);
+  const seed = ocNowSeed();
+  const plan = godSleepPlan(seed, rel);
   const names = ocRoleNames();
   const now = Date.now();
-  const roles = names.map((who,i)=> ocNowPack(godViewState(who, i, salt, rel, plan), now));
-  return {ts:now, salt:salt, relState:rel.state, relNote:(rel.note||''), roles:roles, told:0};
+  // 两人不该同屏做一模一样的事：撞帧就给后一位换盐重摇（同池概率撞车太高）。
+  //   共处条目本来就是同一件事的两面（doing 不同），不会被这条误伤。
+  let prevDoing = null, prevPlace = null;
+  const roles = names.map((who,i)=>{
+    let s = godViewState(who, i, seed, rel, plan);
+    let tries = 0;
+    while(prevDoing != null && s.doing === prevDoing && s.place === prevPlace && tries < 6){
+      s = godViewState(who, i, seed + '.' + (++tries), rel, plan);
+    }
+    prevDoing = s.doing; prevPlace = s.place;
+    return ocNowPack(s, now);
+  });
+  return {ts:now, salt:seed, src:'local', relState:rel.state, relNote:(rel.note||''), roles:roles, told:0};
+}
+// 手动换帧：扰动量 +1 后整帧重建（换帧是这个世界上唯一能手动推进时间的方式）
+function ocNowReroll(){
+  ocNowBumpSet(ocNowBump() + 1);
+  const nf = ocNowBuild();
+  ocNowSave(nf);
+  return nf;
 }
 function ocNow(){
   const f = ocNowGet();
@@ -22234,15 +22262,19 @@ function ocNow(){
   // 两张卡都过期就整体重摇 —— 共处类画面（同一场景的两面）必须同源，分开重摇会拆台
   const nowExp = f.roles.filter(r=>r.until && now >= r.until).length;
   if(nowExp >= 2){ const nf = ocNowBuild(); ocNowSave(nf); return nf; }
-  // 单卡过期：只换这一张。种子掺「分钟」扰动 —— 否则同一 salt 会抽回同一条，换完还是原来那句。
+  // 单卡过期：只换这一张。种子掺「分钟」扰动 —— 否则同一 seed 会抽回同一条，换完还是原来那句。
+  //   ⚠️ 种子里**不能掺 i**：共处（GOD_TOGETHER）判定与抽条目用的是不含 who 的种子
+  //      （见 godViewState 注释），掺了 i 两张卡就会抽到两条不同的共处条目，画面当场拆台。
   const rel = ocRelNow();
-  const plan = godSleepPlan(ocNowSalt(), rel);
+  const plan = godSleepPlan(ocNowSeed(), rel);
+  const jitter = ocNowSeed() + '.' + Math.floor(now/60000);
   let dirty = false;
   const roles = f.roles.map((r,i)=>{
     if(!r.until || now < r.until) return r;
     const who = r.who || ocRoleNames()[i];
-    const st = godViewState(who, i, ocNowSalt() + '.' + Math.floor(now/60000) + '.' + i, rel, plan);
+    const st = godViewState(who, i, jitter, rel, plan);
     if(st.asleep) return r;              // 重摇不该把醒着的人摇成睡着（要睡也得等下一轮整帧）
+    if(st.together) return r;            // 共处是两张卡的事，只换一张必然拆台 ⇒ 等整帧一起换
     dirty = true;
     return ocNowPack(st, now);
   });
@@ -22467,53 +22499,58 @@ function godClose(){
   if(m) closeMask(m);
 }
 function godNext(){
-  _godSalt++;
-  _godAI = null; // 换帧回到本地镜头（新随机）
+  _godAI = null;   // 换帧回到本地镜头
   // 上一帧的报错/秒数属于上一帧，换帧时清掉，别让它挂在新画面上误导人
   try{ godShotMsg(''); }catch(e){}
+  ocNowReroll();   // 推进「此刻」这唯一的一帧，卡片与对话提示词一起往前走
   godRender();
+}
+/* AI 旁白写的那一帧 → 落进 mhm_oc_now（10-31 修）
+   ⚠️ 旁白是唯一编剧入口，它写的画面必须**立刻成为**对话里的「此刻」，
+      否则弹窗里两人正亲密、转头聊天却是另一套日常。
+   ⚠️ AI 的 JSON 里没有 asleep 字段（prompt 只给了 who/place/doing/mood/inner/priv/dur），
+      只能从 doing 判：判不出来就当醒着，但睡着的人一律不给内心独白。 */
+function godAiToFrame(){
+  const t = Date.now();
+  const rel = (_godAI && _godAI.rel) ? _godAI.rel : ocRelNow();
+  const names = ocRoleNames();
+  const roles = names.map(function(who, i){
+    const r = (_godAI && _godAI.roles[i] && _godAI.roles[i].who) ? _godAI.roles[i] : {};
+    const doing = String(r.doing || '');
+    const asleep = !!r.asleep || /睡|眠|打盹|小憩|憩/.test(doing);
+    return {who:(r.who || who), place:(r.place || '家'), doing:(doing || '在手边的事里'),
+      mood:(r.mood || '平静'), inner:(asleep ? '' : String(r.inner || '')), since:'',
+      priv:!!r.priv, asleep:asleep, dur:(asleep ? 0 : (Number(r.dur) || OC_DUR_DEF))};
+  }).map(function(r){ return ocNowPack(r, t); });
+  const f = {ts:t, salt:'ai', src:'ai', relState:rel.state, relNote:(rel.note || ''), roles:roles, told:0};
+  ocNowSave(f);
+  return f;
 }
 function godRender(){
   const list = document.getElementById('godList');
   const relEl = document.getElementById('godRel');
   if(!list) return;
   const rel = ocRelNow();
-  const names = ocRoleNames();
   const hour = new Date().getHours();
   const ph = godPhase(hour);
   const phLabel = ['凌晨','清晨','上午','中午','下午','傍晚','晚间','深夜'][ph] + ' ' + String(hour).padStart(2,'0') + ':xx';
-  const useAI = !!( _godAI && _godAI.roles && _godAI.roles.length );
-  const aiRel = useAI ? _godAI.rel : null;
-  const relDesc = (aiRel ? (ocRelDesc(aiRel.state||'warm') + ((aiRel.note)?('（'+aiRel.note+'）'):''))
-    : (ocRelDesc(rel.state) + (rel.note ? ('（'+rel.note+'）') : '')));
-  const relState = aiRel ? aiRel.state : rel.state;
-  const relTint = {hot:'hot', warm:'warm', cool:'cool', cold:'cold'}[relState] || 'warm';
+  /* ★ 单一事实源（10-31 修）：卡片画的就是对话里注入的那同一帧。
+     原来这里自己拿 _godSalt 摇一帧、对话侧拿「时间片」摇另一帧，同一套 godViewState
+     摇出两套画面 ⇒ "弹窗里两人正亲密，提示词里却是各忙各的"。现在两边都读 mhm_oc_now。 */
+  const f = (_godAI && _godAI.roles && _godAI.roles.length) ? godAiToFrame() : ocNow();
+  const srcAI = !!(f && f.src === 'ai');
+  const relDesc = ocRelDesc(rel.state) + (rel.note ? ('（' + rel.note + '）') : '');
+  const relTint = {hot:'hot', warm:'warm', cool:'cool', cold:'cold'}[rel.state] || 'warm';
   if(relEl){
     relEl.innerHTML = '<span class="god-rel-ic ' + relTint + '"><svg class="ico" style="width:15px;height:15px;"><use href="#i-heart"/></svg></span>'
       + '<span class="god-rel-txt">他们之间：' + ocEsc(relDesc) + '</span>'
-      + '<span class="god-src">' + (useAI ? 'AI 旁白' : '本地镜头') + '</span>';
+      + '<span class="god-src">' + (srcAI ? 'AI 旁白' : '本地镜头') + '</span>';
   }
-  // 两人不该同屏做一模一样的事：本地镜头撞帧时给后一位换盐重摇（同池 1/4 概率撞车太高）
-  // 作息 plan 一次决定两人谁睡谁醒/是否亲密；AI 旁白帧不用 plan（由 AI 按作息规则自己写）
-  const plan = useAI ? null : godSleepPlan(_godSalt, rel);
-  let prevDoing = null, prevPlace = null;
+  const roles = (f && f.roles && f.roles.length === 2) ? f.roles : [];
   const frames = [];
-  const cards = names.map((who,i)=>{
-    let s;
-    if(useAI && _godAI.roles[i] && _godAI.roles[i].who){
-      const r = _godAI.roles[i];
-      s = {who:r.who, place:r.place, doing:r.doing, mood:r.mood, inner:r.inner, since:(r.since||''), priv:!!r.priv,
-        dur:(Number(r.dur) || 0)};
-    } else {
-      s = godViewState(who, i, _godSalt, rel, plan);
-      let tries = 0;
-      while(prevDoing != null && s.doing === prevDoing && s.place === prevPlace && tries < 6){
-        s = godViewState(who, i, _godSalt + '.' + (++tries), rel, plan);
-      }
-      prevDoing = s.doing; prevPlace = s.place;
-    }
+  const cards = roles.map((s,i)=>{
     frames.push({who:s.who, place:s.place, doing:s.doing, mood:s.mood, inner:(s.inner||''), priv:!!s.priv, asleep:!!s.asleep,
-      dur:(s.dur || (s.asleep ? 0 : 45))});
+      dur:(s.dur || (s.asleep ? 0 : OC_DUR_DEF))});
     // 午后打盹 ≠ 到点就寝（10-28 修：13-15 点曾显示「作息按时 · 已就寝」，看着像 bug）
     const sleepWord = godNapHour(new Date().getHours()) ? '小憩' : '已睡';
     const sleepSub  = godNapHour(new Date().getHours()) ? '午后小憩' : '作息按时 · 已就寝';
@@ -22531,17 +22568,12 @@ function godRender(){
       + (s.inner ? ('<div class="gs-inner">“' + ocEsc(s.inner) + '”</div>') : '')
       + '</div></div>';
   }).join('');
-  const sleepNote = (plan && (plan.asleep[0] || plan.asleep[1]))
-    ? (godNapHour(new Date().getHours()) ? ' · 午后小憩' : ' · 到点就寝') : '';
-  list.innerHTML = '<div class="god-time">' + phLabel + sleepNote + (useAI ? ' · AI 旁白' : ' · 此刻的他们') + '</div>' + cards;
+  const anyAsleep = roles.some(r=>r.asleep);
+  const sleepNote = anyAsleep ? (godNapHour(hour) ? ' · 午后小憩' : ' · 到点就寝') : '';
+  list.innerHTML = '<div class="god-time">' + phLabel + sleepNote + (srcAI ? ' · AI 旁白' : ' · 此刻的他们') + '</div>' + cards;
   // 「看这一刻」要画的就是刚渲染出来的这一帧：留一份，别让它随局部变量一起消失
   _godFrames = frames.slice();
   try{ godShotPaint(); }catch(e){}
-  // 把这一帧交给对话侧：用户看完镜头转头去聊天时，角色知道自己手还搭在对方身上
-  if(frames.length === 2){
-    const t = Date.now();
-    ocNowSave({ts:t, salt:_godSalt, relState:relState, relNote:'', told:0, roles:frames.map(r=>ocNowPack(r, t))});
-  }
 }
 // AI 旁白：唯一编剧入口。带世界状态去写，写回关系与共同事件。
 const DEFAULT_GOD_SYS_TPL = '你是「他们的世界」的编剧与旁白。用户打开上帝视角，想看到两个情境角色此刻的生活切片，以及两人之间的关系状态。你用第三人称含蓄、留白地叙述，有真实生活的质感；不夸张、不解释自己在叙述、不出戏。他们是一对感情极深的夫妻，日子过得很稳——这个世界不是靠冲突推动的，值得看的是细节，不是戏。';
