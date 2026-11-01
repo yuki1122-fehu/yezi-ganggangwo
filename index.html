@@ -1582,7 +1582,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .jg-btn:disabled{opacity:.5;cursor:default;}
 .jg-hint{font-size:11px;line-height:1.6;color:var(--ink-soft);margin-top:8px;padding:8px 10px;background:rgba(240,196,79,.1);border:1px solid rgba(240,196,79,.28);border-radius:var(--radius-xs);}
 .jg-empty{font-size:12px;color:var(--ink-soft);padding:10px;text-align:center;}
-.mj-item-actions{display:flex;gap:8px;margin-top:11px;padding-top:10px;border-top:1px dashed var(--line);}
+.mj-item-actions{display:flex;gap:8px;margin-top:11px;padding-top:10px;border-top:1px dashed var(--line);flex-wrap:wrap;}
 .mj-item-btn{
   flex:0 0 auto;font-size:var(--fs-2);font-weight:800;padding:6px 13px;border-radius:var(--radius-pill);cursor:pointer;
   background:var(--green-soft);color:var(--green-dark);border:1px solid var(--green-mid);
@@ -1590,6 +1590,20 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 }
 .mj-item-btn:active{transform:scale(.93);}
 .mj-item-btn.del{background:rgba(217,138,138,.12);color:var(--danger);border-color:rgba(217,138,138,.26);}
+.mj-item-btn.regen{background:rgba(240,196,79,.14);color:#8a6a1e;border-color:rgba(240,196,79,.36);}
+/* 重新生成周记/月记弹窗（2026-11-01）—— 字数档 + 补充要求 */
+.jr-len{display:flex;gap:7px;margin-top:8px;flex-wrap:wrap;}
+.jr-len-btn{
+  font-size:var(--fs-2);font-weight:800;padding:7px 12px;border-radius:var(--radius-pill);cursor:pointer;
+  background:rgba(255,255,255,.7);color:var(--ink-soft);border:1px solid var(--ink-faint);
+  font-family:var(--font);line-height:1.35;transition:transform .15s var(--ease);
+}
+.jr-len-btn small{display:block;font-weight:600;font-size:10px;opacity:.75;letter-spacing:0;}
+.jr-len-btn.on{background:var(--green-soft);color:var(--green-dark);border-color:var(--green-mid);box-shadow:var(--shadow-inset);}
+.jr-len-btn:active{transform:scale(.94);}
+.jr-state{font-size:11px;line-height:1.6;color:var(--green-dark);font-weight:700;margin-top:9px;min-height:16px;white-space:pre-wrap;}
+.jr-state.err{color:var(--danger);}
+#memJournalRegenGo:disabled{opacity:.55;pointer-events:none;} /* 全局没有 .btn:disabled 样式，生成中会看不出在忙 */
 .mj-foot{flex:0 0 auto;padding:6px 4px 2px;text-align:center;font-size:var(--fs-1);color:var(--ink-faint);line-height:1.6;}
 @media (prefers-reduced-motion:reduce){
   .journal-module,.jm-card,.jm-card-in,.jm-dot,.jm-ring,.cal-journal,.mj-item,.mj-stat,.mj-page-mask{animation:none !important;transition:none !important;}
@@ -3892,6 +3906,26 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
     <div class="row" style="margin-top:12px;gap:8px;">
       <button class="btn ghost" onclick="closeJournalEdit()">取消</button>
       <button class="btn primary" onclick="memJournalSave()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 重新生成 周记/月记 弹窗（2026-11-01）
+     起因：一年只有 12 个月记，写太短就成了目录；用户要能「加点要求 + 换个字数档」重来一遍。
+     原则：覆盖原条目（id/时间区间不变），不新增一条；原料仍取自库里的日记/周记，绝不编造。 -->
+<div class="mask" id="memJournalRegenMask" style="z-index:96;">
+  <div class="sheet glass-strong">
+    <h3 id="memJournalRegenTitle">重新生成</h3>
+    <p class="hint" id="memJournalRegenMeta" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.6;"></p>
+    <div class="jg-lbl" style="margin-top:14px;">字数</div>
+    <div class="jr-len" id="memJournalRegenLen"></div>
+    <div class="jg-lbl" style="margin-top:14px;">补充要求（可留空）</div>
+    <textarea id="memJournalRegenAsk" class="jg-inp" placeholder="例如：把国庆那几天写详细些；多写我当时的心情；少写工作" style="min-height:92px;"></textarea>
+    <div class="jg-hint" style="margin-top:10px;">重来会<b>覆盖这一篇</b>（日期区间和位置都不变），原料是库里已有的日记/周记。想留旧版就先复制出去。</div>
+    <div class="jr-state" id="memJournalRegenState"></div>
+    <div class="row" style="margin-top:12px;gap:8px;">
+      <button class="btn ghost" onclick="closeJournalRegen()">取消</button>
+      <button class="btn primary" id="memJournalRegenGo" onclick="memJournalRegenRun()">🔄 重新生成</button>
     </div>
   </div>
 </div>
@@ -8139,6 +8173,7 @@ function closeTopOverlay(){
   const stack = [
     {id:'msgEditMask', close:closeMsgEdit},
     {id:'albEditMask', close:albumEditClose},
+    {id:'memJournalRegenMask', close:closeJournalRegen},
     {id:'memJournalEditMask', close:closeJournalEdit},
     {id:'pomoEggMask', close:closePomoEgg},
     {id:'pomoPlantMask', close:closePomoPlant},
@@ -11268,6 +11303,10 @@ function convUserText(content){
   return '';
 }
 
+/* 周记/月记压缩提示词的「旧默认」指纹（2026-11-01）。
+   放在 getAiCfg 上方而不是日记模块里：getAiCfg 在脚本初始化阶段就会拿它做比对，
+   定义写在后面会撞 const 死区（TDZ）⇒ 整段配置读不出来。 */
+const MEM_JOURNAL_MERGE_PROMPT_V1 = '你是回忆档案整理员。把下面 {N} 则「{TYPE}」压缩成 1 则「{OUT}」，像回顾这段时间【用户】的主线：\n- {LEN} 字以内；提炼这段时期【用户】经历了什么、情绪起伏、值得记住的梗/事；平淡的日子合并带过；禁止逐则复述。\n- 主角永远是用户本人：角色（零落/沈容）只在「与用户有交集」或「对用户很重要」时才出现，不要写角色的独自活动，也不要用"她说/他说"转述来替代对用户的记录。\n只输出 JSON：{"content":"..."}';
 function getAiCfg(){
   let cfg;
   try{ cfg = JSON.parse(localStorage.getItem('mhm_ai_cfg')) || {}; }catch(e){ cfg = {}; }
@@ -11373,6 +11412,11 @@ function getAiCfg(){
       cfg.systemTpl = String(cfg.systemTpl).replace(/\s*$/,'') + '\n\n' + CONV_DATE_RULE;
     }
   }
+  /* ★ 2026-11-01 周记/月记压缩提示词升级（默认值改了「写满 + 覆盖全部主线」）。
+     只认「和旧默认 MEM_JOURNAL_MERGE_PROMPT_V1 一字不差」的那份 —— 她自己手改过的，一个字都不动。
+     升级方式是**置空**（= 跟随源码常量），不是写一份新副本：
+     写副本的话，下次再改默认她又跟不上了（同生图那块的「等于默认就存空」）。 */
+  if(cfg.journalMergeTpl === MEM_JOURNAL_MERGE_PROMPT_V1) cfg.journalMergeTpl = '';
   if(cfg.aiTts === undefined) cfg.aiTts = true;
   if(cfg.aiTtsMode === undefined) cfg.aiTtsMode = 'full';
   // 2026-07-24 DeepSeek 正式废弃旧模型名 deepseek-chat / deepseek-reasoner（再调用会返回 400，用户实测"模型暂时抽风（400）"）。
@@ -14215,8 +14259,11 @@ function savePromptCenter(){
   if(godSysEl) cfg.godSysTpl = godSysEl.value;
   if(godUserEl) cfg.godUserTpl = godUserEl.value;
   if(compRulesEl) cfg.companionRules = compRulesEl.value;
-  if(diaryTplEl) cfg.diaryTpl = diaryTplEl.value;
-  if(journalMergeTplEl) cfg.journalMergeTpl = journalMergeTplEl.value;
+  // ⚠️ 2026-11-01：「等于默认值就存空」—— 以前这里无条件存 textarea 的值，于是她只要点过一次
+  //    「保存修改」，默认文案就被固化成一份副本，之后源码改默认值（比如把月记写厚）永远到不了她那边。
+  //    存空 = 跟随源码常量，读取处的 `cfg.xxx || 常量` 已经兜住了。
+  if(diaryTplEl) cfg.diaryTpl = (diaryTplEl.value === MEM_DIARY_PROMPT) ? '' : diaryTplEl.value;
+  if(journalMergeTplEl) cfg.journalMergeTpl = (journalMergeTplEl.value === MEM_JOURNAL_MERGE_PROMPT) ? '' : journalMergeTplEl.value;
   // 生图说明（独立键，不并进 mhm_ai_cfg）
   // ⚠️ 「等于默认值就存空」：点过「恢复默认」再保存时，不能把默认文案当副本存下去
   //    —— 否则以后代码里改了默认值，她那份旧副本永远不跟着变（第 17 块就是这个规矩）。
@@ -15728,7 +15775,50 @@ const MEM_ACTIVE_MIGRATE_KEY = 'mem_active_migrated_v1';
 const DEFAULT_MEM_IDENTITY = '你是叶子：25 岁中医执业医师，现居香港，正在读浸会大学中医健康管理硕士，日常维护「港港窝」这个小家。\n我是你的 AI 伙伴：既是工具助手，也是朋友+合作者。\n关系基调：轻松、可以互相吐槽也能互相托底；记得彼此的小事，像真朋友一样相处。';
 
 let _memDB = null;
+/* 打标计数器（2026-11-01 改为落库，跨会话累计）。
+   原来 _memPending 只是内存变量 ⇒ 手机上每次重开 App 都归零，一天分几次聊，一份 24 条永远攒不满
+   （pagehide 里那次补跑基本发不出去：页面卸载时 fetch 会被中断、IDB 也写不进）。结果就是
+   「自动打标」名存实亡，全靠手动点「⚡ 立即打标」。现在计数存 kv('tag_pending')，
+   每加一条就落一次，跨会话接着数。 */
 let _memPending = 0;
+let _memPendingInitP = null;              // 首次从 kv 恢复的 promise（只读一次）
+let _memPendingChain = Promise.resolve(); // 串行队列：并发 +1 会丢计数
+function _memPendingInit(){
+  if(!_memPendingInitP){
+    _memPendingInitP = memKvGet('tag_pending').then(v=>{
+      const n = Number(v);
+      // 只在「库里的值更大」时采用：既不会把本次会话刚加的数盖掉，DB 读失败也不倒退
+      if(isFinite(n) && n > _memPending) _memPending = n;
+    }).catch(()=>{});
+  }
+  return _memPendingInitP;
+}
+function memPendingBump(){
+  _memPendingChain = _memPendingChain.then(async ()=>{
+    await _memPendingInit();
+    _memPending = _memPending + 1;
+    if(_memPending >= MEM_TAG_GAP){
+      _memPending = 0;
+      memKvSet('tag_pending', 0).catch(()=>{});
+      memRunTagger();
+    }else{
+      memKvSet('tag_pending', _memPending).catch(()=>{});
+    }
+  }).catch(()=>{});
+}
+// 「上次打标」相对时间（记忆页统计行用）：让她自己就能看出自动打标是活着还是停了
+function _memAgo(iso){
+  try{
+    const t = new Date(iso).getTime();
+    if(!isFinite(t)) return '';
+    const m = Math.floor((Date.now() - t) / 60000);
+    if(m < 1) return '刚刚';
+    if(m < 60) return m + ' 分钟前';
+    const h = Math.floor(m / 60);
+    if(h < 24) return h + ' 小时前';
+    return Math.floor(h / 24) + ' 天前';
+  }catch(e){ return ''; }
+}
 function memEnabled(){ return localStorage.getItem(MEM_ENABLED_KEY) !== '0'; }
 function memIdentity(){ const v = localStorage.getItem(MEM_IDENTITY_KEY); return (v && v.trim()) ? v : DEFAULT_MEM_IDENTITY; }
 function memOpenDB(){
@@ -15855,7 +15945,7 @@ function memNote(role, content, id){
   if(!text || !text.trim()) return;
   const doInsert = ()=>{
     memPut('messages', { role, content: text.trim(), mid: id || '', created_at: new Date().toISOString() }).catch(()=>{});
-    if(++_memPending >= MEM_TAG_GAP){ _memPending = 0; memRunTagger(); }
+    memPendingBump(); // 跨会话累计（旧写法 ++_memPending 每次重开 App 都归零）
   };
   if(!id){ doInsert(); return; }
   // 幂等：同一 mid 的记忆行已存在则跳过，避免「删了重发」或重复落库造成打标重复
@@ -16180,6 +16270,8 @@ async function memRunTagger(opts){
     if(aiOk || tagged > 0){
       const lastId = Number(batch[batch.length-1].id) || 0;
       await memKvSet('tagger_watermark', Math.max(Number(wm)||0, lastId));
+      // 记一笔「上次真的跑完一批」：记忆页把那行时间显示出来，用户不用猜自动打标是活着还是停了
+      await memKvSet('tag_last', { at:new Date().toISOString(), ok:true, n:batch.length, made:rep.made, merged:rep.merged }).catch(()=>{});
       // 本批已处理的墓碑源出队（无论是否产出——AI 判无价值也尊重，避免无限重试）
       const retag2 = (await memKvGet(MEM_RETAG_KEY)) || [];
       const nextRetag = (Array.isArray(retag2) ? retag2 : []).filter(id=>!batchIds.has(Number(id)));
@@ -16187,6 +16279,7 @@ async function memRunTagger(opts){
     }else{
       rep.reason = 'AI 调用全部失败：' + String(errMsg).slice(0, 90) + '（水位没动，等会儿再点一次即可重试）';
       window.__memTagLastErr = { at: new Date().toISOString(), msg: errMsg, n: batch.length };
+      await memKvSet('tag_last', { at:new Date().toISOString(), ok:false, n:batch.length, made:0, merged:0 }).catch(()=>{});
     }
     if(batch.length && tagged === 0 && !rep.empty && !rep.reason) console.warn('[mem] 打标死灯：有新消息但全部失败', skipped);
     memJournalMaintain(cfg).catch(()=>{}); // 打标后顺手归档日记分层（关系摘要已于 09-17 删除）
@@ -16233,7 +16326,11 @@ function _memWeekStart(iso){
   }catch(e){ return String(iso || ''); }
 }
 const MEM_DIARY_PROMPT = '你是「回忆日记」写手。下面是一天里【用户（叶子）】和陪伴角色（零落、沈容）在「{DATE}」的对话记录（每行开头已标注 (用户) 或 (角色)，请严格按标注区分谁说的/做的）。请以上帝视角，写一则关于【用户这一天】的「今日小记」：\n\n【主角永远是用户本人】\n日记记录的是用户做了什么、经历了什么、心情如何。角色（零落/沈容）不是日记主角，绝不要在日记里写角色的独自活动——例如"零落今天做了什么"属于错误写法，必须禁止。\n- 100~200 字，像朋友睡前回想用户今天：用户今天做了什么、遇到什么、情绪怎样、有什么细节或梗值得记住；禁止流水账罗列。\n- 角色只在两种情况下出现：①当天用户和角色有对话交集（聊了什么、被角色关心/逗乐等，且要明确是"用户与角色之间"）；②角色发生了真的很重要、且用户也知道或受影响的事。除此之外不要提角色。\n- 严格按每行前缀区分：标 (用户) 的就是用户本人做的/说的，绝不要把用户做的事挪到角色名下，也绝不要用"她说/他说"转述来替代对用户本人的记录。\n- 平淡的日子就少写：如果今天没什么特别的事，直接写一句"今天平平淡淡的，没什么特别的"即可，不要硬凑。\n\n【高光 gems】同时判定这一天有没有「用户值得终生记住的大事或新梗」（最多 2 条，宁缺毋滥，0 条完全正常）：用户自己的里程碑、第一次、强烈情绪、专属梗（若是和角色共同经历的，写清用户在其中的角色）。gems 也只准是【一个】完整事件或梗：event 必须能单独命名（如"金凤真假店风波"），summary 用一句话说清这一件事；普通办事、交通、半价优惠等日常行程不进 gems，除非有明显情绪转折。event 缺失则说明这条不够格，不要放进 gems。若有，给出 event 名 + 一句话 summary + keyword（<=3 个）。\n\n只输出 JSON：{"diary":"...","gems":[{"event":"...","summary":"...","keyword":[...]}]}（gems 可为空数组）。';
-const MEM_JOURNAL_MERGE_PROMPT = '你是回忆档案整理员。把下面 {N} 则「{TYPE}」压缩成 1 则「{OUT}」，像回顾这段时间【用户】的主线：\n- {LEN} 字以内；提炼这段时期【用户】经历了什么、情绪起伏、值得记住的梗/事；平淡的日子合并带过；禁止逐则复述。\n- 主角永远是用户本人：角色（零落/沈容）只在「与用户有交集」或「对用户很重要」时才出现，不要写角色的独自活动，也不要用"她说/他说"转述来替代对用户的记录。\n只输出 JSON：{"content":"..."}';
+// 旧默认（2026-11-01 之前的版本）—— 只用来判断「她那份是不是原封不动的旧默认」，是则升级，改过一个字都不动
+// ⚠️ 常量本体在 getAiCfg 上方（MEM_JOURNAL_MERGE_PROMPT_V1）：getAiCfg 初始化时就会比对它，写在这里会撞 const 死区。
+// 2026-11-01 改：原来只写「{LEN} 字以内 + 提炼主线」，模型就交 200 字目录 —— 月记一年只有 12 篇，
+// 太薄等于白存。现在要求「写满 + 覆盖全部主线 + 分段」，并把「不许编造」写明（重生成时可加额外要求）。
+const MEM_JOURNAL_MERGE_PROMPT = '你是回忆档案整理员。把下面 {N} 则「{TYPE}」压缩成 1 则「{OUT}」，像回顾这段时间【用户】的主线：\n- 长度 {LEN} 字，写满为止。这一篇日后会被反复翻回来看，宁可写厚，不要只交一段概括。\n- 覆盖这段时间的全部主线：发生了哪几件事、每件怎么起怎么收、中间的转折、当时的情绪起伏、值得记住的细节与专属梗。按几件事分段写，平淡的日子一两句带过即可。\n- 可以写具体的人名、地点、物品、原话片段，但只能来自上面的原料，禁止编造原料里没有的事。\n- 主角永远是用户本人：角色（零落/沈容）只在「与用户有交集」或「对用户很重要」时才出现，不要写角色的独自活动，也不要用"她说/他说"转述来替代对用户的记录。\n只输出 JSON：{"content":"..."}';
 // 分层维护入口：挂在打标/每次对话前，幂等（昨天已归档就跳过）
 // 日记只在「一天结束时」补记：当天聊天时不动，第二天早上首次对话把昨天完整归档成一篇
 async function memJournalMaintain(cfg){
@@ -16404,11 +16501,15 @@ async function memJournalMake(cfg, type, items, span){
     const isWeek = type === 'week';
     const label = isWeek ? '一周回忆' : '一月回忆';
     const out = isWeek ? '周记' : '月记';
-    const len = isWeek ? '150~250' : '200~300';
+    // 2026-11-01 提量：一年只有 12 个月记，200~300 字等于目录 ⇒ 周记 300~450、月记 600~900。
+    // 这条走代码而不是模板文案，因为 cfg.journalMergeTpl 可能是她当年保存的旧副本，改默认值不一定到她那边。
+    const len = isWeek ? '300~450' : '600~900';
     const bullet = items.map(j=>'【' + (j.start || '') + ' ~ ' + (j.end || '') + '】\n' + String(j.content || '').slice(0, 300)).join('\n\n');
     const mergeTpl = (cfg && cfg.journalMergeTpl && cfg.journalMergeTpl.trim()) ? cfg.journalMergeTpl.trim() : MEM_JOURNAL_MERGE_PROMPT;
-    const prompt = mergeTpl.replace('{N}', items.length).replace('{TYPE}', label).replace('{OUT}', out).replace('{LEN}', len);
-    const r = await aiCall([{role:'system', content:'你是回忆档案整理员。只输出 JSON，不输出其他文字。'},{role:'user', content: prompt + '\n\n待压缩的回忆：\n' + bullet}], cfg, 1, {noTools:true});
+    let prompt = mergeTpl.replace('{N}', items.length).replace('{TYPE}', label).replace('{OUT}', out).replace('{LEN}', len);
+    // 模板被删掉 {LEN} 占位时也要有长度约束，否则这里的提量对那份模板完全无效
+    if(mergeTpl.indexOf('{LEN}') < 0) prompt += '\n- 长度：' + len + ' 字，宁可写满，不要只写一段概括。';
+    const r = await aiCall([{role:'system', content:'你是回忆档案整理员。只输出 JSON，不输出其他文字。'},{role:'user', content: prompt + '\n\n待压缩的回忆：\n' + bullet}], cfg, 1, {noTools:true, timeout:90000});
     if(r.error || !r.data || !r.data.choices || !r.data.choices[0]) return;
     const raw = (r.data.choices[0].message && r.data.choices[0].message.content) || '';
     const j = memExtractJson(raw);
@@ -16421,7 +16522,7 @@ async function memJournalMake(cfg, type, items, span){
     // 结果月记 start 仍是跨月周的上月日期（如 08-31），归属月与幂等判断再次不一致。
     const st = (span && span.start) || items[0].start;
     const en = (span && span.end) || items[items.length-1].end;
-    const row = { type: isWeek ? 'week' : 'month', start: st, end: en, content: content.slice(0, 900), created_at: new Date().toISOString() };
+    const row = { type: isWeek ? 'week' : 'month', start: st, end: en, content: content.slice(0, isWeek ? 1200 : 2600), created_at: new Date().toISOString() };
     await memPut('journal', row);
     return row; // 调用方用返回值的 start/end 推进内存态，避免两处各算一遍
   }catch(e){ console.warn('[mem] journal merge', e); }
@@ -16517,6 +16618,8 @@ function memRenderJournalList(){
       journalGemsHtml(j) +
       '<div class="mj-item-actions">' +
         '<button class="mj-item-btn" type="button" onclick="memJournalEdit(' + j.id + ')">✏️ 修改</button>' +
+        // 日记不提供重生成：一天的原料就那么点，重来只会重复原话；周记/月记才是「一年只 12 篇、值得写厚」的那层
+        (j.type === 'day' ? '' : '<button class="mj-item-btn regen" type="button" onclick="memJournalRegenOpen(' + j.id + ')">🔄 重新生成</button>') +
         '<button class="mj-item-btn del" type="button" onclick="memJournalDelete(' + j.id + ')">🗑 删除</button>' +
       '</div></div>';
   }
@@ -16896,6 +16999,171 @@ function closeJournalEdit(){
   _journalEditId = null; _jgEdit = null; _journalEditDay = '';
   closeMask(document.getElementById('memJournalEditMask'));
 }
+/* ---- 重新生成 周记/月记（2026-11-01，叶子提） ----
+   为什么需要：日记是原料、周记是月记的原料，可一年只长 12 个月记 —— 200 字那种等于目录。
+   她要在「已经生成好、但太薄」的时候加点要求重来一遍，而不是只能手打。
+   三条硬约束（改这里之前先看）：
+   ① 覆盖同一条（memPut 带 id），绝不新增 —— 否则同一周/月出现两篇，幂等判断会把后面那篇当"已归档"挡掉；
+   ② 原料只从库里已归档的日记/周记取（day→week、week→month），绝不把对话原文重新喂一遍，
+      否则等于绕过 L1/L2 的分层，月记会长出周记里没有的细节；
+   ③ 失败必须原样留着旧内容（不写库、不删），并如实报错。 */
+let _jregenId = null, _jregenType = 'week', _jregenLenKey = 'std', _jregenBusy = false;
+const _JREGEN_LEN = {
+  week:  { short:{v:'150~250',  t:'精简'}, std:{v:'300~450',  t:'标准'}, long:{v:'600~800',   t:'详细'} },
+  month: { short:{v:'300~400',  t:'精简'}, std:{v:'600~900',  t:'标准'}, long:{v:'1000~1400', t:'详细'} }
+};
+function _jregenState(txt, isErr){
+  const el = document.getElementById('memJournalRegenState');
+  if(!el) return;
+  el.textContent = txt || '';
+  el.classList.toggle('err', !!isErr);
+}
+function jregenRenderLen(){
+  const wrap = document.getElementById('memJournalRegenLen');
+  if(!wrap) return;
+  const tbl = _JREGEN_LEN[_jregenType] || _JREGEN_LEN.week;
+  wrap.innerHTML = Object.keys(tbl).map(k=>
+    '<button class="jr-len-btn' + (_jregenLenKey === k ? ' on' : '') + '" type="button" onclick="jregenPick(\'' + k + '\')">'
+    + tbl[k].t + '<small>' + tbl[k].v + ' 字</small></button>').join('');
+}
+function jregenPick(k){
+  if(!_JREGEN_LEN[_jregenType] || !_JREGEN_LEN[_jregenType][k]) return;
+  _jregenLenKey = k;
+  jregenRenderLen();
+}
+// 取原料：周记 ← 这一自然周的全部日记；月记 ← 覆盖该月的全部周记（没有周记时退回该月的日记）
+async function memJournalRegenCollect(j){
+  const all = await memGetAll('journal');
+  const rows = (all || []).filter(x=>x && x.type);
+  if(j.type === 'week'){
+    const ws = _memWeekStart(j.start || '');
+    const items = rows.filter(x=>x.type === 'day' && _memWeekStart(x.start) === ws)
+                      .sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+    return { items: items, kindLabel:'日记', spanLabel: ws + ' 那一周' };
+  }
+  const mk = String(j.start || '').slice(0, 7);
+  const weeks = rows.filter(x=>x.type === 'week');
+  const picked = [];
+  for(const w of weeks){
+    const ws = _memWeekStart(w.start);
+    const we = (w.end && String(w.end) > _memDateShift(ws, 6)) ? String(w.end) : _memDateShift(ws, 6);
+    let hit = false;
+    for(let d = ws; d <= we; d = _memDateShift(d, 1)){ if(String(d).slice(0,7) === mk){ hit = true; break; } }
+    if(hit) picked.push(w);
+  }
+  picked.sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+  if(picked.length) return { items: picked, kindLabel:'周记', spanLabel: mk };
+  const days = rows.filter(x=>x.type === 'day' && String(x.start || '').slice(0,7) === mk)
+                   .sort((a,b)=>String(a.start).localeCompare(String(b.start)));
+  return { items: days, kindLabel:'日记', spanLabel: mk + '（没有周记，直接用日记）' };
+}
+async function memJournalRegenOpen(id){
+  const page = document.getElementById('memJournalRegenMask');
+  if(!page) return;
+  const cfg = getAiCfg();
+  const all = await memGetAll('journal').catch(()=>[]);
+  const j = (all || []).find(x=>x && x.id === id);
+  if(!j){ toast('找不到这条回忆'); return; }
+  _jregenId = id;
+  _jregenType = (j.type === 'month') ? 'month' : 'week';
+  _jregenLenKey = 'std';
+  _jregenBusy = false;
+  const title = document.getElementById('memJournalRegenTitle');
+  if(title) title.textContent = '🔄 重新生成' + (_jregenType === 'month' ? '月记' : '周记');
+  const meta = document.getElementById('memJournalRegenMeta');
+  const rangeTxt = (j.start || '') + (j.end && j.end !== j.start ? ' ~ ' + j.end : '');
+  if(meta) meta.textContent = rangeTxt + ' · 当前 ' + String(j.content || '').length + ' 字 · 正在数原料…';
+  const ask = document.getElementById('memJournalRegenAsk');
+  if(ask) ask.value = '';
+  _jregenState('');
+  jregenRenderLen();
+  openMask(page);
+  try{
+    const got = await memJournalRegenCollect(j);
+    if(meta) meta.textContent = rangeTxt + ' · 当前 ' + String(j.content || '').length + ' 字 · 原料 ' + got.items.length + ' 篇' +
+      (got.items.length ? ('（' + got.kindLabel + '：' + got.items[0].start + ' ~ ' + got.items[got.items.length-1].end + '）') : '') +
+      (cfg && cfg.apiKey ? '' : ' · ⚠️ 还没配置 API Key');
+  }catch(e){ if(meta) meta.textContent = '原料数不清，先点生成试试'; }
+}
+function closeJournalRegen(){
+  if(_jregenBusy){ toast('正在生成，稍等一下'); return; }
+  _jregenId = null;
+  closeMask(document.getElementById('memJournalRegenMask'));
+}
+async function memJournalRegenRun(){
+  if(_jregenBusy || _jregenId == null) return;
+  const cfg = getAiCfg();
+  if(!cfg.apiKey){ _jregenState('还没有配置 API Key（设置 → 连接与模型）', true); return; }
+  const go = document.getElementById('memJournalRegenGo');
+  let hardTimer = null;
+  try{
+    const all = await memGetAll('journal');
+    const j = (all || []).find(x=>x && x.id === _jregenId);
+    if(!j){ _jregenState('这条回忆已经不在了，关掉重开一次档案页', true); return; }
+    const got = await memJournalRegenCollect(j);
+    if(!got.items.length){
+      _jregenState('这一' + (_jregenType === 'month' ? '个月' : '周') + '没有可用的' + (got.kindLabel === '周记' ? '周记' : '周记或日记') + '，重新生成会变成凭空编 —— 先补日记再来', true);
+      return;
+    }
+    const tbl = _JREGEN_LEN[_jregenType] || _JREGEN_LEN.week;
+    const len = (tbl[_jregenLenKey] || tbl.std).v;
+    const out = _jregenType === 'month' ? '月记' : '周记';
+    const typeLabel = _jregenType === 'month' ? '周记' : '日记';
+    const mergeTpl = (cfg.journalMergeTpl && cfg.journalMergeTpl.trim()) ? cfg.journalMergeTpl.trim() : MEM_JOURNAL_MERGE_PROMPT;
+    let prompt = mergeTpl.replace(/\{N\}/g, got.items.length).replace(/\{TYPE\}/g, typeLabel)
+                         .replace(/\{OUT\}/g, out).replace(/\{LEN\}/g, len);
+    // 用户模板被删掉 {LEN} 占位时也要有长度约束（否则字数档点了等于没点）
+    if(mergeTpl.indexOf('{LEN}') < 0) prompt += '\n- 长度：' + len + ' 字，宁可写满，不要只写一段概括。';
+    const askEl = document.getElementById('memJournalRegenAsk');
+    const ask = askEl ? String(askEl.value || '').trim() : '';
+    if(ask) prompt += '\n\n【本次额外要求（优先于上面的写法偏好；但「主角是用户」「只写原料里已有的事」两条底线不能被覆盖）】\n' + ask;
+    // 原料上下文：重生成比日常合并给得更宽（每条 900 字），但总长仍封顶，防超限/超时
+    let bullet = '', used = 0;
+    for(const it of got.items){
+      const seg = '【' + (it.start || '') + ' ~ ' + (it.end || '') + '】\n' + String(it.content || '').slice(0, 900);
+      if(used + seg.length > 12000) break;
+      bullet += (bullet ? '\n\n' : '') + seg;
+      used += seg.length;
+    }
+    _jregenBusy = true;
+    if(go) go.disabled = true;
+    _jregenState('正在按 ' + len + ' 字重写（' + got.items.length + ' 篇' + typeLabel + '当原料），大概 20~60 秒…');
+    // 硬兜底：aiCall 内部 90 秒会 abort，但部分手机 abort 不生效，这里再兜一层，避免按钮永久卡死
+    hardTimer = setTimeout(()=>{
+      if(_jregenBusy){ _jregenBusy = false; if(go) go.disabled = false; _jregenState('超时了（2 分半还没回来）。内容没动，稍后再试。', true); }
+    }, 150000);
+    const r = await aiCall([{role:'system', content:'你是回忆档案整理员。只输出 JSON，不输出其他文字。'},
+                            {role:'user', content: prompt + '\n\n待压缩的回忆：\n' + bullet}], cfg, 1, {noTools:true, timeout:90000});
+    if(r.error){ _jregenState('生成失败：' + String(r.error).slice(0, 120) + '（原内容没动）', true); return; }
+    const raw = (r.data && r.data.choices && r.data.choices[0] && r.data.choices[0].message && r.data.choices[0].message.content) || '';
+    const m = memExtractJson(raw);
+    if(!m){ _jregenState('模型这次没给出能用的结果，原内容没动。再点一次试试。', true); return; }
+    let t;
+    try{ t = JSON.parse(m); }catch(e){ _jregenState('结果解析失败，原内容没动。再点一次试试。', true); return; }
+    const content = String((t && t.content) || '').trim();
+    if(!content){ _jregenState('模型返回了空内容，原内容没动。加一句要求再试。', true); return; }
+    // 覆盖同一条：id / start / end / created_at 全部保留，只换正文（+ 记一笔重写时间，便于日后分辨）
+    const upd = Object.assign({}, j, { content: content.slice(0, 2400), regen_at: new Date().toISOString() });
+    await memPut('journal', upd);
+    _jregenBusy = false;
+    if(go) go.disabled = false;
+    closeMask(document.getElementById('memJournalRegenMask'));
+    _jregenId = null;
+    await memViewJournal();
+    await memRenderJournalModule().catch(()=>{});
+    refreshCalJournalSlot();
+    await memJournalRefreshCtx().catch(()=>{});
+    toast('已重新生成（' + content.length + ' 字）');
+  }catch(e){
+    _jregenBusy = false;
+    if(go) go.disabled = false;
+    _jregenState('出错了：' + String((e && e.message) || e).slice(0, 100) + '（原内容没动）', true);
+  }finally{
+    if(hardTimer) clearTimeout(hardTimer);
+    _jregenBusy = false;
+    if(go) go.disabled = false;
+  }
+}
 // ---- 磁铁召回（§3）：触发词命中 → 标签权重 × 时近衰减 → 排序取前 k → 回看原话 ----
 // 返回结构化结果（摘要 / 命中标签 / 得分 / 原话）；字符预算统一由 memFormatMagnetBlock 裁。
 // 09-30 起不再在这里直接拼字符串——召回预览面板需要看到「为什么命中、得分多少、带回了哪句原话」。
@@ -17193,7 +17461,15 @@ async function memRefreshStats(){
     let wm = 0;
     try{ wm = Number(await memKvGet('tagger_watermark')) || 0; }catch(e){}
     const unscanned = msgs.filter(m=>Number(m.id) > wm).length;
-    el.textContent = '对话 ' + msgs.length + ' 条（待打标 ' + unscanned + '）· 记忆 ' + live + ' 条' + (faded ? '（淡出 ' + faded + '）' : '') + ' · 标签 ' + tags.length + ' 个';
+    // ★ 2026-11-01：再补一句「上次真的跑完一批是什么时候」+ 攒了几条待触发。
+    //   自动打标每 24 条才跑一次，光看「待打标 18」分不清是"马上要跑"还是"根本没在跑"。
+    let lastTxt = '', pendTxt = '';
+    try{
+      const last = await memKvGet('tag_last');
+      if(last && last.at) lastTxt = ' · 上次打标 ' + _memAgo(last.at) + (last.ok === false ? '（失败）' : '');
+    }catch(e){}
+    try{ const pd = Number(await memKvGet('tag_pending')) || 0; if(pd > 0) pendTxt = '，已攒 ' + pd + '/' + MEM_TAG_GAP; }catch(e){}
+    el.textContent = '对话 ' + msgs.length + ' 条（待打标 ' + unscanned + pendTxt + '）· 记忆 ' + live + ' 条' + (faded ? '（淡出 ' + faded + '）' : '') + ' · 标签 ' + tags.length + ' 个' + lastTxt;
   }catch(e){ el.textContent = ''; }
 }
 async function memView(){
@@ -17838,7 +18114,7 @@ async function memDeleteEntry(id, keepScanned){
     toast(keepScanned ? '已删除这条记忆；这段对话保留“已扫过”状态，下次不会重扫' : '已删除这条记忆；下次打标时会自动重新提炼这段对话');
   }catch(e){ toast('删除失败'); }
 }
-if(window.addEventListener){ window.addEventListener('pagehide', ()=>{ if(_memPending > 0) memRunTagger(); }); }
+if(window.addEventListener){ window.addEventListener('pagehide', ()=>{ if(_memPending >= 12) memRunTagger(); }); } // 计数现在跨会话保留，关闭时只在攒得差不多时试一次（页面卸载后请求大概率发不出去，属于兜底）
 
 // 真正的发送流程。外层 sendAI 只负责统一兜底：这个函数很长且入口是 onclick/回车，
 // 一旦有意外异常抛出会成为「unhandled rejection」——用户端毫无提示，看起来就是发出去没反应。
@@ -18349,7 +18625,10 @@ async function aiCall(messages, cfg, attempt, opts){
   // 记录实际发给模型的内容，供「查看发送给助理的内容」排查
   window.__lastAIPayload = { time: new Date(), mode: cfg.mode, model: payload.model, url, messages: payload.messages };
   const ctrl = new AbortController();
-  const timer = setTimeout(()=>ctrl.abort(), 30000); // 30 秒超时：慢网络/模型高峰更宽容
+  // 超时可按需放宽（2026-11-01）：月记 600~900 字这种长文，30 秒经常不够；
+  // 默认仍是 30 秒，只有明确传 opts.timeout 的调用（周记/月记重生成）才延长。
+  const toMs = (opts && Number(opts.timeout) > 0) ? Number(opts.timeout) : 30000;
+  const timer = setTimeout(()=>ctrl.abort(), toMs); // 30 秒超时：慢网络/模型高峰更宽容
   let resp;
   window.__aiReqStart = Date.now(); window.__aiReqDone = 0; // 标记请求已开始（诊断用：判断「在飞/卡死」）
   try{
@@ -18358,7 +18637,7 @@ async function aiCall(messages, cfg, attempt, opts){
     clearTimeout(timer);
     window.__aiReqDone = Date.now(); // 网络/中止错误也算「本次请求已结算」
     if(err && err.name==='AbortError'){
-      return {error: '连接超时（30 秒无响应）：网络慢或被拦截。若用 OpenRouter 连不通，可能是网络访问受限，或当前在 WorkBuddy 内置预览沙箱里测（沙箱禁网）——请把本文件下载/传到手机或电脑真实浏览器打开再试。'};
+      return {error: '连接超时（' + Math.round(toMs/1000) + ' 秒无响应）：网络慢或被拦截。若用 OpenRouter 连不通，可能是网络访问受限，或当前在 WorkBuddy 内置预览沙箱里测（沙箱禁网）——请把本文件下载/传到手机或电脑真实浏览器打开再试。'};
     }
     if(attempt<2){ // 网络/跨域偶发错误，重试一次
       await new Promise(r=>setTimeout(r, 1000));
