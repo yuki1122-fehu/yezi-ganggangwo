@@ -1955,6 +1955,20 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .ai-zoom-bar{flex:0 0 auto;display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;justify-content:center;}
 .ai-zoom-btn{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.14);color:#fff;font-size:13px;line-height:1.35;padding:8px 15px;border-radius:999px;cursor:pointer;font-family:inherit;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(8px);}
 .ai-zoom-btn:active,.ai-zoom-btn:hover{background:rgba(255,255,255,.26);}
+/* 版本条（2026-11-06，叶子提）：重新生成过的同一张照片，前几版都在，点一下就对照。
+   ⚠️ 只在这一族有 2 版以上时才出现，且 width:100% —— 父级是 align-items:center 的 flex 列，
+      不给宽度它会缩成内容宽，缩略图一多就居中堆成两排。 */
+.ai-zoom-vers{flex:0 0 auto;display:none;width:100%;max-width:560px;gap:8px;overflow-x:auto;overflow-y:hidden;margin-top:10px;padding:2px 2px 4px;box-sizing:border-box;justify-content:flex-start;-webkit-overflow-scrolling:touch;}
+.ai-zoom-vers.on{display:flex;}
+.ai-zoom-vers .vz{position:relative;flex:0 0 auto;width:56px;height:56px;border-radius:10px;overflow:hidden;border:2px solid rgba(255,255,255,.26);background:rgba(255,255,255,.06);opacity:.7;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:opacity .16s,border-color .16s,transform .16s;}
+.ai-zoom-vers .vz img{display:block;width:100%;height:100%;object-fit:cover;}
+.ai-zoom-vers .vz.on{opacity:1;border-color:#e9c8a2;transform:translateY(-2px);}
+.ai-zoom-vers .vz.lost{border-style:dashed;opacity:.4;}
+.ai-zoom-vers .vz i{position:absolute;right:2px;bottom:2px;font-style:normal;font-size:9px;font-weight:700;line-height:14px;padding:0 4px;border-radius:6px;color:#fff;background:rgba(16,18,22,.62);}
+.ai-zoom-vers .vz b{position:absolute;left:3px;top:2px;font-size:10px;line-height:1;font-weight:400;}
+/* 有版本条时主图要让出高度，否则 5.7 寸屏上只剩一条缝 */
+.ai-img-zoom.has-vers>#aiZoomMain{max-height:calc(100% - 150px);}
+.ai-zoom-btn[hidden]{display:none;}
 /* 提示词面板：浅色玻璃卡，压在图片下沿。放在 overlay 里而不是新弹窗，避免「弹窗接力」那套 animationend 坑 */
 .ai-zoom-panel{position:absolute;left:10px;right:10px;bottom:10px;max-height:76%;overflow-y:auto;display:none;box-sizing:border-box;padding:14px 14px 12px;border-radius:16px;background:rgba(250,252,249,.97);border:1px solid var(--glass-line);box-shadow:0 18px 50px rgba(0,0,0,.34);color:var(--ink);}
 .ai-zoom-panel.on{display:block;}
@@ -9125,9 +9139,15 @@ function imgDBTx(mode, fn){
     });
   });
 }
-function imgPut(rec){ return imgDBTx('readwrite', function(s){ return s.put(rec); }); }
+function imgPut(rec){
+  try{ imgMetaInvalidate(); }catch(e){}   // 元数据索引跟着失效（版本条读的是它）
+  return imgDBTx('readwrite', function(s){ return s.put(rec); });
+}
 function imgGet(id){ return imgDBTx('readonly', function(s){ return s.get(id); }); }
-function imgDel(id){ return imgDBTx('readwrite', function(s){ return s.delete(id); }); }
+function imgDel(id){
+  try{ imgMetaInvalidate(); }catch(e){}
+  return imgDBTx('readwrite', function(s){ return s.delete(id); });
+}
 /* blob URL 缓存：一张图 ~150KB，最多留 120 个，超了先 revoke 最旧的
    ⚠️ 2026-10-29 从 40 提到 120：回忆相册一屏就要挂 20-30 张，
       40 个的位置会被相册挤爆，一划回聊天就得重新 createObjectURL。 */
@@ -9155,6 +9175,91 @@ function imgUrlOf(id){
       所以「收藏」这一步必须足够顺手 —— 出口挂在看图页工具条上，图刚出来那一眼就能点。
    ⚠️ 主页卡只给三个相框位置：收藏少于三张时**留空框**，不拿别的图凑数。 */
 function imgAll(){ return imgDBTx('readonly', function(s){ return s.getAll(); }); }
+/* ================= 图片版本族（2026-11-06，叶子提）=================
+   问题：看图页按「重新生成」以前走 aiImgSwap，末尾直接 imgDel(oldId) ——
+        旧的那一版从库里消失，连收藏过的那张一起没了。想 roll 几版挑一张最好的，
+        前几版根本留不住，只能拿记忆里"刚才那张好像更好"赌。
+   做法：· 旧版一律不删；新版用 fam 认族（老记录没 fam 就沿 regenOf 往上找根）；
+        · 看图页底部挂一条版本条，点缩略图来回对照，选中可「就用这张」换回聊天里；
+        · 每族上限 IMG_FAM_KEEP 版，超了只清**最早、且没被收藏**的那版（star 的永不删）。
+   为什么不建表：族关系就是 rec 上的一个字符串，建表要升 IDB version（要碰 upgradeneeded），
+   收益远小于风险 —— 跟 star / name 同样的处理方式。 */
+const IMG_FAM_KEEP = 10;
+let _imgMetaCache = null;   // 只存元数据（不带 blob），imgPut/imgDel 时置空
+function imgMetaScan(force){
+  if(_imgMetaCache && !force) return Promise.resolve(_imgMetaCache);
+  return imgOpenDB().then(function(db){
+    if(!db) return [];
+    return new Promise(function(res){
+      const out = [];
+      try{
+        /* 用游标而不是 getAll()：getAll 会把整库 blob 一次性反序列化进内存，
+           这里读一条扔一条（out 只留元数据），几十张图的库也不会把手机撑住。 */
+        const req = db.transaction('images','readonly').objectStore('images').openCursor();
+        req.onsuccess = function(){
+          const c = req.result;
+          if(!c){ _imgMetaCache = out; res(out); return; }
+          const v = c.value || {};
+          if(v.id){
+            out.push({ id:v.id, fam:v.fam||'', regenOf:v.regenOf||'', star:v.star?1:0,
+                       created:v.created||0, seed:v.seed, shot:v.shot, who:v.who,
+                       withWho:v.withWho, w:v.w, h:v.h, name:v.name||'' });
+          }
+          c.continue();
+        };
+        req.onerror = function(){ _imgMetaCache = out; res(out); };
+      }catch(e){ res(out); }
+    });
+  }).catch(function(){ return []; });
+}
+/* 族键：优先读 fam；老记录（没有 fam 字段）沿 regenOf 找最早的祖先 id */
+function imgFamKeyOf(meta, byId){
+  if(!meta) return '';
+  if(meta.fam) return meta.fam;
+  let cur = meta, guard = 0;
+  while(cur && guard++ < 50){
+    if(cur.fam) return cur.fam;
+    const p = cur.regenOf ? byId[cur.regenOf] : null;
+    if(!p) return cur.regenOf || cur.id;   // 父已经被删了（老版本的行为）：它自己就是族根
+    cur = p;
+  }
+  return meta.id;
+}
+function imgFamOf(id, force){
+  return imgMetaScan(force).then(function(all){
+    const byId = {};
+    all.forEach(function(m){ if(m.id) byId[m.id] = m; });
+    const me = byId[id] || null;
+    if(!me) return { key:'', me:null, list:[] };
+    const key = imgFamKeyOf(me, byId);
+    const list = all.filter(function(m){ return imgFamKeyOf(m, byId) === key; })
+                    .sort(function(a,b){ return (a.created||0) - (b.created||0); });
+    return { key:key, me:me, list:list };
+  }).catch(function(){ return { key:'', me:null, list:[] }; });
+}
+/* 超额清理：只动最老的那几版，且跳过收藏过的和刚生成的那张 */
+function imgFamTrim(famKey, keepId){
+  if(!famKey) return Promise.resolve(0);
+  return imgMetaScan().then(function(all){
+    const byId = {};
+    all.forEach(function(m){ if(m.id) byId[m.id] = m; });
+    const list = all.filter(function(m){ return imgFamKeyOf(m, byId) === famKey; })
+                    .sort(function(a,b){ return (a.created||0) - (b.created||0); });
+    const over = list.length - IMG_FAM_KEEP;
+    if(over <= 0) return 0;
+    const drop = list.filter(function(m){ return !m.star && m.id !== keepId; }).slice(0, over);
+    return drop.reduce(function(p, m){
+      return p.then(function(){
+        if(_imgUrlCache.has(m.id)){
+          try{ URL.revokeObjectURL(_imgUrlCache.get(m.id)); }catch(e){}
+          _imgUrlCache.delete(m.id);
+        }
+        return imgDel(m.id).catch(function(){});
+      });
+    }, Promise.resolve()).then(function(){ return drop.length; });
+  }).catch(function(){ return 0; });
+}
+function imgMetaInvalidate(){ _imgMetaCache = null; }
 function imgSetStar(id, on){
   return imgGet(id).then(function(rec){
     if(!rec) return null;
@@ -9535,6 +9640,8 @@ async function aiZoomToggleStar(){
   paintZoomStar(out);
   try{ toast(on ? '已收进回忆相册' : '已从相册移除'); }catch(e){}
   try{ albumRenderCard(); }catch(e){}
+  /* 版本条上那个 ❤️ 角标要跟着变，不然"收藏了但缩略图还没心"看着像没存住 */
+  try{ if(document.getElementById('aiZoomVers')) aiZoomFamPaint(id); }catch(e){}
   const m = document.getElementById('albumMask');
   if(m && m.classList.contains('show')){ try{ albumRenderGrid(); }catch(e){} }
 }
@@ -11019,6 +11126,11 @@ function attachAiImage(d, img){
    ⚠️ 重生成走的是**跟聊天完全同一条** imgGenerate 路径，所以这里看到的就是聊天里那张的原因。 */
 let _zoomId = null;
 let _zoomRec = null;
+let _zoomFam = { key:'', list:[] };   // 这一族的所有版本（版本条的数据源）
+function aiZoomMainEl(){
+  const ov = document.getElementById('aiImgZoom');
+  return ov ? ov.querySelector('#aiZoomMain') : null;
+}
 function aiImgZoom(id){
   imgUrlOf(id).then(function(u){
     if(!u) return;
@@ -11028,24 +11140,29 @@ function aiImgZoom(id){
       ov = document.createElement('div');
       ov.id = 'aiImgZoom';
       ov.className = 'ai-img-zoom';
-      ov.innerHTML = '<img alt="照片">'
+      /* ⚠️ 主图必须有 id（#aiZoomMain）：版本条里也是一堆 <img>，
+         直接 querySelector('img') 迟早会抓到缩略图上去。 */
+      ov.innerHTML = '<img id="aiZoomMain" alt="照片">'
         + '<div class="ai-zoom-bar">'
         +   '<button type="button" class="ai-zoom-btn" id="aiZoomStar" data-act="star">🤍 收藏</button>'
+        +   '<button type="button" class="ai-zoom-btn" id="aiZoomUse" data-act="use" hidden>✅ 就用这张</button>'
         +   '<button type="button" class="ai-zoom-btn" data-act="prompt">🎨 提示词</button>'
         +   '<button type="button" class="ai-zoom-btn" data-act="close">关闭</button>'
         + '</div>'
+        + '<div class="ai-zoom-vers" id="aiZoomVers"></div>'
         + '<div class="ai-zoom-panel"></div>';
-      // 点背景关闭；点按钮条 / 面板不关（以前是整块 onclick，面板一开就被它吃掉）
+      // 点背景关闭；点按钮条 / 面板 / 版本条不关（以前是整块 onclick，面板一开就被它吃掉）
       ov.addEventListener('click', function(ev){
         const bar = ev.target.closest ? ev.target.closest('.ai-zoom-bar') : null;
         if(bar){
           const act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
           if(act === 'prompt') aiZoomPrompt();
           else if(act === 'star') aiZoomToggleStar();
+          else if(act === 'use') aiZoomUse();
           else if(act === 'close') aiZoomClose();
           return;
         }
-        if(ev.target.closest && ev.target.closest('.ai-zoom-panel')) return;
+        if(ev.target.closest && (ev.target.closest('.ai-zoom-panel') || ev.target.closest('.ai-zoom-vers'))) return;
         // 面板开着时，点别处只收起面板：改了一半的词不能因为误触就跟着关掉
         const pnl = ov.querySelector('.ai-zoom-panel');
         if(pnl && pnl.classList.contains('on')){ pnl.classList.remove('on'); return; }
@@ -11053,7 +11170,8 @@ function aiImgZoom(id){
       });
       document.body.appendChild(ov);
     }
-    ov.querySelector('img').src = u;
+    const main = aiZoomMainEl();
+    if(main) main.src = u;
     const p = ov.querySelector('.ai-zoom-panel');
     p.classList.remove('on'); p.innerHTML = '';
     ov.classList.add('on');
@@ -11064,15 +11182,133 @@ function aiImgZoom(id){
       _zoomRec = rec || null;
       paintZoomStar(rec);
     }).catch(function(){});
+    try{ aiZoomFamPaint(id); }catch(e){}
   }).catch(function(){});
+}
+/* 版本条：这一族有几版就挂几个缩略图，点一下换主图（只换预览，不动聊天） */
+function aiZoomFamPaint(curId){
+  const box = document.getElementById('aiZoomVers');
+  const ov  = document.getElementById('aiImgZoom');
+  if(!box || !ov) return;
+  imgFamOf(curId).then(function(f){
+    if(_zoomId !== curId) return;      // 期间已经切到别的图 / 关了
+    _zoomFam = f || { key:'', list:[] };
+    const list = (_zoomFam && _zoomFam.list) || [];
+    if(list.length < 2){
+      box.innerHTML = ''; box.classList.remove('on'); ov.classList.remove('has-vers');
+      aiZoomUseBtnPaint();
+      return;
+    }
+    box.innerHTML = '';
+    list.forEach(function(m, i){
+      const d = document.createElement('div');
+      d.className = 'vz' + (m.id === curId ? ' on' : '') + (m.star ? ' star' : '');
+      d.dataset.id = m.id;
+      const idx = document.createElement('i');
+      idx.textContent = String(i + 1);
+      d.appendChild(idx);
+      if(m.star){ const s = document.createElement('b'); s.textContent = '❤️'; d.appendChild(s); }
+      const im = document.createElement('img');
+      im.alt = '第 ' + (i+1) + ' 版';
+      im.loading = 'lazy';
+      im.decoding = 'async';
+      imgUrlOf(m.id).then(function(u){
+        if(u) im.src = u;
+        else { d.classList.add('lost'); d.title = '这一版的文件不在了'; }
+      }).catch(function(){ d.classList.add('lost'); });
+      d.appendChild(im);
+      d.onclick = function(){ aiZoomPick(m.id); };
+      box.appendChild(d);
+    });
+    box.classList.add('on');
+    ov.classList.add('has-vers');
+    aiZoomUseBtnPaint();
+  }).catch(function(){});
+}
+function aiZoomPick(id){
+  if(!id || id === _zoomId) return;
+  imgUrlOf(id).then(function(u){
+    if(!u){ try{ toast('这一版读不出来了'); }catch(e){} return; }
+    const ov = document.getElementById('aiImgZoom');
+    if(!ov) return;
+    _zoomId = id; _zoomRec = null;
+    const main = aiZoomMainEl();
+    if(main) main.src = u;
+    /* 提示词面板里写的是上一版的词：切版本就收起，免得"看着 A、改着 B" */
+    const p = ov.querySelector('.ai-zoom-panel');
+    if(p){ p.classList.remove('on'); p.innerHTML = ''; }
+    paintZoomStar(null);
+    imgGet(id).then(function(rec){
+      if(_zoomId !== id) return;
+      _zoomRec = rec || null;
+      paintZoomStar(rec);
+    }).catch(function(){});
+    Array.prototype.forEach.call(ov.querySelectorAll('.ai-zoom-vers .vz'), function(el){
+      el.classList.toggle('on', el.dataset.id === id);
+    });
+    aiZoomUseBtnPaint();
+  }).catch(function(){});
+}
+/* 聊天里这一族当前显示的是哪一张（不是当前预览的那张才给出「就用这张」） */
+function aiZoomChatRef(){
+  const fam = _zoomFam;
+  if(!fam || !fam.key || !fam.list || !fam.list.length) return null;
+  const ids = {};
+  fam.list.forEach(function(m){ ids[m.id] = 1; });
+  let hit = null;
+  try{
+    (aiConv || []).forEach(function(m){
+      if(hit || !m || !m.img || !m.img.id) return;
+      if(ids[m.img.id]) hit = { id:m.img.id };
+    });
+  }catch(e){}
+  return hit;
+}
+function aiZoomUseBtnPaint(){
+  const b = document.getElementById('aiZoomUse');
+  if(!b) return;
+  const ref = aiZoomChatRef();
+  b.hidden = !ref || ref.id === _zoomId;
+}
+/* 「就用这张」：把聊天里那条消息的图换成当前预览的这一版。
+   ⚠️ 只换引用，不删任何一版 —— 换错了还能再点回来。 */
+function aiZoomUse(){
+  const id = _zoomId;
+  if(!id) return;
+  const ref = aiZoomChatRef();
+  if(!ref){ try{ toast('聊天里没有这一族的图（这是在相册里看的）'); }catch(e){} return; }
+  if(ref.id === id){ try{ toast('聊天里显示的就是这一张'); }catch(e){} return; }
+  let hit = false;
+  try{
+    (aiConv || []).forEach(function(m){
+      if(m && m.img && m.img.id === ref.id){ m.img.id = id; hit = true; }
+    });
+    if(hit) saveConv();
+  }catch(e){}
+  try{
+    const nodes = document.querySelectorAll('.ai-gen-img[data-img-id]');
+    for(let i=0;i<nodes.length;i++){
+      const el = nodes[i];
+      if(el.getAttribute('data-img-id') !== ref.id) continue;
+      el.setAttribute('data-img-id', id);
+      const iid = id;
+      imgUrlOf(iid).then(function(u){ if(u) el.src = u; });
+    }
+  }catch(e){}
+  try{ toast(hit ? '聊天里已经换成这一张' : '没找到聊天里那条消息，刷新后可能变回去'); }catch(e){}
+  aiZoomUseBtnPaint();
 }
 function aiZoomClose(){
   const ov = document.getElementById('aiImgZoom');
   if(!ov) return;
   ov.classList.remove('on');
+  ov.classList.remove('has-vers');
   const p = ov.querySelector('.ai-zoom-panel');
   if(p){ p.classList.remove('on'); p.innerHTML = ''; }
+  const v = document.getElementById('aiZoomVers');
+  if(v){ v.innerHTML = ''; v.classList.remove('on'); }
   _zoomRec = null;
+  _zoomFam = { key:'', list:[] };
 }
 async function aiZoomPrompt(){
   const ov = document.getElementById('aiImgZoom');
@@ -11121,8 +11357,19 @@ async function aiZoomPrompt(){
   p.querySelector('.zp-m2').textContent = whoTxt;
   const paintMeta = function(){
     const q = imgQuota(), cfg = imgCfg();
+    /* 版次（2026-11-06）：同一族留了好几个版本，得让她知道自己改的是第几版 */
+    let verTxt = '';
+    try{
+      const list = (_zoomFam && _zoomFam.list) || [];
+      if(list.length > 1){
+        let n = 0;
+        for(let i=0;i<list.length;i++){ if(list[i].id === rec.id){ n = i + 1; break; } }
+        verTxt = ' · 第 ' + (n || list.length) + '/' + list.length + ' 版';
+      }
+    }catch(e){}
     p.querySelector('.zp-m1').textContent = '镜头：' + label + ' · ' + (rec.w||'?') + '×' + (rec.h||'?')
       + ' · seed ' + (rec.seed==null?'?':rec.seed)
+      + verTxt
       + ' · 今日已用 ' + q.used + ((cfg.dailyLimit|0) > 0 ? ('/' + (cfg.dailyLimit|0)) : '');
   };
   paintMeta();
@@ -11184,19 +11431,30 @@ async function aiZoomPrompt(){
       return;
     }
     const newId = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    /* ⚠️ fam 必须在这里定：新版继承当前这版的族键，老版没有 fam 时就用它自己当根（2026-11-06）。
+       ⚠️ 收藏**不继承**（见下面 delete star）：收藏是对"这一张画面"的肯定，
+          要是跟着血统走，相册里那张会被新图顶掉 —— 她挑中的旧版就再也点不出来了。 */
+    const famKey = rec.fam || (rec.regenOf ? (rec.regenOf) : rec.id);
     const newRec = Object.assign({}, rec, {
       id: newId, blob: r.blob, full: base, neg: neg,
-      seed: r.seed, w: r.w, h: r.h, created: Date.now(), regenOf: rec.id, model: imgCfg().model
+      seed: r.seed, w: r.w, h: r.h, created: Date.now(), regenOf: rec.id, model: imgCfg().model,
+      fam: famKey
     });
+    delete newRec.star; delete newRec.starAt;
     try{ await imgPut(newRec); }catch(e){}
     const q = imgQuota();
     q.used = (q.used|0) + 1; q.lastAt = Date.now(); imgQuotaSave(q);
-    aiImgSwap(rec.id, newId, r.w, r.h);
+    /* 换的是「聊天里当前引用的那一版」，不一定是她正在看的这一版
+       （她从相册点开第 1 版再重生成时，聊天里显示的可能已经是第 3 版） */
+    const chatRef0 = aiZoomChatRef();
+    aiImgSwap((chatRef0 && chatRef0.id) || rec.id, newId, r.w, r.h);
     _zoomId = newId; _zoomRec = newRec;
     rec = newRec;
     const ov2 = document.getElementById('aiImgZoom');
     const u2 = await imgUrlOf(newId).catch(function(){ return ''; });
-    if(ov2 && u2) ov2.querySelector('img').src = u2;
+    const main2 = aiZoomMainEl();
+    if(ov2 && u2 && main2) main2.src = u2;
+    try{ aiZoomFamPaint(newId); }catch(e){}   // 版本条多出一格，并自动选中新的
     paintMeta();
     errBox('');
     goBtn.textContent = '🎨 再生成一张';
@@ -11206,7 +11464,9 @@ async function aiZoomPrompt(){
 /* 重新生成后把「聊天里那张图」换成新图：
    ① 存档里的 img.id（不然刷新后变回旧图 / 图丢了）
    ② 已经画出来的 DOM（data-img-id 是刚补的钩子）
-   ③ 旧 blob 从库里删掉 —— 消息已指向新图，旧图留着只会把 IDB 撑大 */
+   ⚠️ 旧版**不删**了（2026-11-06 改）：以前这里 imgDel(oldId)，于是"重生成＝旧图永久消失"，
+      收藏过的旧版跟着从相册没掉，想 roll 几版挑最好的根本回不去。
+      现在只在族内超过 IMG_FAM_KEEP 版时，清最老且没收藏的那几版（imgFamTrim）。 */
 function aiImgSwap(oldId, newId, w, h){
   let hit = false;
   try{
@@ -11225,13 +11485,13 @@ function aiImgSwap(oldId, newId, w, h){
       imgUrlOf(newId).then(function(u){ if(u) el.src = u; });
     }
   }catch(e){}
+  /* ⚠️ 旧版的 blob URL 不 revoke（2026-11-06）：版本条还在用它，revoke 了缩略图就是裂图。
+     缓存自己有 120 条上限，挤出去时会自动 revoke。 */
   try{
-    if(_imgUrlCache.has(oldId)){
-      URL.revokeObjectURL(_imgUrlCache.get(oldId));
-      _imgUrlCache.delete(oldId);
-    }
+    imgFamOf(newId).then(function(f){
+      if(f && f.key) return imgFamTrim(f.key, newId);
+    }).catch(function(){});
   }catch(e){}
-  try{ imgDel(oldId); }catch(e){}
 }
 function attachDelBtn(d, mid){
   if(!mid) return;
