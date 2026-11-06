@@ -3253,6 +3253,8 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           <input id="aiVisionKey" type="password" placeholder="百炼 sk-xxx / OpenRouter Key" style="flex:1 1 auto;min-width:0;">
           <button class="btn ghost" type="button" onclick="aiToggleKey('aiVisionKey',this)" style="flex:0 0 auto;padding:8px 10px;font-size:13px;line-height:1;" aria-label="显示或隐藏 Key">👁</button>
         </div>
+        <label>备用视觉 Key <span style="font-size:11px;color:var(--ink-soft)">（OpenRouter · 可选 · 百炼欠费/CORS 时自动顶上）</span></label>
+        <input id="aiVisionFallbackKey" type="password" placeholder="OpenRouter 免费 Key（留空=不自动降级）">
         <label>视觉模型名</label>
         <input id="aiVisionModel" list="visionModelList" placeholder="qwen3-vl-plus">
         <datalist id="visionModelList">
@@ -12159,6 +12161,20 @@ function getVisionCfg(){
   };
 }
 
+// ---- 视觉降级档：主视觉（百炼）欠费/挂了时自动切到 OpenRouter 免费视觉 ----
+// 仅当在「连接与模型」填了「备用视觉 Key」才生效；base/model 固定为 OpenRouter 免费档，主配置不受影响。
+function getVisionFallbackCfg(){
+  const cfg = getAiCfg();
+  const base = 'https://openrouter.ai/api/v1';
+  const model = 'qwen/qwen2.5-vl-72b-instruct:free';
+  const apiKey = String(cfg.visionFallbackKey||'').trim();
+  return {
+    configured: !!(base && model),
+    enabled: !!(base && model && apiKey),
+    baseUrl: base, model, apiKey
+  };
+}
+
 // ---- 视觉提示词：只当眼睛，只吐 JSON，绝不瞎编 ----
 function buildVisionPrompt(userText){
   const hint = String(userText||'').trim();
@@ -12349,9 +12365,33 @@ async function visionExtract(files, userText){
     parts.push({ type:'image_url', image_url:{ url: small } });
   }
 
-  const r = await visionCall(parts, vcfg);
-  if(r.error) return { ok:false, error:r.error, code:'apierr' };
-  const msg = r.data.choices[0].message;
+  let r = await visionCall(parts, vcfg);
+  let viaFallback = false;
+  if(r.error){
+    // ★ 百炼欠费 / CORS 跨域拦截 / 各类失效 → 自动降级到 OpenRouter 免费视觉（一次性，绝不改动主配置）
+    const mainIsBailian = /dashscope|aliyuncs/i.test(vcfg.baseUrl||'');
+    if(mainIsBailian){
+      const fb = getVisionFallbackCfg();
+      if(fb.enabled){
+        const fr = await visionCall(parts, fb);
+        if(!fr.error){ r = fr; viaFallback = true; }
+        else {
+          r = { error: r.error + '。已尝试自动切到 OpenRouter 免费备用视觉，但备用也失败：' + fr.error
+              + '（多半是备用 Key 未配置或备用服务异常）。' };
+        }
+      } else {
+        r = { error: r.error + '。百炼已失效，但未配置「备用视觉 Key」——请在「连接与模型」填一个 OpenRouter Key，或去百炼充值 1 元即可恢复。' };
+      }
+    }
+    if(r.error) return { ok:false, error:r.error, code:'apierr' };
+  }
+  const _p = _visionParse(r.data.choices[0].message);
+  if(!_p.ok) return _p;
+  _p.viaFallback = viaFallback;
+  return _p;
+}
+// ---- 解析视觉模型返回的消息 → 结构化结果（主路径与降级路径共用，避免重复） ----
+function _visionParse(msg){
   const raw = (msg && typeof msg.content === 'string') ? msg.content.trim() : '';
   window.__lastVisionRaw = raw; // 供调试面板对照：到底是眼睛看错了还是大脑理解错了
   // ★ 2026-09-17：再存一份到 localStorage。内存变量刷新即失，而「上次读图原文」恰恰是
@@ -12854,6 +12894,7 @@ function initAISettingsFields(){
   if(_vs){ _vs.value = [].slice.call(_vs.options).some(o=>o.value===_vb) ? _vb : ''; }
   document.getElementById('aiVisionKey').value = cfg.visionKey||'';
   document.getElementById('aiVisionModel').value = cfg.visionModel||'';
+  document.getElementById('aiVisionFallbackKey').value = cfg.visionFallbackKey||'';
   document.getElementById('visionHint').textContent = '';
   // 接口配置档（多套 URL+Key 一键切换）：第一次进来把当前这套自动存成第一份
   try{ aiProfileSeed(); aiProfileRender(); aiProfileBindLongPress(); }catch(e){}
@@ -14442,6 +14483,7 @@ function saveAISettings(){
     visionBase: document.getElementById('aiVisionBase').value.trim(),
     visionKey: document.getElementById('aiVisionKey').value.trim(),
     visionModel: document.getElementById('aiVisionModel').value.trim(),
+    visionFallbackKey: document.getElementById('aiVisionFallbackKey').value.trim(),
     daysTask: clampInt(document.getElementById('aiDaysTask').value, 0, 120, 21),
     daysCourse: clampInt(document.getElementById('aiDaysCourse').value, 0, 120, 21),
     roundsConv: clampInt(document.getElementById('aiRounds').value, 0, 40, 8),
@@ -18172,9 +18214,10 @@ async function sendAIInner(){
       if(vres.ok){
         visionBlock = visionBlockForBrain(vres, images.length);
         if(vres.json && vres.json.raw_text) cacheDocText(vres.json.raw_text); // 供 compare_courses 复用
+        const _fbTag = vres.viaFallback ? ' · 备用视觉' : '';
         step.textContent = vres.degraded
-          ? '👁 图读到了，但格式不太规范 · 交给助理谨慎处理…'
-          : '👁 已读图（' + (vres.json.doc_type || '未分类') + '） · 交给助理整理…';
+          ? '👁 图读到了，但格式不太规范 · 交给助理谨慎处理…' + _fbTag
+          : '👁 已读图（' + (vres.json.doc_type || '未分类') + '） · 交给助理整理…' + _fbTag;
       } else {
         visionErr = vres.error;
         step.textContent = '👁 视觉模型没读出来：' + vres.error;
