@@ -1969,6 +1969,12 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 /* 有版本条时主图要让出高度，否则 5.7 寸屏上只剩一条缝 */
 .ai-img-zoom.has-vers>#aiZoomMain{max-height:calc(100% - 150px);}
 .ai-zoom-btn[hidden]{display:none;}
+/* ⚠️ 四个按钮（收藏 / 用这张 / 提示词 / 关闭）在 390px 屏上会挤成两行，
+   「关闭」单独掉到下一行看着像坏了 ⇒ 窄屏压一档内边距和字号，一行放得下。 */
+@media (max-width:430px){
+  .ai-zoom-bar{gap:6px;}
+  .ai-zoom-btn{padding:7px 10px;font-size:12px;}
+}
 /* 提示词面板：浅色玻璃卡，压在图片下沿。放在 overlay 里而不是新弹窗，避免「弹窗接力」那套 animationend 坑 */
 .ai-zoom-panel{position:absolute;left:10px;right:10px;bottom:10px;max-height:76%;overflow-y:auto;display:none;box-sizing:border-box;padding:14px 14px 12px;border-radius:16px;background:rgba(250,252,249,.97);border:1px solid var(--glass-line);box-shadow:0 18px 50px rgba(0,0,0,.34);color:var(--ink);}
 .ai-zoom-panel.on{display:block;}
@@ -11145,7 +11151,7 @@ function aiImgZoom(id){
       ov.innerHTML = '<img id="aiZoomMain" alt="照片">'
         + '<div class="ai-zoom-bar">'
         +   '<button type="button" class="ai-zoom-btn" id="aiZoomStar" data-act="star">🤍 收藏</button>'
-        +   '<button type="button" class="ai-zoom-btn" id="aiZoomUse" data-act="use" hidden>✅ 就用这张</button>'
+        +   '<button type="button" class="ai-zoom-btn" id="aiZoomUse" data-act="use" hidden>✅ 用这张</button>'
         +   '<button type="button" class="ai-zoom-btn" data-act="prompt">🎨 提示词</button>'
         +   '<button type="button" class="ai-zoom-btn" data-act="close">关闭</button>'
         + '</div>'
@@ -23477,7 +23483,10 @@ async function godSnap(){
     const neg = imgNegFor(shot);
     /* 出图之前先把标签压进缓存：从这一刻起的任何失败（站点报错 / 限速 / 额度满 / 存库失败），
        再点一次都还能用同一份标签重画，不用重新写一遍。 */
-    _godSnapCache = { sig: sig, tags: tags, failed: true, at: Date.now() };
+    _godSnapCache = { sig: sig, tags: tags, failed: true, at: Date.now(),
+      /* 同一帧的上一张要留着 id：出图失败后再点一次，新图仍能挂回同一个族 */
+      lastId: (cached && cached.sig === sig) ? (cached.lastId || '') : '',
+      lastFam: (cached && cached.sig === sig) ? (cached.lastFam || '') : '' };
     setStage('正在生成图片', '正在生成…');
     let out;
     try{
@@ -23496,6 +23505,14 @@ async function godSnap(){
     const rec = { id:id, blob:out.blob, prompt:tags, full:plan.base, neg:neg, who:who, withWho:withWho,
       shot:shot, proactive:false, seed:out.seed, w:out.w, h:out.h, model:imgCfg().model,
       created:Date.now(), god:true };
+    /* 同一帧、同一份画面标签 ⇒ 这次是「重画这一刻」，挂到上一次那张的族里（2026-11-06）。
+       换了场景 / 换了人（sig 不同）就是新的一张，绝不硬连 —— 不然版本条里会混进两套画面。 */
+    try{
+      if(cached && cached.lastId && cached.sig === sig){
+        rec.regenOf = cached.lastId;
+        rec.fam = cached.lastFam || cached.lastId;
+      }
+    }catch(e){}
     let putOk = true;
     try{ await imgPut(rec); }catch(e){ putOk = false; }
     if(!putOk){ fail('图生成好了，但没存进本地库（存储可能满了）。清理一下旧图片再试。'); return; }
@@ -23504,8 +23521,13 @@ async function godSnap(){
        于是「出图成功 + 存库失败 + 看图页不开」在用户眼里和「没反应」完全一样。 */
     const u = await imgUrlOf(id).catch(function(){ return ''; });
     if(!u){ fail('图生成好了，但从本地库读不回来（可能没存住）。画面标签已经留着，再点一次直接重画。'); return; }
-    /* 真的成了：标签缓存退役（下次点是「再画一张新的」，不是沿用旧词） */
-    if(_godSnapCache) _godSnapCache.failed = false;
+    /* 真的成了：标签缓存退役（下次点是「再画一张新的」，不是沿用旧词）
+       ⚠️ 但 lastId 要留着：同一帧再点一次时靠它把新图挂进同一个族（版本条才连得上） */
+    if(_godSnapCache){
+      _godSnapCache.failed = false;
+      _godSnapCache.lastId = id;
+      _godSnapCache.lastFam = rec.fam || id;
+    }
     const q2 = imgQuota();
     q2.used = (q2.used|0) + 1;
     q2.lastAt = Date.now();
