@@ -1415,6 +1415,14 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
   font-size:12px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;}
 .aed-clear:active{color:var(--danger);}
 .aed-clear[hidden]{display:none;}
+/* 相册里的删除（2026-11-06）：两段式确认 —— 第一次点亮红底「再点一次」，
+   4 秒内再点才真删。不用 showDialog 是因为 albEditMask 是 z-index 1200，
+   确认框（.mask 100）弹出来会被压在这层底下，等于点了没反应。 */
+.aed-del{border:0;background:none;padding:8px 2px;color:var(--ink-faint);font-family:inherit;
+  font-size:12px;font-weight:700;cursor:pointer;-webkit-tap-highlight-color:transparent;}
+.aed-del:active{color:var(--danger);}
+.aed-del.armed{color:#fff;background:var(--danger);border-radius:999px;padding:8px 12px;
+  box-shadow:0 6px 14px rgba(160,70,60,.28);}
 .aed-ok{
   flex:0 0 auto;margin-left:auto;min-width:104px;padding:11px 24px;border-radius:999px;border:0;cursor:pointer;font-family:inherit;
   font-size:13.5px;font-weight:800;letter-spacing:1px;color:#fff;
@@ -1955,6 +1963,23 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
 .ai-zoom-bar{flex:0 0 auto;display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;justify-content:center;}
 .ai-zoom-btn{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.14);color:#fff;font-size:13px;line-height:1.35;padding:8px 15px;border-radius:999px;cursor:pointer;font-family:inherit;-webkit-tap-highlight-color:transparent;backdrop-filter:blur(8px);}
 .ai-zoom-btn:active,.ai-zoom-btn:hover{background:rgba(255,255,255,.26);}
+/* 删除钮（2026-11-06）：故意做成暗红、比别的按钮弱一档 —— 它就挨着「关闭」，
+   不能跟「收藏」长得一样，手滑代价太大。 */
+.ai-zoom-btn.del{color:#ff9e9e;border-color:rgba(255,140,140,.44);background:rgba(255,110,110,.12);}
+.ai-zoom-btn.del:active,.ai-zoom-btn.del:hover{background:rgba(255,110,110,.24);}
+/* 删除确认条（2026-11-06）
+   ⚠️ 不能用 showDialog：那是 .mask（z-index 100），而看图页是 9999 ⇒ 确认框会被压在底下，
+      用户眼里就是「点了删除毫无反应」。所以确认做在看图页内部。 */
+.ai-zoom-confirm{position:absolute;left:10px;right:10px;bottom:10px;display:none;box-sizing:border-box;
+  padding:13px 14px 12px;border-radius:16px;background:rgba(252,250,249,.98);border:1px solid rgba(214,180,180,.9);
+  box-shadow:0 18px 50px rgba(0,0,0,.4);color:var(--ink);}
+.ai-zoom-confirm.on{display:block;}
+.ai-zoom-confirm .zc-txt{font-size:12px;line-height:1.7;font-weight:600;color:var(--ink);margin-bottom:10px;}
+.ai-zoom-confirm .zc-btns{display:flex;gap:8px;justify-content:flex-end;}
+.ai-zoom-confirm .zc-btns button{flex:0 0 auto;font-family:inherit;font-size:12.5px;font-weight:700;
+  padding:8px 14px;border-radius:999px;cursor:pointer;}
+.ai-zoom-confirm .zc-cancel{border:1px solid var(--glass-line);background:#fff;color:var(--ink-soft);}
+.ai-zoom-confirm .zc-del{border:1px solid transparent;background:#b3453f;color:#fff;}
 /* 版本条（2026-11-06，叶子提）：重新生成过的同一张照片，前几版都在，点一下就对照。
    ⚠️ 只在这一族有 2 版以上时才出现，且 width:100% —— 父级是 align-items:center 的 flex 列，
       不给宽度它会缩成内容宽，缩略图一多就居中堆成两排。 */
@@ -9576,6 +9601,7 @@ function albumEditOpen(r){
     }).catch(function(){});
   }
   openMask(m);
+  albDelReset();                     // 上一张的"再点一次"状态不能带到这张上
   /* 回车＝保存（手机上键盘右下角那颗回车直接提交，省一次抬手） */
   if(inp && !inp.__wired){
     inp.__wired = 1;
@@ -9595,6 +9621,34 @@ function albumEditClose(){
   const m = document.getElementById('albEditMask');
   if(m) closeMask(m);
   _albEditId = null;
+  albDelReset();
+}
+/* 相册里的删除：两段式（第一次点亮红底，4 秒内再点才真删）。
+   ⚠️ 不用 showDialog —— albEditMask 是 z-index 1200，确认框（.mask 100）会被压住。 */
+let _albDelArm = 0, _albDelT = 0;
+function albDelReset(){
+  _albDelArm = 0;
+  if(_albDelT){ clearTimeout(_albDelT); _albDelT = 0; }
+  const b = document.getElementById('aedDel');
+  if(b){ b.classList.remove('armed'); b.textContent = '🗑 删除这张'; }
+}
+function albumEditDelete(){
+  const id = _albEditId;
+  const btn = document.getElementById('aedDel');
+  if(!id || !btn) return;
+  if(!_albDelArm){
+    _albDelArm = 1;
+    btn.classList.add('armed');
+    btn.textContent = '再点一次，删掉这张';
+    if(_albDelT) clearTimeout(_albDelT);
+    _albDelT = setTimeout(albDelReset, 4000);
+    return;
+  }
+  albDelReset();
+  albumEditClose();
+  Promise.resolve(imgDeleteOne(id)).then(function(r){
+    try{ toast(r && r.ok ? '已删除这张照片' : '没删掉，再试一次'); }catch(e){}
+  }).catch(function(){ try{ toast('没删掉，再试一次'); }catch(e){} });
 }
 async function albumEditSave(){
   const id = _albEditId;
@@ -11153,11 +11207,19 @@ function aiImgZoom(id){
         +   '<button type="button" class="ai-zoom-btn" id="aiZoomStar" data-act="star">🤍 收藏</button>'
         +   '<button type="button" class="ai-zoom-btn" id="aiZoomUse" data-act="use" hidden>✅ 用这张</button>'
         +   '<button type="button" class="ai-zoom-btn" data-act="prompt">🎨 提示词</button>'
+        +   '<button type="button" class="ai-zoom-btn del" id="aiZoomDel" data-act="del" title="把这一版从本地图片库里删掉">🗑 删</button>'
         +   '<button type="button" class="ai-zoom-btn" data-act="close">关闭</button>'
         + '</div>'
         + '<div class="ai-zoom-vers" id="aiZoomVers"></div>'
+        + '<div class="ai-zoom-confirm" id="aiZoomConfirm">'
+        +   '<div class="zc-txt"></div>'
+        +   '<div class="zc-btns">'
+        +     '<button type="button" class="zc-cancel" data-act="delno">取消</button>'
+        +     '<button type="button" class="zc-del" data-act="delyes">🗑 删除这一版</button>'
+        +   '</div>'
+        + '</div>'
         + '<div class="ai-zoom-panel"></div>';
-      // 点背景关闭；点按钮条 / 面板 / 版本条不关（以前是整块 onclick，面板一开就被它吃掉）
+      // 点背景关闭；点按钮条 / 面板 / 版本条 / 确认条不关（以前是整块 onclick，面板一开就被它吃掉）
       ov.addEventListener('click', function(ev){
         const bar = ev.target.closest ? ev.target.closest('.ai-zoom-bar') : null;
         if(bar){
@@ -11165,13 +11227,21 @@ function aiImgZoom(id){
           if(act === 'prompt') aiZoomPrompt();
           else if(act === 'star') aiZoomToggleStar();
           else if(act === 'use') aiZoomUse();
+          else if(act === 'del') aiZoomDelAsk();
           else if(act === 'close') aiZoomClose();
+          return;
+        }
+        const cfn = ev.target.closest ? ev.target.closest('.ai-zoom-confirm') : null;
+        if(cfn){
+          const act = ev.target && ev.target.getAttribute && ev.target.getAttribute('data-act');
+          if(act === 'delyes') aiZoomDelDo();
+          else if(act === 'delno') aiZoomDelCancel();
           return;
         }
         if(ev.target.closest && (ev.target.closest('.ai-zoom-panel') || ev.target.closest('.ai-zoom-vers'))) return;
         // 面板开着时，点别处只收起面板：改了一半的词不能因为误触就跟着关掉
         const pnl = ov.querySelector('.ai-zoom-panel');
-        if(pnl && pnl.classList.contains('on')){ pnl.classList.remove('on'); return; }
+        if(pnl && pnl.classList.contains('on')){ pnl.classList.remove('on'); aiZoomDelCancel(); return; }
         aiZoomClose();
       });
       document.body.appendChild(ov);
@@ -11180,6 +11250,7 @@ function aiImgZoom(id){
     if(main) main.src = u;
     const p = ov.querySelector('.ai-zoom-panel');
     p.classList.remove('on'); p.innerHTML = '';
+    aiZoomDelCancel();                 // 上一张的删除确认不能跟到这一张上
     ov.classList.add('on');
     /* 收藏态要读库才知道：先画成未收藏，拿到 rec 再校正（免得闪着旧文案） */
     paintZoomStar(null);
@@ -11243,6 +11314,7 @@ function aiZoomPick(id){
     /* 提示词面板里写的是上一版的词：切版本就收起，免得"看着 A、改着 B" */
     const p = ov.querySelector('.ai-zoom-panel');
     if(p){ p.classList.remove('on'); p.innerHTML = ''; }
+    aiZoomDelCancel();                 // 砍到别的版本上，删除确认必须撤掉（别让她删错版）
     paintZoomStar(null);
     imgGet(id).then(function(rec){
       if(_zoomId !== id) return;
@@ -11276,18 +11348,14 @@ function aiZoomUseBtnPaint(){
   const ref = aiZoomChatRef();
   b.hidden = !ref || ref.id === _zoomId;
 }
-/* 「就用这张」：把聊天里那条消息的图换成当前预览的这一版。
-   ⚠️ 只换引用，不删任何一版 —— 换错了还能再点回来。 */
-function aiZoomUse(){
-  const id = _zoomId;
-  if(!id) return;
-  const ref = aiZoomChatRef();
-  if(!ref){ try{ toast('聊天里没有这一族的图（这是在相册里看的）'); }catch(e){} return; }
-  if(ref.id === id){ try{ toast('聊天里显示的就是这一张'); }catch(e){} return; }
+/* 把聊天里指向 oldId 的那条消息换成 newId。只改引用 + 已渲染的 DOM，不删任何一版。
+   按 id 定位（不靠 _zoomFam）：删除时从相册入口进来，族数据可能压根没加载过。 */
+function aiChatSwapImg(oldId, newId){
+  if(!oldId || !newId || oldId === newId) return false;
   let hit = false;
   try{
     (aiConv || []).forEach(function(m){
-      if(m && m.img && m.img.id === ref.id){ m.img.id = id; hit = true; }
+      if(m && m.img && m.img.id === oldId){ m.img.id = newId; hit = true; }
     });
     if(hit) saveConv();
   }catch(e){}
@@ -11295,14 +11363,142 @@ function aiZoomUse(){
     const nodes = document.querySelectorAll('.ai-gen-img[data-img-id]');
     for(let i=0;i<nodes.length;i++){
       const el = nodes[i];
-      if(el.getAttribute('data-img-id') !== ref.id) continue;
-      el.setAttribute('data-img-id', id);
-      const iid = id;
-      imgUrlOf(iid).then(function(u){ if(u) el.src = u; });
+      if(el.getAttribute('data-img-id') !== oldId) continue;
+      el.setAttribute('data-img-id', newId);
+      imgUrlOf(newId).then(function(u){ if(u) el.src = u; });
     }
   }catch(e){}
+  return hit;
+}
+/* 聊天里唯一的一张被删了：把那条消息的 img 摘掉（delete m.img），
+   而不是留个指向死 id 的破图 —— 刷新后气泡会变成「图片没存住」，看着像出 bug 了。 */
+function aiChatDetachImg(refId){
+  let hit = false;
+  try{
+    (aiConv || []).forEach(function(m){
+      if(m && m.img && m.img.id === refId){ delete m.img; hit = true; }
+    });
+    if(hit) saveConv();
+  }catch(e){}
+  try{
+    const nodes = document.querySelectorAll('.ai-gen-img[data-img-id]');
+    for(let i=0;i<nodes.length;i++){
+      const el = nodes[i];
+      if(el.getAttribute('data-img-id') !== refId) continue;
+      const box = (el.closest && el.closest('.ai-gen-img-box')) || el;
+      if(box && box.parentNode) box.parentNode.removeChild(box);
+    }
+  }catch(e){}
+  return hit;
+}
+/* 「就用这张」：把聊天里那条消息的图换成当前预览的这一版。 */
+function aiZoomUse(){
+  const id = _zoomId;
+  if(!id) return;
+  const ref = aiZoomChatRef();
+  if(!ref){ try{ toast('聊天里没有这一族的图（这是在相册里看的）'); }catch(e){} return; }
+  if(ref.id === id){ try{ toast('聊天里显示的就是这一张'); }catch(e){} return; }
+  const hit = aiChatSwapImg(ref.id, id);
   try{ toast(hit ? '聊天里已经换成这一张' : '没找到聊天里那条消息，刷新后可能变回去'); }catch(e){}
   aiZoomUseBtnPaint();
+}
+/* ================= 删除某一版（2026-11-06，叶子提：「生成的图片也应该可以自己选择性删除」）=================
+   为什么做成页内确认条而不是 showDialog：.mask 是 z-index 100，看图页是 9999
+   ⇒ 弹出来会被压在底下，用户眼里就是「点了删除一点反应都没有」。
+   ⚠️ 删除是**不可逆**的（IDB 直接 delete，不进回收站），所以三种情况必须分别说清楚：
+      ① 聊天里正用着这一版、族里还有别的 → 先切到最新的另一版再删；
+      ② 聊天里唯一一张 → 那条消息的 img 摘掉（气泡变纯文字，不留破图）；
+      ③ 相册里收藏过 → 相册那格一起消失（_albumRows 失效 + 主页卡重画）。 */
+function aiZoomDelAsk(){
+  const id = _zoomId;
+  const ov = document.getElementById('aiImgZoom');
+  if(!id || !ov) return;
+  const box = ov.querySelector('#aiZoomConfirm');
+  if(!box) return;
+  if(box.classList.contains('on')){ aiZoomDelCancel(); return; }   // 再点一次收起
+  const p = ov.querySelector('.ai-zoom-panel');
+  if(p){ p.classList.remove('on'); p.innerHTML = ''; }
+  const list = (_zoomFam && _zoomFam.list) || [];
+  const others = list.filter(function(m){ return m.id !== id; });
+  const me = list.filter(function(m){ return m.id === id; })[0] || {};
+  const ref = aiZoomChatRef();
+  const isChat = !!(ref && ref.id === id);
+  /* 文案带上「第 N 版」：确认条会盖住版本条，不说清是第几版就有删错的风险 */
+  let head = '';
+  if(list.length > 1){
+    let n = 1;
+    for(let i=0;i<list.length;i++){ if(list[i].id === id){ n = i + 1; break; } }
+    head = '第 ' + n + ' 版：';
+  }
+  let msg;
+  if(isChat && !others.length){
+    msg = '⚠️ 这是聊天里唯一的一张，删掉后那条消息会变成没有图的文字。删了不能恢复。';
+  }else if(isChat){
+    msg = '聊天里会先换成另外一版（' + others.length + ' 版里最新的那张），再把这一版删掉。删了不能恢复。';
+  }else if(others.length){
+    msg = '删掉这一版，这一族还剩 ' + others.length + ' 版。删了不能恢复。';
+  }else{
+    msg = '这是这一族仅剩的一版，删了图就没了。';
+  }
+  if(me.star) msg += ' 它还收在相册里，会跟着一起消失。';
+  box.querySelector('.zc-txt').textContent = head + msg;
+  box.classList.add('on');
+}
+function aiZoomDelCancel(){
+  const box = document.getElementById('aiZoomConfirm');
+  if(box) box.classList.remove('on');
+}
+/* 真正执行删除（看图页 / 相册两个入口共用）。
+   ⚠️ 不可逆。返回 { ok, next, wasChat }，界面怎么收场由调用方决定。 */
+async function imgDeleteOne(id){
+  if(!id) return { ok:false, next:'', wasChat:false };
+  let famList = [];
+  try{ const f = await imgFamOf(id); famList = (f && f.list) || []; }catch(e){}
+  const others = famList.filter(function(m){ return m.id !== id; });
+  /* 删完停在哪一版：**原地顶上**（后一版补到这个位置），而不是跳到最后一张 ——
+     删第 2 版时视线不该突然跳到第 5 版。删的是最后一版就退到前一版。 */
+  let next = '';
+  if(others.length){
+    let idx = 0;
+    for(let i=0;i<famList.length;i++){ if(famList[i].id === id){ idx = i; break; } }
+    const keep = others[Math.min(idx, others.length - 1)];
+    next = (keep || others[others.length - 1]).id;
+  }
+  let wasChat = false;
+  try{ (aiConv || []).forEach(function(m){ if(m && m.img && m.img.id === id) wasChat = true; }); }catch(e){}
+  /* ① 聊天里正用着这一版：先把聊天切到别的版（不然气泡当场变空白） */
+  if(wasChat && next){ try{ aiChatSwapImg(id, next); }catch(e){} }
+  try{
+    if(_imgUrlCache.has(id)){
+      URL.revokeObjectURL(_imgUrlCache.get(id));
+      _imgUrlCache.delete(id);
+    }
+  }catch(e){}
+  let ok = true;
+  try{ await imgDel(id); }catch(e){ ok = false; }
+  if(!ok) return { ok:false, next:'', wasChat:wasChat };
+  /* ② 聊天里唯一一张：摘掉引用，别留个指向已删 id 的破图 */
+  if(wasChat && !next){ try{ aiChatDetachImg(id); }catch(e){} }
+  /* ③ 相册索引失效 + 主页卡/网格重画 */
+  _albumRows = null;
+  try{ albumRenderCard(); }catch(e){}
+  const am = document.getElementById('albumMask');
+  if(am && am.classList.contains('show')){ try{ albumRenderGrid(); }catch(e){} }
+  return { ok:true, next:next, wasChat:wasChat };
+}
+async function aiZoomDelDo(){
+  const id = _zoomId;
+  if(!id) return;
+  aiZoomDelCancel();
+  const r = await imgDeleteOne(id);
+  if(!r.ok){ try{ toast('没删掉，再试一次'); }catch(e){} return; }
+  if(r.next){
+    aiZoomPick(r.next);
+    try{ aiZoomFamPaint(r.next); }catch(e){}
+  }else{
+    aiZoomClose();
+  }
+  try{ toast('已删除这一版'); }catch(e){}
 }
 function aiZoomClose(){
   const ov = document.getElementById('aiImgZoom');
@@ -11311,6 +11507,7 @@ function aiZoomClose(){
   ov.classList.remove('has-vers');
   const p = ov.querySelector('.ai-zoom-panel');
   if(p){ p.classList.remove('on'); p.innerHTML = ''; }
+  aiZoomDelCancel();
   const v = document.getElementById('aiZoomVers');
   if(v){ v.innerHTML = ''; v.classList.remove('on'); }
   _zoomRec = null;
@@ -23918,6 +24115,7 @@ body.comp-live::after{animation-play-state:paused;}
     <input class="aed-inp" id="aedInput" type="text" maxlength="24" autocomplete="off" placeholder="比如：第一次一起看海">
     <div class="aed-foot">
       <button class="aed-clear" id="aedClear" type="button" onclick="albumEditClear()" hidden>清掉名字</button>
+      <button class="aed-del" id="aedDel" type="button" onclick="albumEditDelete()">🗑 删除这张</button>
       <button class="aed-ok" type="button" onclick="albumEditSave()">保存</button>
     </div>
   </div>
