@@ -3688,14 +3688,46 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
           <option value="audiobook_male_2">有声书·男声2</option>
         </select>
         <label style="margin-top:14px;">MiniMax 模型（turbo 便宜 / hd 更自然）</label>
-        <select id="psMiniModel">
+        <select id="psMiniModel" onchange="miniEmoUI()">
           <option value="speech-2.8-turbo">speech-2.8-turbo（最新 · 2元/万字符）</option>
           <option value="speech-2.8-hd">speech-2.8-hd（最新高清 · 3.5元/万字符）</option>
           <option value="speech-02-turbo">speech-02-turbo（经典 · 2元/万字符）</option>
           <option value="speech-02-hd">speech-02-hd（经典高清 · 3.5元/万字符）</option>
           <option value="speech-01-turbo">speech-01-turbo（老中文模型）</option>
         </select>
-        <button type="button" class="btn ghost" onclick="pomoMiniTest()" style="width:100%;margin-top:6px;">🔊 试听当前音色（用上方音调/语速）</button>
+        <button type="button" class="btn ghost" onclick="pomoMiniTest()" style="width:100%;margin-top:6px;">🔊 试听当前音色（含下方语气效果）</button>
+        <!-- —— Speech 2.8 语气表现（只有 2.8 系列支持；标签只加在发送副本上） —— -->
+        <div id="miniEmoWrap" style="margin-top:14px;padding:12px;border-radius:10px;background:rgba(255,255,255,.46);border:1px dashed var(--green-mid);">
+          <div style="font-size:12px;font-weight:700;color:var(--green-dark);margin-bottom:4px;">🎭 语气表现（Speech 2.8 专属）</div>
+          <div id="miniEmoState" style="font-size:11px;font-weight:700;color:var(--green-dark);margin-bottom:8px;">● 生效中</div>
+          <div id="miniEmoNote" style="display:none;font-size:11px;color:#a15c00;background:rgba(255,193,80,.18);padding:6px 8px;border-radius:6px;line-height:1.5;margin-bottom:8px;">当前模型不是 speech-2.8，语气标签已自动停用（旧模型会把括号里的字念出来）。切到 2.8-turbo / 2.8-hd 即可启用。</div>
+          <label>语气强度（自动在朗读文本里放笑声 / 叹气 / 呼吸 / 停顿）</label>
+          <select id="psMiniTagLevel" onchange="miniEmoUI()">
+            <option value="0">关闭 · 纯文本朗读</option>
+            <option value="1">轻 · 偶尔一声</option>
+            <option value="2">中 · 自然对话（推荐）</option>
+            <option value="3">强 · 戏剧化</option>
+          </select>
+          <label>情绪基调</label>
+          <select id="psMiniEmotion" onchange="miniEmoUI()">
+            <option value="auto">自动（模型按文本判断，推荐）</option>
+            <option value="happy">开心 happy</option>
+            <option value="sad">难过 sad</option>
+            <option value="angry">生气 angry</option>
+            <option value="fearful">害怕 fearful</option>
+            <option value="disgusted">厌恶 disgusted</option>
+            <option value="surprised">惊讶 surprised</option>
+            <option value="calm">平静 calm</option>
+          </select>
+          <label>句间停顿（自动插入 &lt;#0.30#&gt; 一类标记）</label>
+          <select id="psMiniPause" onchange="miniEmoUI()">
+            <option value="1">开启（更像真人说话）</option>
+            <option value="0">关闭</option>
+          </select>
+          <label style="margin-top:10px;">发音纠正词典（每行一条「词/读法」，拼音或粤拼都行）</label>
+          <textarea id="psMiniToneDict" rows="2" style="width:100%;font-size:12px;" placeholder="啲/(sung3)&#10;处理/(chu3)(li3)&#10;重/(cung5)"></textarea>
+          <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:8px 0 0;line-height:1.6;">标签只加在发给 MiniMax 的朗读副本上，<b>不会出现在聊天记录里，也不会被系统语音念出来</b>；上方「试听当前音色」会带上当前语气设置。标签本身按字符计费，强度越高多几个字。</p>
+        </div>
         <label style="margin-top:14px;">自定义音色 ID（设计/复刻/官网生成，填这里优先于系统音色）</label>
         <input type="text" id="psMiniVoiceId" placeholder="例如 ttv-voice-xxx 或 MiniMaxVoice001（留空则用上方系统音色）">
         <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:4px 0 0;line-height:1.5;">自定义音色绑定创建它的 GroupId，更换账号/GroupId 后原音色会失效；想用系统音色请把这里清空。</p>
@@ -13287,7 +13319,7 @@ function applySetTab(isOpen){
     const pb = document.getElementById('promptCenterBody');
     if(pb && !pb.innerHTML.trim()) renderPromptCenter();
   }
-  if(setTab === 'voice'){ try{ pomoEngineUI(); }catch(e){} }
+  if(setTab === 'voice'){ try{ pomoEngineUI(); miniEmoUI(); }catch(e){} }
   if(!isOpen) setHint('');
 }
 function closeSettings(){
@@ -20711,7 +20743,7 @@ function loadPomoData(){
   try{ d = JSON.parse(localStorage.getItem(POMO_KEY)||'null'); }catch(e){}
   if(!d || typeof d!=='object') d = {};
   d.sessions = Array.isArray(d.sessions) ? d.sessions : [];
-  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime', eggOn:true, eggSource:'ai', eggTheme:'random', eggCustom:'', noise:'off', noiseVol:50, tts:true, ttsSource:'ai', ttsPersona:'', ttsPrompt:'', engine:'sys', miniGroup:'', miniKey:'', miniVoice:'female-tianmei', miniVoiceId:'', miniModel:'speech-2.8-turbo', voice:'gentle', pitch:1.12, rate:0.98}, d.settings||{});
+  d.settings = Object.assign({focus:25, short:5, long:15, every:4, auto:true, alert:'chime', eggOn:true, eggSource:'ai', eggTheme:'random', eggCustom:'', noise:'off', noiseVol:50, tts:true, ttsSource:'ai', ttsPersona:'', ttsPrompt:'', engine:'sys', miniGroup:'', miniKey:'', miniVoice:'female-tianmei', miniVoiceId:'', miniModel:'speech-2.8-turbo', miniTagLevel:2, miniEmotion:'auto', miniPause:1, miniToneDict:'', voice:'gentle', pitch:1.12, rate:0.98}, d.settings||{});
   d.streak = d.streak||0;
   d.lastDate = d.lastDate||'';
   d.lastPreset = d.lastPreset||'study';
@@ -21770,24 +21802,126 @@ function ttsSpeakSys(text, vo){
     speechSynthesis.speak(u);
   }catch(e){ console.error('tts:', e); }
 }
-// MiniMax T2A v2：POST → JSON{data.audio=base64} → 解码 mp3 播放；失败抛错让上层降级系统语音
+/* ====== Speech 2.8 语气表现（2026-11-08，叶子：这些语气功能也要用上）======
+   闸门：只有 speech-2.8-* 才加声音标签 / emotion —— 旧模型会把 "(sighs)" 当字念出来。
+   注入点只放在 ttsMiniMax 内部：aiTtsClean 里的 /<[^>]+>/ 会吃掉 <#0.30#>，
+   所以必须等清洗完再装饰；且只改「发送副本」—— aiConv / 显示文本 / aiTtsPending /
+   失败时降级用的系统语音，拿到的都还是干净原文。
+   官方：文本里写 (laughs)(sighs)(gasps)(breath)(emm) 等 19 种行内语气标签，
+   停顿 <#x#>（0.01–99.99 秒，必须夹在两段可朗读文本之间、不可连用）。 */
+const MINI_TAG_MODEL = /^speech-2\.8-/;
+const MINI_EMOTIONS = ['happy','sad','angry','fearful','disgusted','surprised','calm'];
+function miniTagSupported(model){ return MINI_TAG_MODEL.test(String(model||'')); }
+function miniToneDictOf(raw){
+  const out = [];
+  String(raw||'').split(/\r?\n/).forEach(function(line){
+    const t = String(line).trim();
+    if(!t || t.charAt(0) === '#') return;
+    const i = t.indexOf('/');
+    if(i <= 0 || i >= t.length - 1) return;
+    const w = t.slice(0,i).trim(), r = t.slice(i+1).trim();
+    if(w && r && w.length <= 20 && r.length <= 40) out.push(w + '/' + r);
+  });
+  return out.slice(0,20);
+}
+function miniDecorate(text, cfg){
+  let t = String(text||'').slice(0,500);
+  const level = Math.max(0, Math.min(3, parseInt(cfg.tagLevel,10) || 0));
+  const ok = miniTagSupported(cfg.model);
+  if(ok && level > 0){
+    const caps = [0,1,3,5][level];
+    let used = 0;
+    const put = function(re, tag){
+      if(used >= caps) return;
+      const m = re.exec(t);
+      if(!m) return;
+      const at = m.index + m[0].length;
+      t = t.slice(0,at) + tag + t.slice(at);
+      used++;
+    };
+    // 已经带标签的文本不重复装饰（幂等）
+    if(!/\((?:laughs|chuckle|sighs|gasps|breath|emm|inhale|exhale|coughs)\)/.test(t)){
+      put(/(唉|哎|算了|好吧|无奈|好累|有点累)[，,。！!？?…]?/, '(sighs)');
+      put(/(哈哈|嘿嘿|噗|好笑|逗死|有趣)[，,。！!？?…]?/, '(laughs)');
+      put(/(居然|竟然|真的吗|不会吧|怎么可能)/, '(gasps)');
+      put(/(嗯\.\.\.|呃|这个嘛|那个嘛)/, '(emm)');
+      if(level >= 3) put(/(可是|不过|然后)/, '(breath)');
+      if(level >= 2 && used < caps) put(/(吧|呀|啦|呢)[。！!？?]/, '(chuckle)');
+    }
+    // 句间停顿：只在「后面还有可朗读文字」的边界插，末尾不插、不连用、标签后不插
+    if(cfg.pauseOn){
+      const secs = level >= 3 ? '0.45' : '0.30';
+      const parts = t.split(/([。！？!?…]+)/);
+      let out = '', n = 0, maxP = Math.min(2, level);
+      for(let i=0;i<parts.length;i++){
+        out += parts[i];
+        if(/^[。！？!?…]+$/.test(parts[i])){
+          const next = String(parts[i+1]||'').trim();
+          if(next && n < maxP && next.charAt(0) !== '(' && next.slice(0,2) !== '<#'){
+            out += '<#' + secs + '#>';
+            n++;
+          }
+        }
+      }
+      t = out;
+    }
+  }
+  // 截到 500 后可能切出半截标签，补一刀清理
+  return t.slice(0,500).replace(/\([a-z-]*$/,'').replace(/<#[^#]*$/,'');
+}
+function miniEmoCfg(s){
+  return {
+    model: s.miniModel || 'speech-2.8-turbo',
+    tagLevel: s.miniTagLevel != null ? s.miniTagLevel : 2,
+    pauseOn: s.miniPause !== 0,
+    emotion: s.miniEmotion || 'auto',
+    toneDict: s.miniToneDict || ''
+  };
+}
+// 设置页常驻状态行：一眼看出语气功能此刻是否生效（叶子定的「常驻可见标识」）
+function miniEmoUI(){
+  const md = document.getElementById('psMiniModel');
+  const note = document.getElementById('miniEmoNote');
+  const st = document.getElementById('miniEmoState');
+  const ok = miniTagSupported(md ? md.value : '');
+  if(note) note.style.display = ok ? 'none' : 'block';
+  if(st){
+    const lv = document.getElementById('psMiniTagLevel');
+    const em = document.getElementById('psMiniEmotion');
+    const pa = document.getElementById('psMiniPause');
+    const names = ['关闭','轻','中','强'];
+    const n = Math.max(0, Math.min(3, parseInt(lv ? lv.value : '2',10) || 0));
+    if(!ok) st.textContent = '○ 未生效：当前模型不支持语气标签';
+    else st.textContent = '● 生效中：强度' + names[n] + ' · 情绪' + (em ? em.value : 'auto')
+      + ' · 停顿' + (pa && pa.value === '1' ? '开' : '关');
+    st.style.color = ok ? 'var(--green-dark)' : '#a15c00';
+  }
+}
+
+// MiniMax T2A v2：POST → JSON{data.audio=hex} → 解码 mp3 播放；失败抛错让上层降级系统语音
 // 注意：v1 旧接口(/v1/text_to_speech)只支持 speech-02-turbo，2.8/hd 等模型必须走 v2(/v1/t2a_v2)
 async function ttsMiniMax(text, vo){
   const s = pomoData && pomoData.settings ? pomoData.settings : {};
   const url = 'https://api.minimax.chat/v1/t2a_v2?GroupId=' + encodeURIComponent(s.miniGroup);
   const pitchBase = (vo && vo.pitch != null) ? vo.pitch : (s.pitch != null ? s.pitch : 1.12);
-  const body = {
-    model: (s.miniModel || 'speech-2.8-turbo'),
-    text: String(text).slice(0,500), // 单次 ≤500 字符
-    language_boost: s.miniLang || 'auto', // 粤语场景传 Chinese,Yue（否则同字按普通话读）；auto=模型自主判断
-    voice_setting: {
+  const cfg = miniEmoCfg(s);
+  const vs = {
       voice_id: (vo && vo.voiceId) ? vo.voiceId : (s.miniVoiceId || s.miniVoice || 'female-tianmei'), // 角色音色优先，否则全局
       speed: Math.min(2, Math.max(0.5, (vo && vo.rate != null) ? vo.rate : (s.rate!=null ? s.rate : 0.98))),
       vol: 1.0,
       pitch: Math.max(-12, Math.min(12, Math.round((pitchBase - 1) * 12)))
-    },
+  };
+  // emotion 只在 2.8 上发；auto = 不传字段，让模型按文本自己判断
+  if(miniTagSupported(cfg.model) && MINI_EMOTIONS.indexOf(cfg.emotion) >= 0) vs.emotion = cfg.emotion;
+  const body = {
+    model: cfg.model,
+    text: miniDecorate(text, cfg), // 只装饰发送副本；显示/重播/降级仍用干净原文
+    language_boost: s.miniLang || 'auto', // 粤语场景传 Chinese,Yue；auto=模型自主判断
+    voice_setting: vs,
     audio_setting: { sample_rate: 32000, bitrate: 128000, format: 'mp3', channel: 1 }
   };
+  const tone = miniToneDictOf(cfg.toneDict);
+  if(tone.length) body.pronunciation_dict = { tone: tone };
   const res = await fetch(url, {
     method:'POST',
     headers:{ 'Authorization':'Bearer '+s.miniKey, 'Content-Type':'application/json' },
@@ -21838,17 +21972,32 @@ function pomoMiniTest(){
     if(!g || !k){ toast('请先填 GroupId 和 API Key'); return; }
   const pitch = parseInt(document.getElementById('psPitch').value,10)/100;
   const rate = parseInt(document.getElementById('psRate').value,10)/100;
+  // 现场读面板（未保存也能试），让试听真实反映语气设置
+  const _pv = function(id, d){ const e = document.getElementById(id); return e ? e.value : d; };
+  const cfg = {
+    model: _pv('psMiniModel','speech-2.8-turbo'),
+    tagLevel: parseInt(_pv('psMiniTagLevel','2'),10),
+    pauseOn: _pv('psMiniPause','1') === '1',
+    emotion: _pv('psMiniEmotion','auto'),
+    toneDict: _pv('psMiniToneDict','')
+  };
+  const vset = {
+    voice_id: vid,
+    speed: Math.min(2, Math.max(0.5, rate)),
+    vol: 1.0,
+    pitch: Math.max(-12, Math.min(12, Math.round((pitch-1)*12)))
+  };
+  if(miniTagSupported(cfg.model) && MINI_EMOTIONS.indexOf(cfg.emotion) >= 0) vset.emotion = cfg.emotion;
   const body = {
-    model: document.getElementById('psMiniModel').value || 'speech-2.8-turbo',
-    text:'你好呀，我是你的学习搭子，今天也要一起加油哦。',
-    voice_setting: {
-      voice_id: vid,
-      speed: Math.min(2, Math.max(0.5, rate)),
-      vol: 1.0,
-      pitch: Math.max(-12, Math.min(12, Math.round((pitch-1)*12)))
-    },
+    model: cfg.model,
+    // 这句故意带「唉 / 句间停顿 / 哈哈」，试听能直接听出标签与停顿的效果
+    text: miniDecorate('唉，今天真的有点累。不过看到你回来，哈哈，忽然就精神了。', cfg),
+    language_boost: (document.getElementById('aiYueVoice') && document.getElementById('aiYueVoice').checked) ? 'Chinese,Yue' : 'auto',
+    voice_setting: vset,
     audio_setting: { sample_rate: 32000, bitrate: 128000, format: 'mp3', channel: 1 }
   };
+  const tone = miniToneDictOf(cfg.toneDict);
+  if(tone.length) body.pronunciation_dict = { tone: tone };
   toast('正在合成试听…');
   fetch('https://api.minimax.chat/v1/t2a_v2?GroupId=' + encodeURIComponent(g), {
     method:'POST',
@@ -24159,8 +24308,14 @@ function initPomoSettingsFields(){
   document.getElementById('psMiniVoiceId').value = s.miniVoiceId || '';
   // 粤语开关已合并到「语音与音色」页的唯一真身 aiYueVoice / aiYueText（番茄钟页那份 UI 已删除）
   document.getElementById('psMiniModel').value = s.miniModel || 'speech-2.8-turbo';
+  // 语气表现（2026-11-08）：存量设置缺这些键时由 loadPomoData 的 Object.assign 补默认值
+  const _eLv = document.getElementById('psMiniTagLevel'); if(_eLv) _eLv.value = String(s.miniTagLevel!=null ? s.miniTagLevel : 2);
+  const _eEm = document.getElementById('psMiniEmotion'); if(_eEm) _eEm.value = MINI_EMOTIONS.indexOf(s.miniEmotion)>=0 ? s.miniEmotion : 'auto';
+  const _ePa = document.getElementById('psMiniPause'); if(_ePa) _ePa.value = (s.miniPause===0) ? '0' : '1';
+  const _eTd = document.getElementById('psMiniToneDict'); if(_eTd) _eTd.value = s.miniToneDict || '';
   document.getElementById('psDesignPrompt').value = '';
   pomoEngineUI();
+  try{ miniEmoUI(); }catch(e){}
   document.getElementById('psVoice').value = s.voice || 'gentle';
   const pPitch = (s.pitch!=null ? s.pitch : 1.12), pRate = (s.rate!=null ? s.rate : 0.98);
   document.getElementById('psPitch').value = Math.round(pPitch*100);
@@ -24203,6 +24358,16 @@ function savePomoSettings(){
     s.miniYueText = !!(_yt && _yt.checked);
   }catch(e){}
   s.miniModel = document.getElementById('psMiniModel').value || 'speech-2.8-turbo';
+  {
+    const _eLv = document.getElementById('psMiniTagLevel');
+    if(_eLv) s.miniTagLevel = clamp(parseInt(_eLv.value,10), 0, 3, 2);
+    const _eEm = document.getElementById('psMiniEmotion');
+    if(_eEm) s.miniEmotion = (MINI_EMOTIONS.indexOf(_eEm.value)>=0) ? _eEm.value : 'auto';
+    const _ePa = document.getElementById('psMiniPause');
+    if(_ePa) s.miniPause = (_ePa.value === '0') ? 0 : 1;
+    const _eTd = document.getElementById('psMiniToneDict');
+    if(_eTd) s.miniToneDict = String(_eTd.value || '').slice(0,600);
+  }
   s.voice = document.getElementById('psVoice').value || 'gentle';
   s.pitch = clamp(parseInt(document.getElementById('psPitch').value,10), 50, 200, 112)/100;
   s.rate = clamp(parseInt(document.getElementById('psRate').value,10), 50, 200, 98)/100;
