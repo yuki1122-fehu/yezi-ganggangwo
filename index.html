@@ -1095,7 +1095,7 @@ header{padding:calc(74px + var(--safe-t)) 18px 10px;text-align:center;position:r
 /* 状态 / 报错行：常驻在按钮下面，**不靠 toast**。
    ⚠️ 2026-10-29 叶子实测「点完显示正在生成就没反应了，报错了也不知道怎么回事」：
       根因是全屏弹窗把 toast 盖住了（z-index 80 < 100）。已把 toast 抬上层级，
-      但这个功能仍然需要一条**留在原地**的状态行 —— 出图要 20-40 秒，
+      但这个功能仍然需要一条**留在原地**的状态行 —— 站上排队可能要几分钟，
       没有秒数在跑，人分不清「在干活」和「卡死了」。 */
 .god-shot-msg{display:none;margin:8px 2px 0;font-size:var(--fs-1);line-height:1.6;color:var(--ink-faint);
   font-variant-numeric:tabular-nums;word-break:break-word;}
@@ -3334,7 +3334,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         </label>
       </div>
       <p class="hint" style="font-size:11px;color:var(--ink-soft);margin:0 0 10px;line-height:1.6;">
-        开启后，你在聊天里说「发张照片看看」，零落/沈容会自己画一张发过来。走 NovelAI 协议（第三方站），生成约 20-40 秒。<br>
+        开启后，你在聊天里说「发张照片看看」，零落/沈容会自己画一张发过来。走 NovelAI 协议（第三方站）；站上排队可能要几分钟，出图后 App 会自动取回。<br>
         ⚠️ Key 只存在这台设备上，不会进代码、不会上传；仓库是公开的，写进代码就等于公开泄露。
       </p>
       <div id="imgFields" style="transition:opacity .25s;">
@@ -4983,6 +4983,8 @@ function enterApp(){
   try{ imgCfgMigrate(); }catch(e){ console.error(e); } // 生图配置迁移（外观锚点/主动发图数，2026-10-29）
   // 站点档位兜底：必须赶在第一次 imgQuota() 之前，否则旧额度会被记到 'default' 名下（2026-10-29）
   try{ imgSiteEnsure(); }catch(e){ console.error(e); }
+  // 上次没等到、但站上已经出好的图：开机续捞一次（24 小时内有效），别让它烂在站上
+  try{ setTimeout(function(){ imgResumePendingOnce(); }, 3000); }catch(e){ console.error(e); }
   try{ imgUnlimitedMigrate(); }catch(e){ console.error(e); } // 去掉本地每日上限（只迁旧默认值 8/10）
   try{ aiUnreadRestore(); }catch(e){ console.error(e); } // 恢复悬浮按钮上的未读红点
   try{ setTimeout(()=>{ maybeAutoAIProactive(); }, 2500); }catch(e){ console.error(e); } // 打开页面后让角色主动先开口（每日限次）
@@ -9813,7 +9815,155 @@ function imgErrMsgOf(txt){
   }
   return raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140);
 }
+/* ===== 慢生成站的「异步取回」层（2026-11-08）=====
+   makelove / Kirara Atelier 这类 PixAI 底座站：POST 收下请求后要排队跑几分钟，
+   HTTP 响应经常一直不回来，但**图其实已经生成**，落在站上 /ai/images/results（保留 24h）。
+   旧代码 150 秒 abort 就当失败丢图 —— 叶子在站上亲眼看到三张图都出来了，App 却报失败。
+   ⚠️ 铁律：**「响应没回来」≠「没出图」**；判「没生成」之前必须等过生成时长再查 results。
+   ⚠️ 这站没有 800 秒限速；429「已达到同时生成上限」是并发满了，不是限速，绝不写本地冷却。 */
+const IMG_SUBMIT_WAIT_MS = 45000;          // POST 同步窗口：快的站仍走原来那条直出路径
+const IMG_POLL_MAX_MS    = 12 * 60 * 1000; // 轮询上限，覆盖站上排队几分钟的实况
+const IMG_POLL_GAP_MS    = 10000;
+const IMG_MAX_INFLIGHT   = 2;              // 站子并发≈3，留一格余量；连点 roll 不撞 429
+const IMG_PENDING_KEY    = 'mhm_img_pending';
+let _imgFlight = 0;
+const _imgFlightWaiters = [];
+let _imgClaimed = {};
+function imgFlightAcquire(){
+  if(_imgFlight < IMG_MAX_INFLIGHT){ _imgFlight++; return Promise.resolve(); }
+  return new Promise(function(res){ _imgFlightWaiters.push(res); });
+}
+function imgFlightRelease(){
+  const next = _imgFlightWaiters.shift();
+  if(next) next();                         // 槽位直接移交给排队者，计数不变
+  else _imgFlight = Math.max(0, _imgFlight - 1);
+}
+function imgResultsAuth(key){ return { 'Authorization': 'Bearer ' + String(key || '') }; }
+/* ⚠️ 取回链路也必须硬超时：站子报错时可能不回跨域头、直接把 fetch 挂住，
+   没有这层超时 _imgResumeBusy 会一直卡在 true，之后再没人能续捞。 */
+async function imgResultsFetch(url, key){
+  const ctl = new AbortController();
+  const tm = setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 12000);
+  try{ return await fetch(url, { headers: imgResultsAuth(key), signal: ctl.signal }); }
+  finally{ clearTimeout(tm); }
+}
+async function imgResultsList(origin, key){
+  let r;
+  try{ r = await imgResultsFetch(origin + '/ai/images/results', key); }catch(e){ return []; }
+  if(!r.ok) return [];
+  let j = null; try{ j = await r.json(); }catch(e){ return []; }
+  return Array.isArray(j && j.items) ? j.items : (Array.isArray(j && j.data) ? j.data : []);
+}
+async function imgResultsZip(origin, key, id){
+  let r;
+  try{ r = await imgResultsFetch(origin + '/ai/images/results/' + encodeURIComponent(id), key); }catch(e){ return null; }
+  if(!r.ok) return null;
+  return await r.arrayBuffer();
+}
+/* 认领：只看「本次提交之后新增、来源 api、还没被别的 job 领走」里最早的一条。
+   ⚠️ 不能用 seed 配对 —— 站上 Token 锁死配方、会重写 seed（实测我们发 12345，记录里是 16 位大数）。 */
+function imgClaimResult(items, job){
+  const floor = job.t0 / 1000 - 90;
+  const cands = (items || []).filter(function(it){
+    if(!it || it.source !== 'api' || _imgClaimed[it.id]) return false;
+    return Number(it.createdAt || it.created || 0) >= floor;
+  }).sort(function(a, b){ return Number(a.createdAt || a.created || 0) - Number(b.createdAt || b.created || 0); });
+  return cands[0] || null;
+}
+async function imgPollFor(job, onProgress){
+  const deadline = job.t0 + IMG_POLL_MAX_MS;
+  while(Date.now() < deadline){
+    await new Promise(function(r){ setTimeout(r, IMG_POLL_GAP_MS); });
+    let items = [];
+    try{ items = await imgResultsList(job.origin, job.key); }catch(e){}
+    const hit = imgClaimResult(items, job);
+    if(hit){
+      _imgClaimed[hit.id] = 1;
+      let buf = null;
+      try{ buf = await imgResultsZip(job.origin, job.key, hit.id); }catch(e){}
+      if(buf){
+        try{
+          const imgs = await imgUnzipImages(buf);
+          if(imgs && imgs.length){
+            const blob = await imgShrink(imgs[0].blob, 1024);
+            return { ok:true, blob:blob, seed:job.seed, w:Number(hit.width) || job.w, h:Number(hit.height) || job.h,
+                     ms:Date.now() - job.t0, count:imgs.length, recovered:true };
+          }
+        }catch(e){}
+      }
+    }
+    if(onProgress){ try{ onProgress(Math.round((Date.now() - job.t0) / 1000)); }catch(e){} }
+  }
+  return null;
+}
+/* 12 分钟还没等到：留一张「待取回」小票，刷新 / 重开 / 下次生成时继续捞。
+   ⚠️ 只存短字符串，绝不把 blob 塞进 localStorage。 */
+function imgPendingLoad(){
+  try{ const a = JSON.parse(localStorage.getItem(IMG_PENDING_KEY) || '[]'); return Array.isArray(a) ? a : []; }catch(e){ return []; }
+}
+function imgPendingSave(job){
+  try{
+    const a = imgPendingLoad().filter(function(j){ return j && j.id !== job.id && Date.now() - (j.t0 || 0) < 86400000; });
+    a.push(job);
+    localStorage.setItem(IMG_PENDING_KEY, JSON.stringify(a.slice(-12)));
+  }catch(e){}
+}
+function imgPendingDrop(id){
+  try{ localStorage.setItem(IMG_PENDING_KEY, JSON.stringify(imgPendingLoad().filter(function(j){ return j && j.id !== id; }))); }catch(e){}
+}
+async function imgAdoptRecovered(job, hit, blob){
+  const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  const m = job.meta || {};
+  const rec = { id:id, blob:blob, prompt:job.prompt, full:job.prompt, neg:job.neg || '',
+    who:m.who || '', withWho:m.withWho || '', shot:m.shot || '', proactive:false,
+    seed:job.seed, w:Number(hit.width) || job.w, h:Number(hit.height) || job.h,
+    model:'', created:Date.now(), recovered:true, fam:m.fam || '', regenOf:m.regenOf || '', god:!!m.god };
+  try{ await imgPut(rec); }catch(e){ return false; }
+  try{ _pendingPhoto = { id:id, w:rec.w, h:rec.h, note:'（这张在站上排队，刚取回来）',
+                         who:m.who || '', prompt:job.prompt, shot:m.shot || '' }; }catch(e){}
+  try{ toast('排队的那张图回来了，会挂在下一句话里'); }catch(e){}
+  return true;
+}
+let _imgResumeBusy = false;
+async function imgResumePendingOnce(){
+  if(_imgResumeBusy) return;
+  const jobs = imgPendingLoad();
+  if(!jobs.length) return;
+  _imgResumeBusy = true;
+  try{
+    for(let i = 0; i < jobs.length; i++){
+      const job = jobs[i];
+      if(!job || Date.now() - (job.t0 || 0) > 86400000){ imgPendingDrop(job && job.id); continue; }
+      let items = []; try{ items = await imgResultsList(job.origin, job.key); }catch(e){}
+      const hit = imgClaimResult(items, job);
+      if(!hit) continue;
+      _imgClaimed[hit.id] = 1;
+      let buf = null; try{ buf = await imgResultsZip(job.origin, job.key, hit.id); }catch(e){}
+      if(!buf) continue;
+      try{
+        const imgs = await imgUnzipImages(buf);
+        const blob = await imgShrink(imgs[0].blob, 1024);
+        if(await imgAdoptRecovered(job, hit, blob)) imgPendingDrop(job.id);
+      }catch(e){}
+    }
+  }finally{ _imgResumeBusy = false; }
+}
+/* 唯一判据：只有「服务器明确给了剩余秒数」的真限速才动本地冷却计时器。
+   ⚠️ 并发满 / 本地闸门 / 排队超时一律不写 —— 写一次就从现在重算 800 秒，
+      叶子实测过「怎么等都是还差十分钟」；而这站根本没有 800 秒限制。 */
+function imgShouldMarkRateLimit(r){
+  if(!r || r.blocked || r.concurrent || r.pending) return false;
+  if((imgCfg().cooldownSec | 0) <= 0) return false;
+  return Number(r.wait) > 0;
+}
+/* 排队 + 续捞都封在包装层里，下面主体只管一次生成，三个调用点不用改结构。 */
 async function imgGenerate(prompt, negative, opt){
+  try{ imgResumePendingOnce(); }catch(e){}
+  await imgFlightAcquire();
+  try{ return await imgGenerateLocked(prompt, negative, opt); }
+  finally{ imgFlightRelease(); }
+}
+async function imgGenerateLocked(prompt, negative, opt){
   opt = opt || {};
   const cfg = imgCfg();
   const gate = imgGateCheck({ manual: !!opt.manual });
@@ -9836,9 +9986,19 @@ async function imgGenerate(prompt, negative, opt){
     : (isFinite(seedCfg) && seedCfg > 0 ? seedCfg : Math.floor(Math.random() * 4294967295));
   const body = imgBuildBody(cfg, prompt, negative, w, h, seed, opt);
   const ctl = new AbortController();
-  const timer = setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, 150000);
+  const timer = setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, IMG_SUBMIT_WAIT_MS);
   let resp;
   const t0 = Date.now();
+  /* 「待取回」小票：同步窗口过后要靠它去站上认领这张图。
+     ⚠️ 只存短字符串；meta 是调用方给的画面元数据白名单，绝不含 blob。 */
+  const job = {
+    id: 'job_' + t0 + '_' + Math.random().toString(36).slice(2, 6),
+    t0: t0, prompt: String(prompt || '').trim(), neg: String(negative || '').trim(),
+    seed: seed, w: w, h: h, origin: origin,
+    key: String(cfg.key || '').replace(/^Bearer\s+/i, '').trim(),
+    meta: opt.meta || {}
+  };
+  const onProgress = (typeof opt.onProgress === 'function') ? opt.onProgress : null;
   try{
     resp = await fetch(origin + '/ai/generate-image', {
       method: 'POST',
@@ -9849,7 +10009,16 @@ async function imgGenerate(prompt, negative, opt){
   }catch(e){
     clearTimeout(timer);
     // ⚠️ 读正文的 fetch 不能只靠这个超时盖住，但生图是一次性响应，这里 abort 即整段结束
-    if(e && e.name === 'AbortError') return { ok:false, error:'生图超时（150 秒没返回），站点可能在排队。过一会儿再试。' };
+    if(e && e.name === 'AbortError'){
+      /* 站点收下请求后要排队跑几分钟，响应常常不回来，但图会落在 /ai/images/results。
+         ⚠️ 这里绝不能 return 失败 —— 旧版就是这么把叶子那三张「已经出好的图」丢掉的。 */
+      if(onProgress){ try{ onProgress(0); }catch(e2){} }
+      const got = await imgPollFor(job, onProgress);
+      if(got) return got;
+      imgPendingSave(job);
+      return { ok:false, pending:true, wait:0,
+        error:'图还在站上排队（已等 12 分钟）。先别连点；下次打开或下次生成时 App 会自动把它取回来，站上保留 24 小时。' };
+    }
     /* ⚠️ 浏览器里「Failed to fetch」背后有四个完全不同的原因，光看这句话分不出来：
        ① 地址写错/网络不通；② 站点报错时**不回跨域头**（公益站 429 时实测如此），
           浏览器一律算成"发不出去"，而不是把 401/429 的正文给你看；
@@ -9871,7 +10040,14 @@ async function imgGenerate(prompt, negative, opt){
       const ra = parseInt(resp.headers.get('Retry-After') || '', 10);
       const m = txt.match(/还需等待\s*(\d+(?:\.\d+)?)\s*秒/);
       const wait = ra > 0 ? ra : (m ? Math.ceil(Number(m[1])) : 0);
-      return { ok:false, wait: wait, error:'站点限速：' + (wait ? ('还要等 ' + wait + ' 秒') : '稍后再试') };
+      const msg = imgErrMsgOf(txt);
+      /* 「已达到同时生成上限」＝并发槽满了，不是限速（这站根本没有 800 秒限制）。
+         旧版一律译成「站点限速：稍后再试」，还把 lastAt 推到此刻 ⇒ 凭空锁 13 分钟。 */
+      if(/同时|并发|上限|in.?flight|concurrent/i.test(msg)){
+        return { ok:false, wait:0, concurrent:true,
+          error:'站点同时生成已满：' + (msg || '前一张还在排队') + '。等前面那张出来再试，别连点。' };
+      }
+      return { ok:false, wait:wait, error:'站点限速：' + (wait ? ('还要等 ' + wait + ' 秒') : '稍后再试') + (msg ? '（' + msg + '）' : '') };
     }
     if(resp.status >= 500){
       /* 公益站最常见的两种 5xx：「没有可用的已启用上游」（站点没挂上账号）、
@@ -9883,12 +10059,21 @@ async function imgGenerate(prompt, negative, opt){
     const m4 = imgErrMsgOf(txt);
     return { ok:false, error:'生图失败（HTTP ' + resp.status + '）' + (m4 ? '：' + m4 : '') };
   }
-  let imgs;
+  let imgs = null;
   try{
     const buf = await resp.arrayBuffer();
     imgs = await imgUnzipImages(buf);
-  }catch(e){
-    return { ok:false, error:'图片解不开：' + ((e && e.message) || '未知错误') };
+  }catch(e){}
+  if(!imgs || !imgs.length){
+    /* 有些站「已受理」时回 JSON 而不是 ZIP：同样按异步处理，别当成解图失败。 */
+    if(/json/i.test(String(resp.headers.get('content-type') || ''))){
+      const got = await imgPollFor(job, onProgress);
+      if(got) return got;
+      imgPendingSave(job);
+      return { ok:false, pending:true, wait:0,
+        error:'站点已收下这张图，正在排队生成。下次打开或下次生成时会自动取回。' };
+    }
+    return { ok:false, error:'图片解不开：站点返回的内容不是图片包。' };
   }
   const blob = await imgShrink(imgs[0].blob, 1024);
   return { ok:true, blob: blob, seed: seed, w: w, h: h, ms: Date.now() - t0, count: imgs.length };
@@ -10194,7 +10379,7 @@ function imgRetryPaint(){
   d.querySelector('.ir-why').textContent = imgRetryWhy(r.reason);
   const go = d.querySelector('.ir-go');
   const paintBtn = function(){
-    if(_imgRetryBusy){ go.disabled = true; go.textContent = '重画中…（20-40 秒）'; return; }
+    if(_imgRetryBusy){ go.disabled = true; go.textContent = '重画中…（站点排队）'; return; }
     const left = r.readyAt ? Math.ceil((r.readyAt - Date.now()) / 1000) : 0;
     if(left > 0){
       go.disabled = true;
@@ -10290,7 +10475,16 @@ async function imgSendCore(argsIn, opts){
     : shot === 'pov' ? '🎨 正在拍你看到的画面…'
     : shot === 'pov_focus' ? '🎨 正在拍下眼前的画面…'
     : '🎨 正在生成自拍…';
-  const step = (!opts.silent && typeof addSysStep === 'function') ? addSysStep(stepTxt + '（约 20-40 秒）') : null;
+  const step = (!opts.silent && typeof addSysStep === 'function') ? addSysStep(stepTxt + '（站点要排队，可能几分钟）') : null;
+  /* 常驻状态行：静态「正在生成…」分不清干活还是卡死（叶子定的规矩）。
+     排队时把已等秒数写回步骤气泡，出图后由 imgGenerate 自动取回，不用人盯着。 */
+  opt.onProgress = function(sec){
+    if(!step || !step.parentNode) return;
+    const mm = Math.floor(sec / 60), ss = sec % 60;
+    step.textContent = stepTxt + '（站点排队中，已等 ' + (mm ? mm + ' 分 ' : '') + ss + ' 秒；出图会自动取回）';
+  };
+  /* 排队超时后靠这张小票把图捡回来：只放短字符串，绝不存 blob */
+  opt.meta = { who:who, withWho:withWho, shot:shot, outfits:outfits, pose:pose };
   let r;
   try{
     r = await imgGenerate(full, neg, opt);
@@ -10298,14 +10492,14 @@ async function imgSendCore(argsIn, opts){
     if(step && step.parentNode) step.remove();
   }
   if(!r.ok){
-    /* ⚠️ 只有「真发了请求、撞上站点 429」才允许动计时器。
-       被本地闸门拦下（blocked）时**一个字都不能写** —— 否则每被拦一次就把 lastAt 推到「现在」，
-       冷却永远从此刻重算 800 秒，人怎么等都是「还差十分钟」（2026-10-29 叶子实测，就是这条）。
-       撞真 429 时也不该从此刻重算：服务器说「还要等 X 秒」，就按 X 反推上一次成功的真实时刻。 */
-    if(!r.blocked && (Number(r.wait) > 0 || /429|限速/.test(String(r.error || '')))) imgQuotaMarkRateLimited(r.wait || 0);
+    /* ⚠️ 判据收在 imgShouldMarkRateLimit() 一个出口：只有服务器给了剩余秒数的真限速才写计时器。
+       被本地闸门拦下 / 并发满 / 排队超时一律不写 —— 写一次就从现在重算 800 秒，
+       人怎么等都是「还差十分钟」（2026-10-29 叶子实测）；而这站根本没有 800 秒限制。 */
+    if(imgShouldMarkRateLimit(r)) imgQuotaMarkRateLimited(r.wait || 0);
     /* ⚠️ 这里**不加「生成失败：」前缀**：前缀由调用方（aiSendPhoto）统一加，加两遍会变成「生成失败：生成失败：…」 */
     return { ok:false, error: (r.error || '未知错误'),
-             wait: r.wait || 0, blocked: !!r.blocked, asked: asked, attempted: true };
+             wait: r.wait || 0, blocked: !!r.blocked, asked: asked, attempted: true,
+             pending: !!r.pending, concurrent: !!r.concurrent };
   }
   const id = 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   const rec = { id:id, blob:r.blob, prompt:prompt, full:full, neg:neg, who:who, withWho:withWho, shot:shot,
@@ -10345,8 +10539,9 @@ async function aiSendPhoto(args){
     /* 「被闸门拦住」和「真出过请求但失败」都值得把提示词留着；
        「prompt 空 / 镜头与人数不自洽」是模型写错了参数，重试一百次也一样，不挂卡。
        （主动发图撞每日上限也不挂：那张本来就不该发，留个重试按钮只是噪音） */
-    if(r.attempted || r.blocked) imgRetryArm(args, r);
-    return { ok:false, error: (r.blocked ? '' : '生成失败：') + (r.error || '未知错误') };
+    /* 排队中的图不是失败：别挂重试卡（挂了模型会另写一份提示词再烧一张），也别说「生成失败」。 */
+    if(!r.pending && (r.attempted || r.blocked)) imgRetryArm(args, r);
+    return { ok:false, error: (r.blocked || r.pending ? '' : '生成失败：') + (r.error || '未知错误') };
   }
   imgRetryClear();   // 新的图出来了，旧的重试卡就该退场
   const a = args || {};
@@ -11615,21 +11810,26 @@ async function aiZoomPrompt(){
     errBox('');
     goBtn.disabled = true;
     const oldTxt = goBtn.textContent;
-    goBtn.textContent = '🎨 生成中…（20-40 秒）';
+    goBtn.textContent = '🎨 生成中…（站点要排队）';
     let r;
     try{
       r = await imgGenerate(base, neg, {
         chars: chars,
         aspect: (IMG_SHOTS[rec.shot] || {}).aspect,
-        manual: true   // 手动调词：跳过本地冷却，上限照算
+        manual: true,   // 手动调词：跳过本地冷却，上限照算
+        onProgress: function(sec){
+          goBtn.textContent = '🎨 排队中… ' + Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+        },
+        meta: { who:rec.who || '', withWho:rec.withWho || '', shot:rec.shot || '',
+                fam:(rec.fam || rec.regenOf || rec.id), regenOf:rec.id }
       });
     }catch(e){ r = { ok:false, error: (e && e.message) || '出错' }; }
     goBtn.disabled = false;
     goBtn.textContent = oldTxt;
     if(!r.ok){
-      // 撞真限速才动计时器；被闸门拦下（额度用完）一个字都不写
-      if(!r.blocked && (Number(r.wait) > 0 || /429|限速/.test(String(r.error || '')))) imgQuotaMarkRateLimited(r.wait || 0);
-      errBox('生成失败：' + (r.error || '未知错误'));
+      // 判据统一到 imgShouldMarkRateLimit()：并发满 / 排队超时都不写冷却
+      if(imgShouldMarkRateLimit(r)) imgQuotaMarkRateLimited(r.wait || 0);
+      errBox((r.pending ? '' : '生成失败：') + (r.error || '未知错误'));
       paintMeta();
       return;
     }
@@ -13277,7 +13477,7 @@ async function imgTestGenerate(){
      每日上限照旧算；真撞上站点 429 会由 imgQuotaMarkRateLimited() 反推冷却，不会更糟。 */
   const gate = imgGateCheck({ manual: true });
   if(!gate.ok){ if(hint) hint.textContent = gate.reason; imgPaintQuota(); return; }
-  if(hint) hint.textContent = '正在生成…（约 20-40 秒，占 1 张额度）';
+  if(hint) hint.textContent = '正在生成…（站点要排队，可能几分钟）';
   /* 试生必须走跟聊天完全一样的拼装路径（imgComposeShot / imgNegFor），
      否则「试生能出图、聊天里出不了」这种差异会被掩盖掉。 */
   const inner = imgTestPrompt();
@@ -23558,7 +23758,7 @@ function imgTagsExtract(raw){
     .join(', ');
 }
 /* 状态行：常驻在按钮下面。msg 为空 = 收起。kind: '' 灰（进度）/ 'err' 红 / 'ok' 绿。
-   ⚠️ 这条不是装饰：出图要 20-40 秒，没有秒数在跑，人分不清「在干活」和「卡死了」——
+   ⚠️ 这条不是装饰：站上排队可能几分钟，没有秒数在跑，人分不清「在干活」和「卡死了」——
       叶子 2026-10-29 报的「显示正在生成然后就没反应」有一半是这个原因。 */
 function godShotMsg(msg, kind){
   const box = document.getElementById('godShotMsg');
@@ -23684,17 +23884,27 @@ async function godSnap(){
       /* 同一帧的上一张要留着 id：出图失败后再点一次，新图仍能挂回同一个族 */
       lastId: (cached && cached.sig === sig) ? (cached.lastId || '') : '',
       lastFam: (cached && cached.sig === sig) ? (cached.lastFam || '') : '' };
-    setStage('正在生成图片', '正在生成…');
+    setStage('正在生成图片', '站点要排队，可能几分钟…');
     let out;
+    /* ⚠️ 外层硬超时必须盖住「同步窗口 + 轮询上限」，否则站内还在慢慢出图、
+       这层 200 秒就先把它掐了，等于把异步取回白做一遍。 */
+    const godImgTimeout = IMG_SUBMIT_WAIT_MS + IMG_POLL_MAX_MS + 60000;
     try{
-      out = await godSnapTimeout(imgGenerate(plan.base, neg, { chars:plan.chars, aspect:plan.aspect, manual:true }), 200000, '出图');
+      out = await godSnapTimeout(imgGenerate(plan.base, neg, {
+        chars:plan.chars, aspect:plan.aspect, manual:true,
+        onProgress: function(sec){
+          try{ setStage('正在生成图片', '站点排队中，已等 ' + Math.floor(sec / 60) + ' 分 ' + (sec % 60) + ' 秒'); }catch(e){}
+        },
+        meta: { who:who, withWho:withWho, shot:shot, god:true }
+      }), godImgTimeout, '出图');
     }catch(e){
       fail('生成失败：' + String((e && e.message) || e) + '（画面标签已经留着，再点一次直接重画，不会再写一遍）');
       return;
     }
     if(!out || !out.ok){
-      if(out && !out.blocked && (Number(out.wait) > 0 || /429|限速/.test(String(out.error || '')))) imgQuotaMarkRateLimited(out.wait || 0);
-      fail('生成失败：' + ((out && out.error) || '未知错误') + '（画面标签已经留着，再点一次直接重画）');
+      if(imgShouldMarkRateLimit(out)) imgQuotaMarkRateLimited(out.wait || 0);
+      fail((out && out.pending ? '' : '生成失败：') + ((out && out.error) || '未知错误')
+        + ((out && out.pending) ? '' : '（画面标签已经留着，再点一次直接重画）'));
       return;
     }
     /* ⑤ 落库 + 记额度，然后开看图页（她能当场看到用了什么词、改着重生成） */
