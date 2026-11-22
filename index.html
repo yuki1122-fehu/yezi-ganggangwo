@@ -3876,6 +3876,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
           <button class="btn ghost" type="button" onclick="memProbeOpen()" style="flex:0 0 auto;" title="打一句你可能会说的话，看它此刻会想起哪几条记忆（调权重 / 排查「AI 为什么没想起」）">🔍 试试召回</button>
+          <button class="btn ghost" type="button" onclick="memEvalOpen()" style="flex:0 0 auto;" title="用你自己的历史对话自动出题，量出召回的真实命中率：回放 / 换种说法 / 噪声三组（纯本地，不花 API）">🧪 召回体检</button>
           <button class="btn ghost" type="button" onclick="memTagNow()" style="flex:0 0 auto;">⚡ 立即打标</button>
           <button class="btn ghost" type="button" onclick="memRescueNow()" style="flex:0 0 auto;" title="把聊天界面最近 40 轮对话回灌进记忆库（清空记忆后的补丁：不重新聊天也能重新打标）">♻️ 恢复对话记录</button>
           <button class="btn ghost" type="button" onclick="memRebuildConvNow()" style="flex:0 0 auto;" title="对话记录消失/被清空时的救火键：记忆库里有对话的全文镜像，用它把聊天记录整条重建回来（按消息 id 幂等合并，不会重复）">🧩 从记忆库重建对话</button>
@@ -3934,6 +3935,15 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         <button class="btn ghost" type="button" onclick="memProbe()" style="flex:0 0 auto;font-size:12px;">试一下</button>
       </div>
       <div id="memProbeOut" style="margin-top:8px;font-size:12px;line-height:1.6;"></div>
+    </div>
+    <!-- 🧪 召回体检（2026-11-22）：拿她自己的历史自动出题，量出「该想起的想起率」。
+         放在列表之前、试召回之后 —— 与「试试召回」同属诊断工具；不塞进滚动区。 -->
+    <div style="margin:0 0 12px;padding:11px 13px;border-radius:14px;background:rgba(165,192,162,.10);border:1px solid var(--green-mid);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+        <div style="font-size:12px;color:var(--ink-soft);line-height:1.5;">🧪 召回体检：用你自己的历史当考卷，量出命中率（不花 API）</div>
+        <button class="btn ghost" type="button" onclick="memEvalRun(this)" style="flex:0 0 auto;font-size:12px;">开始测</button>
+      </div>
+      <div id="memEvalOut" style="margin-top:8px;font-size:12px;line-height:1.6;"></div>
     </div>
     <div id="memList" style="max-height:40vh;overflow:auto;font-size:13px;line-height:1.6;"></div>
     <div class="row" style="margin-top:12px;">
@@ -17916,12 +17926,14 @@ function memExtractTriggers(userText, tags){
   q.forEach(s=>{ const t = s.slice(1, -1); if(t) set.add(t); });
   return Array.from(set).slice(0, 12);
 }
-async function memMagnetRecall(userText, k){
+// pre（可选）= {tags, entries, msgs} 预读快照。只给「召回体检」用：一次读库、几百题复用，
+// 免得每题都 getAll 三个 store（300 题 × 全表扫描会把手机卡住）。不传则与旧行为完全一致。
+async function memMagnetRecall(userText, k, pre){
   k = k || MEM_RECALL_K;
   if(!userText) return [];
   try{
-    const tags = await memGetAll('tags');
-    const entries = await memGetAll('entries');
+    const tags = (pre && pre.tags) || await memGetAll('tags');
+    const entries = (pre && pre.entries) || await memGetAll('entries');
     const active = entries.filter(e=>e.active === 1 && e.event && e.summary); // 无 event 的旧流水账 / 已淡出的都不进召回
     if(!tags.length || !active.length) return [];
     const idMap = {}; active.forEach(e=>idMap[e.id] = e);
@@ -17946,7 +17958,7 @@ async function memMagnetRecall(userText, k){
     const list = Object.values(scores).sort((a,b)=>b.score-a.score).slice(0, k);
     if(!list.length) return [];
     // 原话回溯：只给真正命中的记忆去捞原文；没命中的一条 messages 都不碰
-    const msgs = await memGetAll('messages');
+    const msgs = (pre && pre.msgs) || await memGetAll('messages');
     /* ★ 2026-10-21 给每条记忆算出「它发生在哪天」：
        created_at 是**最近一次写入/合并**的时间，对仍在推进的事件会偏新（今天刚更新 ⇒ 显示"今天"，
        而它可能两个月前就开始了）。所以优先取 source_mids 里最早的原料消息时间（合并时 mid 是累加的，
@@ -18215,6 +18227,8 @@ async function memView(){
   openMask(document.getElementById('memViewMask'));
   const probeOut = document.getElementById('memProbeOut');
   if(probeOut) probeOut.innerHTML = ''; // 清掉上次的试召回结果，免得被误读成「现在的记忆」
+  const evalOut = document.getElementById('memEvalOut');
+  if(evalOut) evalOut.innerHTML = '';   // 体检结果改为每次从 kv 恢复（基线可能变了，不能用旧的 DOM）
   box.innerHTML = '<div class="hint" style="font-size:12px;">读取中…</div>';
   try{
     const entries = await memGetAll('entries');
@@ -18249,6 +18263,7 @@ async function memView(){
     }
     box.innerHTML = html + fadedRow;
   }catch(e){ box.innerHTML = '<div class="hint">读取失败</div>'; }
+  memEvalRestore();   // 上次体检结果（不阻塞列表渲染）
 }
 async function memRestoreFaded(){
   const n = await memRestorePruned();
@@ -18306,6 +18321,337 @@ function memProbeOpen(){
     if(!el) return;
     try{ el.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){}
     setTimeout(()=>{ try{ el.focus(); }catch(e){} }, 120);
+  }).catch(()=>{});
+}
+/* ================= 召回体检（2026-11-22）=================
+   起因：MEM_RECALL_K / MEM_BUDGET / 标签权重全靠手感，改完无法判断「变好还是变坏」。
+   借鉴 AML Cycle 2 开源文本赛道第一 Resurface 的 eval/ruler：只测「该想起的有没有被想起」，
+   不测回答、不调 AI ⇒ 零 API 成本、纯本地。三组考卷由库内数据自动生成，无需手工标注：
+     ① 回放组：拿产出某条记忆的【用户原话】当问题 → 该记忆（及同批记忆）应被召回。
+        这是「最小可用性」，数字天然偏高（标签就是从这批话里抽的），用来看库/标签有没有坏。
+     ② 摘要组：拿记忆【自己的摘要】当问题 → 模拟「她换一种说法提起这件事」。真正有信息量的一组。
+     ③ 噪声组：拿【从没进过任何记忆】的日常话当问题 → 应该一条都想不起（测安静度）。
+   ⚠️ 严禁用 Math.random 抽题：每次跑必须是同一批题，否则前后两次的数字不可比。 */
+const MEM_EVAL_K = 8;          // 与真实注入的 MEM_RECALL_K 对齐：测的就是线上那一次召回
+const MEM_EVAL_NOISE_N = 20;   // 噪声组样本数
+const MEM_EVAL_MAX_Q = 200;    // 单组题量上限（手机耗时闸门）
+const MEM_EVAL_KEY = 'mem_eval_last';
+const MEM_EVAL_BASE_KEY = 'mem_eval_baseline';
+// 确定性取样：按 mid 排序后等距抽取
+// ⚠️ 长度门槛只能是 6：中文日常话本来就短（"明天要不要带伞"=7 字），
+//    门槛设 10 会把噪声组样本全部过滤掉 ⇒ 噪声组静默消失，看起来像"这组不存在"。
+function _memEvalPickNoise(msgs, used, n){
+  const cand = (msgs || []).filter(m =>
+    m && m.role === 'user' && m.mid && !used.has(String(m.mid)) &&
+    String(m.content || '').trim().length >= 6 &&
+    String(m.content || '').indexOf('[图片]') < 0
+  ).sort((a, b) => String(a.mid).localeCompare(String(b.mid)));
+  if(!cand.length) return [];
+  const step = Math.max(1, Math.floor(cand.length / n));
+  const out = [];
+  for(let i = 0; i < cand.length && out.length < n; i += step) out.push(cand[i]);
+  return out;
+}
+// 出题：全部来自库内数据，不需要手工标注
+function _memEvalBuild(entries, msgs){
+  const active = (entries || []).filter(e => e && e.active === 1 && e.event && e.summary);
+  const byMid = new Map();
+  for(const m of (msgs || [])){ if(m && m.mid) byMid.set(String(m.mid), m); }
+  // mid → 同批记忆的 id。一批打标可能产出多条，所以「想起其中任意一条」都算命中。
+  const midToGold = new Map();
+  for(const e of active){
+    const arr = Array.isArray(e.source_mids) ? e.source_mids : [];
+    for(const mm of arr){
+      const key = String(mm);
+      if(!midToGold.has(key)) midToGold.set(key, []);
+      midToGold.get(key).push(e.id);
+    }
+  }
+  // ① 回放组：按【消息】出题而不是按条目 —— 天然去重，同一批的多条记忆共用一道题
+  const replay = [];
+  const mids = Array.from(midToGold.keys()).sort();
+  for(const mid of mids){
+    if(replay.length >= MEM_EVAL_MAX_Q) break;
+    const m = byMid.get(mid);
+    if(!m || m.role !== 'user') continue;
+    const q = String(m.content || '').trim();
+    if(q.length < 4 || q.indexOf('[图片]') >= 0) continue;
+    replay.push({ q: q.slice(0, 300), gold: midToGold.get(mid).slice(), kind: 'replay' });
+  }
+  // ② 摘要组：拿摘要当问题
+  const summary = [];
+  for(const e of active){
+    if(summary.length >= MEM_EVAL_MAX_Q) break;
+    const q = String(e.summary || '').trim();
+    if(q.length < 4) continue;
+    summary.push({ q: q.slice(0, 300), gold: [e.id], kind: 'summary' });
+  }
+  // ③ 噪声组：所有条目（含淡出）引用过的对话全部排除，剩下的才算「从没记过的事」
+  const used = new Set();
+  for(const e of (entries || [])){
+    const arr = Array.isArray(e.source_mids) ? e.source_mids : [];
+    for(const mm of arr) used.add(String(mm));
+  }
+  const noise = _memEvalPickNoise(msgs, used, MEM_EVAL_NOISE_N)
+    .map(m => ({ q: String(m.content || '').trim().slice(0, 300), kind: 'noise' }));
+  return { active, replay, summary, noise };
+}
+// 跑一组：返回每条题的命中排名（1-based，0 = 没想起）
+async function _memEvalScore(items, pre){
+  const ranks = [], miss = [];
+  for(let i = 0; i < items.length; i++){
+    const it = items[i];
+    let hits = [];
+    try{ hits = await memMagnetRecall(it.q, MEM_EVAL_K, pre) || []; }catch(e){ hits = []; }
+    const ids = hits.map(h => h.id);
+    let best = 0;
+    for(const g of (it.gold || [])){
+      const idx = ids.indexOf(g);
+      if(idx >= 0 && (!best || (idx + 1) < best)) best = idx + 1;
+    }
+    ranks.push(best);
+    if(!best) miss.push(it);
+    if(i % 40 === 39) await new Promise(r => setTimeout(r, 0)); // 让出主线程，手机上不假死
+  }
+  return { ranks, miss };
+}
+function _memEvalStat(ranks){
+  const n = ranks.length;
+  if(!n) return { n: 0, h1: 0, h3: 0, h5: 0, h8: 0, mrr: 0 };
+  const at = k => ranks.filter(r => r > 0 && r <= k).length / n;
+  return { n, h1: at(1), h3: at(3), h5: at(5), h8: at(8),
+           mrr: ranks.reduce((s, r) => s + (r > 0 ? 1 / r : 0), 0) / n };
+}
+function _memEvalPct(v){ return Math.round((v || 0) * 100) + '%'; }
+function _memEvalDelta(cur, old){
+  if(old == null || isNaN(old)) return '';
+  const d = Math.round((cur - old) * 100);
+  if(!d) return ' <span style="color:var(--ink-soft);">±0</span>';
+  return ' <span style="color:' + (d > 0 ? '#1f6f43' : '#a32d2d') + ';">' + (d > 0 ? '+' : '') + d + '</span>';
+}
+function _memEvalTime(ts){
+  const d = new Date(ts), p2 = n => String(n).padStart(2, '0');
+  return (d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+}
+// 读数字给判断——不给结论的话，「72%」到底是好是坏她没法解读
+function _memEvalVerdict(s){
+  const t = [];
+  if(s.replay.n){
+    if(s.replay.h8 >= 0.95) t.push('① 回放接近满分：库和标签是健康的，原话都召得回。');
+    else if(s.replay.h8 >= 0.8) t.push('① 回放 ' + _memEvalPct(s.replay.h8) + '：有小部分连原话都召不回，先查这些条目的标签是不是空/太少。');
+    // ⚠️ 回放低有两种完全不同的病因，混为一谈会指错方向（2026-11-22 压力测试踩到）：
+    //   标签「没有这个字」→ 真召不回；标签「太泛」→ 召得回但被同词的其它条目挤到 8 名以外。
+    //   判据：摘要组和回放组几乎一样差 ⇒ 泛化问题；摘要组明显更差 ⇒ 缺词问题。
+    else if(s.summary.n && Math.abs(s.summary.h8 - s.replay.h8) <= 0.08)
+      t.push('① 回放只有 ' + _memEvalPct(s.replay.h8) + '，且摘要组几乎一样：这不是「没命中」，是标签太泛 —— 同一个词挂在太多条记忆上，互相把对方挤出前 8。建议给标签加限定（「火锅」→「火锅·第一次」）。');
+    else
+      t.push('① 回放只有 ' + _memEvalPct(s.replay.h8) + '：连原话都召不回，问题在打标或标签缺失，不在权重。');
+  }
+  if(s.summary.n){
+    const gap = s.replay.n ? (s.replay.h8 - s.summary.h8) : 0;
+    if(s.summary.h5 >= 0.7) t.push('② 摘要组 ≥70%：换个说法也基本能想起，召回算稳。');
+    else if(s.summary.h5 >= 0.45) t.push('② 摘要组 ' + _memEvalPct(s.summary.h5) + '：换说法会漏一部分，属于可优化区。');
+    else if(gap >= 0.15) t.push('② 摘要组 ' + _memEvalPct(s.summary.h5) + '，比回放低 ' + Math.round(gap * 100) + ' 个点：她就是换个说法才想不起 —— 这是加「原话路」最直接的依据。');
+    else t.push('② 摘要组和回放一样低：问题不在说法，在排序或标签互相挤，先治标签再加路。');
+  }
+  if(s.noise.n){
+    if(s.noise.rate <= 0.15) t.push('③ 噪声组安静：日常闲聊不会乱带回忆。');
+    else t.push('③ 噪声组 ' + _memEvalPct(s.noise.rate) + ' 的话会带出记忆：标签可能过短或过泛。');
+  }
+  return t;
+}
+function _memEvalHtml(p, base){
+  const s = p.stats || {}, bs = (base && base.stats) || null;
+  const N = p.size || {};
+  let h = '<div style="font-size:11px;color:var(--ink-soft);line-height:1.6;">'
+    + '库规模：记忆 ' + (N.entries || 0) + ' 条（淡出 ' + (N.faded || 0) + '）· 标签 ' + (N.tags || 0) + ' 个 · 对话 ' + (N.msgs || 0) + ' 条'
+    + '<br>本次 ' + _memEvalTime(p.at) + ' · 耗时 ' + ((p.dur || 0) / 1000).toFixed(1) + ' 秒'
+    + (base && base.at ? (' · 对比基线 ' + _memEvalTime(base.at)) : ' · 还没存基线')
+    + '</div>';
+  const row = (title, st, old, note) => {
+    if(!st || !st.n) return '';
+    // 每个指标一个 nowrap 的 inline-block：390px 手机上只会整项换行，
+    // 不会出现「MRR 1.00」和它的「±0」被拆到两行（2026-11-22 实测）。
+    const cells = [
+      'hit@1 ' + _memEvalPct(st.h1) + _memEvalDelta(st.h1, old && old.h1),
+      'hit@5 ' + _memEvalPct(st.h5) + _memEvalDelta(st.h5, old && old.h5),
+      'hit@8 ' + _memEvalPct(st.h8) + _memEvalDelta(st.h8, old && old.h8),
+      'MRR ' + (st.mrr || 0).toFixed(2) + _memEvalDelta(st.mrr || 0, old && old.mrr)
+    ];
+    return '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+      +   '<b style="font-size:12px;">' + title + '</b>'
+      +   '<span style="font-size:10px;color:var(--ink-soft);">' + st.n + ' 题</span>'
+      + '</div>'
+      + '<div style="font-size:11px;margin-top:3px;font-variant-numeric:tabular-nums;line-height:1.75;">'
+      +   cells.map(c => '<span style="display:inline-block;white-space:nowrap;margin-right:9px;">' + c + '</span>').join('')
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">' + note + '</div>'
+      + '</div>';
+  };
+  h += '<div style="margin-top:8px;border-top:1px solid var(--ink-faint);">';
+  h += row('① 回放（原话当问题）', s.replay, bs && bs.replay, '最小可用性：连这句都想不起，说明标签/库坏了');
+  h += row('② 摘要（换种说法）', s.summary, bs && bs.summary, '模拟「她换个说法提起这件事」，最有参考价值');
+  if(s.noise && s.noise.n){
+    h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
+      + '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+      +   '<b style="font-size:12px;">③ 噪声（没记过的事）</b>'
+      +   '<span style="font-size:10px;color:var(--ink-soft);">' + s.noise.n + ' 题</span></div>'
+      + '<div style="font-size:11px;margin-top:3px;">误带出回忆 ' + s.noise.fired + ' 条 · '
+      +   _memEvalPct(s.noise.rate) + _memEvalDelta(s.noise.rate, bs && bs.noise && bs.noise.rate) + '（越低越安静）</div>'
+      + '</div>';
+  }else if(s.noise){
+    // 不静默消失：0 题要说清是"样本不够"还是"没测"，否则会被当成这一组不存在
+    h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
+      + '<b style="font-size:12px;">③ 噪声（没记过的事）</b>'
+      + '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;">'
+      +   '可用样本 0 条 —— 库里每句对话都被记忆引用过了，没法测安静度（这不是故障）。</div></div>';
+  }
+  h += '</div>';
+  const v = _memEvalVerdict(s);
+  if(v.length){
+    h += '<div style="margin-top:8px;padding:8px 10px;border-radius:9px;background:rgba(145,180,200,.12);font-size:11px;line-height:1.65;">'
+      + v.map(x => '· ' + escHtml(x)).join('<br>') + '</div>';
+  }
+  if(p.miss && p.miss.length){
+    h += '<details style="margin-top:6px;"><summary style="font-size:11px;color:var(--ink-soft);cursor:pointer;">'
+      + '② 组没想起的 ' + p.miss.length + ' 条（点开看是不是缺词）</summary>'
+      + '<div style="margin-top:6px;font-size:11px;line-height:1.6;">';
+    for(const m of p.miss){
+      h += '<div style="padding:5px 0;border-bottom:1px dashed var(--ink-faint);word-break:break-word;">'
+        + '<div>问：' + escHtml(m.q) + '</div>'
+        + '<div style="color:var(--ink-soft);">该想起：' + escHtml(m.event || m.summary || '（无事件名）')
+        + ' · 标签 ' + escHtml(m.tags || '（无）') + '</div></div>';
+    }
+    h += '</div></details>';
+  }
+  if(p.missReplay && p.missReplay.length){
+    h += '<details style="margin-top:4px;"><summary style="font-size:11px;color:var(--ink-soft);cursor:pointer;">'
+      + '① 组连原话都没召回的 ' + p.missReplay.length + ' 条</summary>'
+      + '<div style="margin-top:6px;font-size:11px;line-height:1.6;">';
+    for(const m of p.missReplay){
+      h += '<div style="padding:5px 0;border-bottom:1px dashed var(--ink-faint);word-break:break-word;">'
+        + '<div>原话：' + escHtml(m.q) + '</div>'
+        + '<div style="color:var(--ink-soft);">对应记忆：' + escHtml(m.event || '（无事件名）')
+        + ' · 标签 ' + escHtml(m.tags || '（无）') + '</div></div>';
+    }
+    h += '</div></details>';
+  }
+  if(p.noiseFired && p.noiseFired.length){
+    h += '<details style="margin-top:4px;"><summary style="font-size:11px;color:var(--ink-soft);cursor:pointer;">'
+      + '③ 组误带出的 ' + p.noiseFired.length + ' 条（点开看是哪句勾出来的）</summary>'
+      + '<div style="margin-top:6px;font-size:11px;line-height:1.6;">';
+    for(const m of p.noiseFired){
+      h += '<div style="padding:5px 0;border-bottom:1px dashed var(--ink-faint);word-break:break-word;">'
+        + '<div>闲聊：' + escHtml(m.q) + '</div>'
+        + '<div style="color:var(--ink-soft);">却带出：' + escHtml((m.got && m.got.summary) || '') + '</div></div>';
+    }
+    h += '</div></details>';
+  }
+  h += '<div style="margin-top:9px;display:flex;gap:8px;flex-wrap:wrap;">'
+    + '<button class="btn ghost" type="button" onclick="memEvalBaselineSave()" style="font-size:11px;padding:3px 10px;">📌 存为基线</button>'
+    + '<button class="btn ghost" type="button" onclick="memEvalClearBaseline()" style="font-size:11px;padding:3px 10px;color:var(--ink-soft);">清基线</button>'
+    + '</div>';
+  return h;
+}
+async function memEvalRun(btn){
+  const out = document.getElementById('memEvalOut');
+  if(!out) return;
+  if(btn){ btn.disabled = true; btn.textContent = '测…'; }
+  out.innerHTML = '<span style="color:var(--ink-soft);">读取记忆库…</span>';
+  const t0 = performance.now();
+  try{
+    const [entries, tags, msgs] = await Promise.all([memGetAll('entries'), memGetAll('tags'), memGetAll('messages')]);
+    const built = _memEvalBuild(entries, msgs);
+    if(!built.active.length){
+      out.innerHTML = '<span style="color:var(--ink-soft);">库里还没有可用来自测的记忆（需要「有事件名 + 有摘要」的条目）。先聊几句、跑一次打标再来。</span>';
+      return;
+    }
+    const pre = { entries, tags, msgs };
+    out.innerHTML = '<span style="color:var(--ink-soft);">出题 ' + built.replay.length + ' / ' + built.summary.length + ' / ' + built.noise.length + ' 道，召回中…</span>';
+    const rp = await _memEvalScore(built.replay, pre);
+    const sm = await _memEvalScore(built.summary, pre);
+    // 噪声组不问「有没有命中」，只问「有没有嘴硬想起点什么」
+    let fired = 0; const firedItems = [];
+    for(let i = 0; i < built.noise.length; i++){
+      const it = built.noise[i];
+      let hits = [];
+      try{ hits = await memMagnetRecall(it.q, MEM_EVAL_K, pre) || []; }catch(e){}
+      if(hits.length){ fired++; if(firedItems.length < 8) firedItems.push({ q: it.q, got: hits[0] }); }
+      if(i % 40 === 39) await new Promise(r => setTimeout(r, 0));
+    }
+    const byId = new Map();
+    for(const e of built.active) byId.set(e.id, e);
+    const tagOf = new Map();
+    for(const t of (tags || [])){
+      if(!t || !t.entry_id) continue;
+      if(!tagOf.has(t.entry_id)) tagOf.set(t.entry_id, []);
+      tagOf.get(t.entry_id).push(t.tag);
+    }
+    const payload = {
+      at: Date.now(),
+      dur: Math.round(performance.now() - t0),
+      size: { entries: built.active.length, tags: (tags || []).length, msgs: (msgs || []).length,
+              faded: (entries || []).filter(e => e && e.active === 0).length },
+      stats: {
+        replay: _memEvalStat(rp.ranks),
+        summary: _memEvalStat(sm.ranks),
+        noise: { n: built.noise.length, fired, rate: built.noise.length ? fired / built.noise.length : 0 }
+      },
+      miss: sm.miss.slice(0, 12).map(it => {
+        const e = byId.get(it.gold[0]) || {};
+        return { q: it.q, event: e.event || '', summary: String(e.summary || '').slice(0, 60),
+                 tags: (tagOf.get(it.gold[0]) || []).join(' / ') };
+      }),
+      missReplay: rp.miss.slice(0, 8).map(it => {
+        const e = byId.get(it.gold[0]) || {};
+        return { q: it.q, event: e.event || '', tags: (tagOf.get(it.gold[0]) || []).join(' / ') };
+      }),
+      noiseFired: firedItems
+    };
+    await memKvSet(MEM_EVAL_KEY, payload);
+    out.innerHTML = _memEvalHtml(payload, await memKvGet(MEM_EVAL_BASE_KEY));
+  }catch(e){
+    out.innerHTML = '<span style="color:var(--ink-soft);">体检失败：' + escHtml(String((e && e.message) || e)) + '</span>';
+    console.warn('[mem] eval', e);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '重新测'; }
+  }
+}
+async function memEvalRestore(){
+  const el = document.getElementById('memEvalOut');
+  if(!el || el.innerHTML.trim()) return;   // 刚跑完的结果优先，不要被历史覆盖
+  try{
+    const p = await memKvGet(MEM_EVAL_KEY);
+    if(!p || !p.at){
+      el.innerHTML = '<span style="color:var(--ink-soft);">还没测过。点右上「开始测」，用你库里的真实对话自动出题（不花 API）。</span>';
+      return;
+    }
+    el.innerHTML = _memEvalHtml(p, await memKvGet(MEM_EVAL_BASE_KEY));
+  }catch(e){}
+}
+async function memEvalBaselineSave(){
+  const p = await memKvGet(MEM_EVAL_KEY);
+  if(!p || !p.stats){ toast('先跑一次体检'); return; }
+  await memKvSet(MEM_EVAL_BASE_KEY, p);
+  toast('已存为基线，以后每次都会显示差值');
+  const el = document.getElementById('memEvalOut');
+  if(el) el.innerHTML = _memEvalHtml(p, p);
+}
+async function memEvalClearBaseline(){
+  await memKvSet(MEM_EVAL_BASE_KEY, null);
+  toast('基线已清除');
+  const el = document.getElementById('memEvalOut');
+  const p = await memKvGet(MEM_EVAL_KEY);
+  if(el && p) el.innerHTML = _memEvalHtml(p, null);
+}
+// 设置页直达：打开记忆弹窗并滚到体检卡片（同 memProbeOpen 的教训——入口看不见 = 功能不存在）
+function memEvalOpen(){
+  Promise.resolve(memView()).then(()=>{
+    const el = document.getElementById('memEvalOut');
+    if(!el) return;
+    try{ el.scrollIntoView({block:'center', behavior:'smooth'}); }catch(e){}
+    memEvalRestore();
   }).catch(()=>{});
 }
 /* ★ 2026-10-21：修「连点几次一条新的都没有」。
@@ -24386,6 +24732,142 @@ function savePomoSettings(){
   }
   toast('番茄钟设置已保存');
 }
+
+/* ====== AI Passport 随身伴侣屏 · 同步模块（2026-11-16） ======
+   把港窝的少量状态推送到 Cloudflare Worker，供挂在胸前的 AI Passport 显示。
+   设计铁律：
+     · 只推白名单字段，角色台词/记忆原文/API Key 一律不推。
+     · 用已有 PUSH_SECRET 鉴权（与 Worker companion 端点一致），不新增公开常量。
+     · 完全独立 IIFE，不改 init()、不改任何现有函数、不动手改过的模板。
+     · 任何异常静默降级，绝不影响主应用。 */
+(function companionSync(){
+  'use strict';
+  var BASE = (typeof PUSH_WORKER !== 'undefined' ? PUSH_WORKER : '') || 'https://yezi-push.2451087669.workers.dev';
+  var SECRET = (typeof PUSH_SECRET !== 'undefined' ? PUSH_SECRET : '');
+  if(!SECRET) return; // 没有凭据就不启动
+  var PUSH_INTERVAL = 60000;   // 状态快照每 60s 推一次
+  var PULL_INTERVAL = 15000;   // 动作队列每 15s 拉一次
+
+  function safe(fn, fallback){ try{ return fn(); }catch(e){ console.warn('[companion]', e); return fallback; } }
+
+  var PHRASE_KEY = 'mhm_companion_phrases';
+  var DEFAULT_PHRASES = ['想你了','今天累了','讲点什么'];
+  function phrases(){
+    var arr = safe(function(){
+      var raw = localStorage.getItem(PHRASE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    }, null);
+    if(!Array.isArray(arr) || !arr.length) arr = DEFAULT_PHRASES;
+    return arr.slice(0,3).map(function(p){ return String(p||'').slice(0,32); });
+  }
+  // 供设置页调用：companionSetPhrases(['...','...','...'])
+  try{ window.companionSetPhrases = function(list){
+    if(!Array.isArray(list)) return false;
+    var arr = list.slice(0,3).map(function(p){ return String(p||'').slice(0,32); });
+    try{ localStorage.setItem(PHRASE_KEY, JSON.stringify(arr)); }catch(e){ return false; }
+    pushSnapshot();
+    return true;
+  }; }catch(e){}
+
+  var WEEKDAY_CN = ['周日','周一','周二','周三','周四','周五','周六'];
+  function weekTasks(){
+    var list = safe(function(){ return (typeof loadTasks==='function') ? (tasks||[]) : []; }, []) || [];
+    // 与港窝「本周」口径一致：isWeekTask（周一~周日 + 逾期未完成），已完成的也带上
+    var arr = list.filter(function(t){
+      if(t.cat==='mood') return false;
+      if(typeof isWeekTask==='function') return isWeekTask(t);
+      // 兜底口径：有日期且在近 7 天内
+      var d = t.event_date || t.deadline;
+      if(!d) return false;
+      return d >= new Date(Date.now()-7*86400000).toISOString().slice(0,10);
+    });
+    // 按日期升序、未完成优先（对齐 sortWeekTasks）
+    if(typeof sortWeekTasks==='function') arr = safe(function(){ return sortWeekTasks(arr); }, arr);
+    return arr.slice(0,4).map(function(t){
+      var dateStr = t.event_date || t.deadline || '';
+      var label = '';
+      if(dateStr){
+        var dt = new Date(dateStr+'T00:00:00');
+        if(!isNaN(dt.getTime()))
+          label = WEEKDAY_CN[dt.getDay()] + ' ' + (dt.getMonth()+1) + '/' + dt.getDate();
+      }
+      var days = safe(function(){ return daysTo(dateStr); }, 999);
+      return {
+        text: String(t.title||'').slice(0,48),
+        date: label,
+        time: String(t.time||'').slice(0,10),
+        done: !!t.done,
+        near: (days>=0 && days<=2 && !t.done)
+      };
+    });
+  }
+
+  function buildSnapshot(){
+    var snap = { ts: Date.now() };
+    // 角色此刻（零落为第一页主角）
+    var now = safe(function(){ return (typeof ocNow==='function') ? ocNow() : null; }, null);
+    var who = (typeof ocRoleNames==='function') ? (safe(ocRoleNames,['零落','沈容'])[0]||'零落') : '零落';
+    snap.role_name = who;
+    var frame = now && now.roles && now.roles[0];
+    snap.mood = (frame && frame.mood) ? String(frame.mood).slice(0,24) : '';
+    snap.line = (frame && frame.inner) ? String(frame.inner).slice(0,120) : '';
+    // 天气
+    var w = safe(function(){ return (typeof getAnyCachedWeather==='function') ? getAnyCachedWeather() : (typeof weatherState!=='undefined'?weatherState:null); }, null);
+    snap.weather = (w && w.ok) ? String(w.desc||'天气') + ' ' + (w.temp!=null?w.temp:'--') + '°' : '';
+    // 自定义短语 + 本周任务
+    snap.phrases = phrases();
+    snap.tasks = weekTasks();
+    return snap;
+  }
+
+  function pushSnapshot(){
+    var snap = buildSnapshot();
+    fetch(BASE + '/companion/push', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({secret: SECRET, snapshot: snap})
+    }).catch(function(){ /* 离线静默 */ });
+  }
+
+  function applyActs(acts){
+    if(!acts || !acts.length) return;
+    var changed = false;
+    acts.forEach(function(a){
+      if(a.action==='task_toggle' && typeof a.index==='number'){
+        // 勾选本周视图里第 index 条未完成任务（顺序与 weekTasks 一致）
+        var list = safe(function(){ return (typeof loadTasks==='function') ? (tasks||[]) : []; }, []) || [];
+        var arr = list.filter(function(t){
+          if(t.cat==='mood') return false;
+          if(typeof isWeekTask==='function') return isWeekTask(t);
+          var d = t.event_date || t.deadline;
+          return !!d;
+        });
+        if(typeof sortWeekTasks==='function') arr = safe(function(){ return sortWeekTasks(arr); }, arr);
+        var t = arr[a.index];
+        if(t && typeof loadTasks==='function'){
+          var all = (typeof tasks!=='undefined') ? tasks : [];
+          for(var i=0;i<all.length;i++){ if(all[i].id===t.id){ all[i].done=true; changed=true; break; } }
+        }
+      }
+    });
+    if(changed){
+      safe(function(){ saveLocal(); }, null);
+      safe(function(){ renderList(); }, null);
+      safe(function(){ updateRing(); }, null);
+    }
+  }
+
+  function pullActs(){
+    fetch(BASE + '/companion/acts?secret=' + encodeURIComponent(SECRET), {method:'GET'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(o){ if(o && o.ok && o.acts) applyActs(o.acts); })
+      .catch(function(){ /* 离线静默 */ });
+  }
+
+  // 首次延迟 3s（等 init 完成加载数据），之后定时同步
+  setTimeout(function(){ pushSnapshot(); pullActs(); }, 3000);
+  setInterval(pushSnapshot, PUSH_INTERVAL);
+  setInterval(pullActs, PULL_INTERVAL);
+})();
 
 /* ====== 启动 ====== */
 init();
