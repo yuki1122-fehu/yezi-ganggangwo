@@ -16512,6 +16512,25 @@ const MEM_QUOTE_LINE = 46;        // 单句超过即截断，防一句话吃光�
 const MEM_QUOTE_FRESH_MS = 90000; // 90 秒内刚说过的话不算「回忆」，防 AI 把用户这句话原样复读
 const MEM_QUOTE_MIN_SCORE = 2;    // 相关度低于此分就不带原话 —— 挑不出相关的，宁可只给摘要（错的引用比没有引用更有害）
 const MEM_QUOTE_TERM_HIT = 3;     // 记忆自身的词（event / 标签）原样出现在这句里 = 强信号
+/* ---- 原话路 + 区分度（2026-11-22 晚，方案 B）----
+   起因：体检实测（70 条记忆 / 433 标签 / 1898 对话）—— 她 200 句真实原话里只有 16% 出现了对应记忆的
+   标签词；①带词组 hit@8 97%（库是好的），②不带词组 168 题严格 0 命中、其中 109 题「完全静默」，
+   ③噪声 8/20=40%（麦当劳 / 拼多多 / 肥牛这类日常高频词天天被勾起）。
+   结论：触发词表既不是她的用词（漏 84%），也没有区分度（噪 40%、hit@1 只 50%）。所以两件事一起做：
+     路 A 标签：保留原打分，另加区分度门槛 —— 一个泛词撑不起一条记忆。
+     路 B 原话：把她的原始气泡当检索键（二字组 + DF 过滤），救回「换个说法」的问法。
+     融合用 RRF：只吃排名不吃分数，两条路量纲不同也能并（这是敢并起来的唯一理由）。
+   ⚠️ 每个旋钮都能单独关：MEM_LEX_ON=false 整路关掉；MEM_TAG_MIN_EVID=0 关掉区分度门槛。 */
+const MEM_LEX_ON = true;          // 原话路总开关
+const MEM_LEX_MAX_DF = 0.08;      // 二字组在候选原话里的出现率 >8% 视为泛词，直接丢（今天/觉得/什么）
+const MEM_LEX_MIN_Q = 2;          // 至少要 2 个不同的词同时命中同一句，才算证据
+const MEM_LEX_RARE_DF = 3;        // 或者 1 个极罕见的词（全库 ≤3 句说过）—— 那是专名/独有的事，单独也算
+const MEM_LEX_QUOTA = 3;          // 原话路最多补 3 个位置（8 个位置里标签路仍是主体）
+const MEM_LEX_W = 0.55;           // RRF 里原话路的权重（标签路 = 1.0：它是高精度主力，不能反过来）
+const MEM_LEX_REL = 0.55;         // 相对强度：原话路只留「证据量 ≥ 最强那条 55%」的候选（绝对阈值换不了库，相对值可以）
+const MEM_RRF_K = 60;             // RRF 平滑常数，取标准值；只吃排名，不吃原始分数
+const MEM_TAG_IDF_FLOOR = 0.3;    // 标签区分度下限：1/sqrt(挂了几条记忆)，别让泛词直接归零
+const MEM_TAG_MIN_EVID = 0.5;     // 一条记忆的证据量门槛：单个泛词(≈0.3)不够，两个泛词(0.6)可以，单个专名(1.0)可以
 /* ---- active 字段迁移（09-30 加）----
    09-30 起 entries.active 从「永远写 1 的摆设」升级为真正的软删位（0 = 已淡出）。
    所有读取路径都按 `active === 1` 过滤 ⇒ 若早期版本写下的条目根本没这个字段（undefined），
@@ -17926,6 +17945,146 @@ function memExtractTriggers(userText, tags){
   q.forEach(s=>{ const t = s.slice(1, -1); if(t) set.add(t); });
   return Array.from(set).slice(0, 12);
 }
+/* ---- 路 A：标签字面命中（原逻辑 + 区分度门槛）----
+   返回 [{id, score, hits}]，按原打分降序。
+   score 保持原量纲（权重 × 时近衰减 × 关系加成），面板那个「得分」还是以前的意思；
+   区分度 w = 1/sqrt(这个词挂在几条记忆上) 只用来压分和做门槛 —— 「麦当劳」挂 10 条时，
+   它只能说明"在聊吃的"，说明不了"是哪一次"，所以单独一个它撑不起一条记忆。 */
+function memTagPath(userText, liveTags, idMap){
+  if(!liveTags.length) return [];
+  const triggers = memExtractTriggers(userText, liveTags);
+  if(!triggers.length) return [];
+  const trigSet = new Set(triggers);
+  const df = new Map();
+  for(const tg of liveTags){
+    if(!df.has(tg.tag)) df.set(tg.tag, new Set());
+    df.get(tg.tag).add(String(tg.entry_id));
+  }
+  const idf = t=>{
+    const n = (df.get(t) && df.get(t).size) || 1;
+    return Math.max(MEM_TAG_IDF_FLOOR, 1 / Math.sqrt(n));
+  };
+  const now = Date.now();
+  const scores = {};
+  for(const tg of liveTags){
+    if(!trigSet.has(tg.tag)) continue;
+    const e = idMap[tg.entry_id];
+    if(!e) continue;
+    const ageDays = Math.max(0, (now - new Date(e.created_at).getTime()) / 86400000);
+    const decay = Math.exp(-ageDays / 30);
+    const boost = MEM_REL_BOOST[tg.tag] || 1;
+    const w = idf(tg.tag);
+    const s = scores[e.id] || {score: 0, evid: 0, hits: []};
+    s.score += (tg.weight || 1) * decay * boost * w;
+    s.evid += w;
+    if(s.hits.indexOf(tg.tag) < 0) s.hits.push(tg.tag);
+    scores[e.id] = s;
+  }
+  return Object.keys(scores)
+    .filter(id => scores[id].evid >= MEM_TAG_MIN_EVID)
+    .map(id => ({ id: Number(id), score: scores[id].score, hits: scores[id].hits }))
+    .sort((a, b) => b.score - a.score);
+}
+/* ---- 路 B：原话路（治「换个说法就失忆」）----
+   拿她的原始气泡当检索键：抽二字组 → DF 过滤泛词 → 同一句里命中 ≥2 个不同的词才算证据。
+   只扫「被某条活记忆引用过的气泡」：没被引用的气泡反查不出记忆，扫了也白扫。
+   ⚠️ 门槛不能只数个数：中文一句话才十来个字，要求 3 个词共现几乎永不成立 ⇒
+      「≥2 个不同词」或「1 个极罕见的词（全库 ≤3 句说过，那是专名）」二者之一即可。 */
+function memLexGrams(text){
+  const s = String(text || '').replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '');
+  const set = new Set();
+  for(let i = 0; i + 1 < s.length; i++){
+    const g = s.slice(i, i + 2).toLowerCase();
+    if(/^[0-9]+$/.test(g)) continue;   // 纯数字（日期/金额/序号）没有区分度
+    set.add(g);
+  }
+  return set;
+}
+/* 把命中的二字组还原成「问句和那句原话真正共有的片段」：
+   二字组本身就是连续窗口，直接合并会把整句显示出来（毫无信息）；
+   所以要往两边扩，扩到该片段不再出现在原话里为止 ⇒ 招牌+牌的+的事 → 「招牌的事」。 */
+function memLexRuns(q, t, grams){
+  const out = [];
+  const seen = new Set();
+  for(const g of (grams || [])){
+    let i = q.indexOf(g);
+    while(i >= 0){
+      let l = i, r = i + g.length;
+      while(l > 0 && t.indexOf(q.slice(l - 1, r)) >= 0) l--;
+      while(r < q.length && t.indexOf(q.slice(l, r + 1)) >= 0) r++;
+      const s = q.slice(l, r);
+      if(s && !seen.has(s)){ seen.add(s); out.push(s); }
+      i = q.indexOf(g, i + 1);
+    }
+  }
+  // 去掉被更长片段包含的短片段（「招牌」已包含在「招牌的事」里就不再单独列）
+  return out.filter(a => !out.some(b => b !== a && b.indexOf(a) >= 0));
+}
+function memLexPath(userText, active, msgs){
+  if(!MEM_LEX_ON || !msgs || !msgs.length) return [];
+  const midToEntry = new Map();
+  for(const e of active){
+    const arr = Array.isArray(e.source_mids) ? e.source_mids : [];
+    for(const mm of arr){
+      const k = String(mm);
+      if(!midToEntry.has(k)) midToEntry.set(k, []);
+      midToEntry.get(k).push(e.id);
+    }
+  }
+  if(!midToEntry.size) return [];
+  const qg = Array.from(memLexGrams(userText)).slice(0, 60);
+  if(qg.length < 2) return [];
+  const rows = [];
+  for(const m of msgs){
+    if(!m || !m.mid || !m.content) continue;
+    if(!midToEntry.has(String(m.mid))) continue;
+    rows.push({ mid: String(m.mid), t: String(m.content).toLowerCase() });
+  }
+  if(!rows.length) return [];
+  const cap = Math.max(2, Math.floor(rows.length * MEM_LEX_MAX_DF));
+  /* ⚠️ 「只需 1 个极罕见的词」这条捷径必须在语料够大时才成立：
+     实测小库（29 条消息）里「有点」「今天」只出现在 2-3 句 ⇒ 被当成罕见专名，
+     于是「我有点困了先睡」这种闲聊也会勾起回忆。语料小于 200 句时，「罕见」没有统计意义，
+     这条捷径直接关掉，老实要求 2 个词共现。 */
+  const allowRare = rows.length >= 200;
+  const usable = [];
+  for(const g of qg){
+    let c = 0;
+    for(const r of rows){ if(r.t.indexOf(g) >= 0) c++; }
+    if(c >= 1 && c <= cap) usable.push({ g: g, c: c });
+  }
+  if(!usable.length) return [];
+  const scored = [];
+  for(const r of rows){
+    let sc = 0, cnt = 0, rare = false;
+    const grams = [];
+    for(const u of usable){
+      if(r.t.indexOf(u.g) < 0) continue;
+      sc += Math.log((rows.length + 1) / (u.c + 0.5));   // idf：越罕见的词越值钱
+      cnt++; grams.push(u.g);
+      if(u.c <= MEM_LEX_RARE_DF) rare = true;
+    }
+    if(!cnt) continue;
+    if(cnt < MEM_LEX_MIN_Q && !(rare && allowRare)) continue;
+    scored.push({ mid: r.mid, sc: sc, cnt: cnt, grams: grams, t: r.t });
+  }
+  if(!scored.length) return [];
+  scored.sort((a, b) => (b.sc - a.sc) || (b.cnt - a.cnt));
+  const qs = String(userText || '');
+  const best = new Map();
+  for(const s of scored.slice(0, 80)){
+    for(const id of (midToEntry.get(s.mid) || [])){
+      const cur = best.get(String(id));
+      if(!cur || s.sc > cur.lexScore) best.set(String(id), { id: id, lexScore: s.sc, grams: s.grams.slice(0, 6), runs: memLexRuns(qs, s.t, s.grams).slice(0, 4) });
+    }
+  }
+  const out = Array.from(best.values()).sort((a, b) => b.lexScore - a.lexScore);
+  // 相对强度过滤：同一句问话里，只留「证据量和最强那条差不多」的候选。
+  // 绝对阈值换不了库（idf 随语料规模变），相对值可以 —— 弱匹配自动掉队，不再占满名额。
+  if(!out.length) return [];
+  const top = out[0].lexScore;
+  return out.filter(x => x.lexScore >= top * MEM_LEX_REL);
+}
 // pre（可选）= {tags, entries, msgs} 预读快照。只给「召回体检」用：一次读库、几百题复用，
 // 免得每题都 getAll 三个 store（300 题 × 全表扫描会把手机卡住）。不传则与旧行为完全一致。
 async function memMagnetRecall(userText, k, pre){
@@ -17935,30 +18094,43 @@ async function memMagnetRecall(userText, k, pre){
     const tags = (pre && pre.tags) || await memGetAll('tags');
     const entries = (pre && pre.entries) || await memGetAll('entries');
     const active = entries.filter(e=>e.active === 1 && e.event && e.summary); // 无 event 的旧流水账 / 已淡出的都不进召回
-    if(!tags.length || !active.length) return [];
+    if(!active.length) return [];
     const idMap = {}; active.forEach(e=>idMap[e.id] = e);
     // 只在「活着的条目」的标签里找触发词：淡出条目的标签若也参与，会把 triggers 的 12 个名额占满，挤掉真正该命中的
     const liveTags = tags.filter(tg=> tg && idMap[tg.entry_id]);
-    const triggers = memExtractTriggers(userText, liveTags);
-    if(!triggers.length) return [];
-    const trigSet = new Set(triggers);
-    const now = Date.now();
-    const scores = {};
-    for(const tg of liveTags){
-      if(!trigSet.has(tg.tag)) continue;
-      const e = idMap[tg.entry_id];
-      const ageDays = Math.max(0, (now - new Date(e.created_at).getTime()) / 86400000);
-      const decay = Math.exp(-ageDays / 30);
-      const boost = MEM_REL_BOOST[tg.tag] || 1;
-      const s = scores[e.id] || {score: 0, e, hits: []};
-      s.score += (tg.weight || 1) * decay * boost;
-      if(s.hits.indexOf(tg.tag) < 0) s.hits.push(tg.tag);
-      scores[e.id] = s;
-    }
-    const list = Object.values(scores).sort((a,b)=>b.score-a.score).slice(0, k);
-    if(!list.length) return [];
-    // 原话回溯：只给真正命中的记忆去捞原文；没命中的一条 messages 都不碰
     const msgs = (pre && pre.msgs) || await memGetAll('messages');
+    /* ⚠️ 旧版这里有一句 `if(!triggers.length) return []`，那正是原话路加不进来的根：
+       她 84% 的真实原话里一个标签词都没有，于是每一轮在这里就整块静默了。
+       现在两条路各自出候选，谁有货谁上，最后由 RRF 合并。 */
+    const tagRanked = memTagPath(userText, liveTags, idMap);
+    let lexRanked = [];
+    if(MEM_LEX_ON){
+      try{ lexRanked = memLexPath(userText, active, msgs); }catch(e){ lexRanked = []; }
+    }
+    if(!tagRanked.length && !lexRanked.length) return [];
+    /* RRF 融合：rrf = Σ w /(K + 该路排名)。两路量纲完全不同（标签是「权重×衰减」，原话是 idf 累加），
+       直接相加没有意义；RRF 只吃排名，天然免标定 —— 这是两条异构路敢并起来的唯一理由。 */
+    const fused = new Map();
+    tagRanked.forEach((it, i)=>{
+      fused.set(String(it.id), { id: it.id, rrf: 1 / (MEM_RRF_K + i + 1), src: 'tag',
+                                 tagScore: it.score, hits: it.hits, lexGrams: [], lexRuns: [] });
+    });
+    lexRanked.forEach((it, i)=>{
+      const add = MEM_LEX_W / (MEM_RRF_K + i + 1);
+      const key = String(it.id);
+      const cur = fused.get(key);
+      if(cur){ cur.rrf += add; cur.src = 'both'; cur.lexGrams = it.grams; cur.lexRuns = it.runs || []; }
+      else fused.set(key, { id: it.id, rrf: add, src: 'lex', tagScore: 0, hits: [], lexGrams: it.grams, lexRuns: it.runs || [] });
+    });
+    let list = Array.from(fused.values()).sort((a, b) => (b.rrf - a.rrf) || (b.tagScore - a.tagScore));
+    // 配额：原话路最多补 MEM_LEX_QUOTA 个位置。不封顶的话，几个常见的二字组就能把真命中挤出去。
+    let lexUsed = 0;
+    list = list.filter(x=>{
+      if(x.src !== 'lex') return true;
+      if(lexUsed >= MEM_LEX_QUOTA) return false;
+      lexUsed++; return true;
+    }).slice(0, k);
+    if(!list.length) return [];
     /* ★ 2026-10-21 给每条记忆算出「它发生在哪天」：
        created_at 是**最近一次写入/合并**的时间，对仍在推进的事件会偏新（今天刚更新 ⇒ 显示"今天"，
        而它可能两个月前就开始了）。所以优先取 source_mids 里最早的原料消息时间（合并时 mid 是累加的，
@@ -17976,23 +18148,29 @@ async function memMagnetRecall(userText, k, pre){
       }
       return t;
     };
-    // 挑原话时要「这条记忆自己的词」：命中标签 + 这条记忆的全部标签（都描述它，都能当取材线索）
+    // 挑原话时要「这条记忆自己的词」：命中标签 + 这条记忆的全部标签 + 原话路命中的二字组（都描述它）
     const tagMap = {};
     for(const tg of liveTags){ (tagMap[tg.entry_id] = tagMap[tg.entry_id] || []).push(tg.tag); }
     return list.map(item=>{
-      const firstAt = firstAtOf(item.e);
+      const e = idMap[item.id];
+      if(!e) return null;
+      const firstAt = firstAtOf(e);
       return {
-        id: item.e.id,
-        event: item.e.event || '',
-        status: item.e.status || 'done',
-        summary: item.e.summary || '',
-        score: Math.round(item.score * 1000) / 1000,
-        hits: item.hits,
+        id: e.id,
+        event: e.event || '',
+        status: e.status || 'done',
+        summary: e.summary || '',
+        score: Math.round(item.rrf * 1000) / 1000,
+        tagScore: Math.round((item.tagScore || 0) * 1000) / 1000,
+        src: item.src,                     // tag / both / lex：面板要能看出「它凭什么进来」
+        hits: item.hits || [],
+        lexGrams: item.lexGrams || [],
+        lexRuns: item.lexRuns || [],
         firstAt: firstAt,
         when: memWhenLabel(firstAt),   // '10-18 · 3天前'，由 memFormatMagnetBlock 写进注入块
-        quotes: memQuotesOf(item.e, msgs, item.hits.concat(tagMap[item.e.id] || []))
+        quotes: memQuotesOf(e, msgs, (item.hits || []).concat(tagMap[e.id] || []).concat(item.lexGrams || []))
       };
-    });
+    }).filter(Boolean);
   }catch(e){ console.warn('[mem] recall', e); return []; }
 }
 // 从原料气泡里回看原话（Stone Memory 的「摘要能走回原话」）。
@@ -18286,7 +18464,8 @@ async function memProbe(){
     const hits = await memMagnetRecall(q, 12);
     if(!hits.length){
       out.innerHTML = '<span style="color:var(--ink-soft);">没有命中 —— 这句话进 AI 时不会带上回忆。'
-        + '常见原因：触发词不在任何标签里（打标时挑的 keyword 太偏），或者那条记忆已经淡出。</span>';
+        + '两条路都没找到：①标签里没有你这句话里的词（打标挑的 keyword 太书面）②你的原话里没有两个以上能对上这句的词。'
+        + '也可能是那条记忆已经淡出。</span>';
       return;
     }
     const built = memFormatMagnetBlock(hits);
@@ -18296,7 +18475,12 @@ async function memProbe(){
       html += '<div style="padding:6px 0;border-bottom:1px solid var(--ink-faint);' + (inBlock ? '' : 'opacity:.42;') + '">'
         + '<div>' + (i + 1) + '. ' + escHtml(h.summary || '（无摘要）') + (inBlock ? '' : ' · 超预算未注入') + '</div>'
         + (h.event ? '<div style="font-size:11px;color:var(--green-dark);">◇ ' + escHtml(h.event) + ' · ' + escHtml(h.status) + '</div>' : '')
-        + '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">命中 ' + escHtml((h.hits || []).join(' / '))
+        + '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;">'
+          + (h.src === 'lex'
+              ? ('🔗 来源：原话（词 ' + escHtml((h.lexRuns && h.lexRuns.length ? h.lexRuns : (h.lexGrams || [])).join(' · ')) + '）')
+              : (h.src === 'both'
+                  ? ('🔗 来源：标签＋原话（' + escHtml((h.hits || []).join(' / ')) + ' ｜ ' + escHtml((h.lexRuns && h.lexRuns.length ? h.lexRuns : (h.lexGrams || [])).join(' · ')) + '）')
+                  : ('命中 ' + escHtml((h.hits || []).join(' / ')))))
           + ' · 得分 ' + h.score + ' · '
           + ((h.quotes && h.quotes.length)
               ? ('原话 ' + h.quotes.length + ' 句（相关度 ' + h.quotes.map(q=>q.score).join('/') + '）')
@@ -18426,18 +18610,20 @@ function _memEvalBuild(entries, msgs, tags){
 // 跑一组：返回每条题的命中排名（1-based，0 = 没想起）
 async function _memEvalScore(items, pre){
   const ranks = [], miss = [];
-  let near = 0;
+  let near = 0, saved = 0;
   for(let i = 0; i < items.length; i++){
     const it = items[i];
     let hits = [];
     try{ hits = await memMagnetRecall(it.q, MEM_EVAL_K, pre) || []; }catch(e){ hits = []; }
     const ids = hits.map(h => h.id);
-    let best = 0;
+    let best = 0, bestHit = null;
     for(const g of (it.gold || [])){
       const idx = ids.indexOf(g);
-      if(idx >= 0 && (!best || (idx + 1) < best)) best = idx + 1;
+      if(idx >= 0 && (!best || (idx + 1) < best)){ best = idx + 1; bestHit = hits[idx]; }
     }
     ranks.push(best);
+    // saved＝这条**只靠原话路**才想起（标签路本来命不中）。这是「加原话路到底值多少」的直接证据。
+    if(best && bestHit && bestHit.src === 'lex') saved++;
     if(!best){
       // ⚠️ 「想起了别的条目」不等于「完全没反应」，也不能直接叫「相关」——相关性我判定不了。
       //    所以只如实记「召回返回了东西」，命中率照旧严格。
@@ -18448,7 +18634,7 @@ async function _memEvalScore(items, pre){
     }
     if(i % 40 === 39) await new Promise(r => setTimeout(r, 0)); // 让出主线程，手机上不假死
   }
-  return { ranks, miss, near };
+  return { ranks, miss, near, saved };
 }
 function _memEvalStat(ranks){
   const n = ranks.length;
@@ -18486,11 +18672,11 @@ function _memEvalVerdict(s){
     else t.push('你的原话里 ' + _memEvalPct(cov) + ' 就含标签词：标签基本是从你的话里来的，字面匹配这条路还算通。');
   }
   if(ug.n){
-    const near = ug.near || 0;
-    const tail = near ? '；另有 ' + near + ' 题召回了别的条目（不是完全没反应）' : '';
-    if(ug.h8 >= 0.5) t.push('② 不带词也能想起 ' + _memEvalPct(ug.h8) + '：靠的是同批多标签和泛词兜底，加原话路的收益有限，先别加复杂度。');
-    else if(ug.h8 >= 0.2) t.push('② 不带词 ' + _memEvalPct(ug.h8) + '：换个说法就漏掉大半（' + ug.n + ' 题里精确命中 ' + Math.round(ug.h8 * ug.n) + ' 题' + tail + '），原话路能补上一块。');
-    else t.push('② 不带词只有 ' + _memEvalPct(ug.h8) + '（' + ug.n + ' 题里精确命中 ' + Math.round(ug.h8 * ug.n) + ' 题' + tail + '）：换个说法基本等于失忆 —— 这是「加原话路」最硬的依据。');
+    if(ug.h8 >= 0.5) t.push('② 不带词也能想起 ' + _memEvalPct(ug.h8) + '：换说法基本罩得住，别再往里加复杂度了。');
+    else if(ug.h8 >= 0.2) t.push('② 不带词 ' + _memEvalPct(ug.h8) + '：换个说法会漏掉大半（' + ug.n + ' 题里命中 ' + Math.round(ug.h8 * ug.n) + '），原话路还有得调。');
+    else t.push('② 不带词只有 ' + _memEvalPct(ug.h8) + '（' + ug.n + ' 题里命中 ' + Math.round(ug.h8 * ug.n) + '）：换个说法基本等于失忆。');
+    if(ug.saved) t.push('↳ 其中 ' + ug.saved + ' 题是「原话路」救回来的（标签路本来一个都命不中）—— 这一路值多少，看的就是这个数。');
+    if(ug.near) t.push('↳ 另有 ' + ug.near + ' 题召回了别的条目：不是完全没反应，但也不是该想起的那条。');
   }
   if(s.noise && s.noise.n){
     if(s.noise.rate <= 0.15) t.push('③ 噪声组安静：日常闲聊不会乱带回忆。');
@@ -18512,6 +18698,7 @@ function _memEvalHtml(p, base){
     + '库规模：记忆 ' + (N.entries || 0) + ' 条（淡出 ' + (N.faded || 0) + '）· 标签 ' + (N.tags || 0) + ' 个 · 对话 ' + (N.msgs || 0) + ' 条'
     + '<br>本次 ' + _memEvalTime(p.at) + ' · 耗时 ' + ((p.dur || 0) / 1000).toFixed(1) + ' 秒'
     + (base && base.at ? (' · 对比基线 ' + _memEvalTime(base.at)) : ' · 还没存基线')
+    + ' · 原话路 ' + (MEM_LEX_ON ? ('开（配额 ' + MEM_LEX_QUOTA + '）') : '关')
     + '</div>';
   const row = (title, st, old, note) => {
     if(!st || !st.n) return '';
@@ -18554,7 +18741,8 @@ function _memEvalHtml(p, base){
       + '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;line-height:1.6;">0 题 —— 没有一句原话含标签词，这组没法测。这本身就是个结论。</div></div>';
   }
   const ugNote = '真实水平：她换个说法（原话里没有标签词）还能不能想起 —— 这组才是线上真碰到的场景'
-    + ((s.untagged && s.untagged.near) ? ('；其中 ' + s.untagged.near + ' 题召回了别的条目') : '');
+    + ((s.untagged && s.untagged.saved) ? ('；其中 ' + s.untagged.saved + ' 题靠原话路想起') : '')
+    + ((s.untagged && s.untagged.near) ? ('；另有 ' + s.untagged.near + ' 题召回了别的条目') : '');
   h += row('② 原话·不带标签词', s.untagged, bs && bs.untagged, ugNote);
   if(!un){
     h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
@@ -18672,8 +18860,8 @@ async function memEvalRun(btn){
     const topTags = Array.from(tagHits.entries()).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
       .slice(0, 5).map(o => ({ tag: o[0], n: o[1] }));
     const tagStr = id => (tagOf.get(id) || []).join(' / ');
-    const tgStat = _memEvalStat(rp.ranks); tgStat.near = rp.near;
-    const ugStat = _memEvalStat(ug.ranks); ugStat.near = ug.near;
+    const tgStat = _memEvalStat(rp.ranks); tgStat.near = rp.near; tgStat.saved = rp.saved;
+    const ugStat = _memEvalStat(ug.ranks); ugStat.near = ug.near; ugStat.saved = ug.saved;
     const payload = {
       v: MEM_EVAL_VER,
       at: Date.now(),
