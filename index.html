@@ -16547,6 +16547,20 @@ const MEM_LEX_REL = 0.60;         // 相对强度：原话路只留「证据量 
        商家名只出现在一句里。→ 换一句的召回基本不动，噪声显著下降。
    参数留在 MEM_LEX_ANCHOR：0=关（对照用）/1=长度闸/2=互证闸。 */
 const MEM_LEX_ANCHOR = 2;         // 0=关 1=长度闸 2=互证闸（默认）
+/* ★ 跨记忆泛词闸（2026-11-22 夜，第二次真实库体检后新增）：
+   前面三道闸的分母都是「候选原话行数」（1120 句），于是「功课」「香港身份证」「内地」「港币」
+   这类词照样过闸 —— 它们在她的记忆语料里确实只出现几行，可她 70 条记忆里有一半都提到过功课，
+   这个词根本不指向任何一条具体的事。分母选错了，问的问题也就错了。
+   换一个问题：「这个词到底能指向几条记忆？」
+     「四宝饭」「冻柠茶」只出现在 1~2 条记忆里 ⇒ 专名，值钱；
+     「麦当劳」「功课」横跨好几条 ⇒ 场景词，零指向性。
+   所以：某二字组覆盖的记忆条数 ≥ max(4, 条数×6%) ⇒ 从原话路剔除（标签路照旧可用它，那里有区分度加权）。
+   ⚠️ 只数「不同记忆」，同一记忆的多句原话重复提到只算 1 条 —— 那正是「主题」的样子。 */
+const MEM_LEX_XDOC = 0.06;
+/* 含数字的二字组（「5港」「6块」「8块」「20块」）整类不当证据：
+   她一天要买好几样东西，金额在闲聊里遍地都是，而它们在全库"罕见"只是因为同一笔钱只会说一两次
+   —— 稀有度判据在这类词上天然失效，只能整类排除。留个开关方便对照。 */
+const MEM_LEX_NUMGATE = true;
 /* ★ 停用词表：中文口语的功能词/泛词。它们在任何语境都出现，本身零区分度，
    却能两两共现凑够「≥2 个词」的准入条件 —— 这是真实库里噪声的第一来源
    （实测：20 句闲聊 20 句误召，全是「反正+不过」「准备+收拾」这种搭配）。
@@ -18062,12 +18076,14 @@ function memLexRuns(q, t, grams){
    现在按「同一批 msgs 数组」缓存一次倒排表（词 → 出现过它的行号），评分只碰真正含这个词的行。
    体检传的是同一个 pre.msgs 引用 ⇒ 第一题建表、后面复用；真实对话每轮是新数组 ⇒ 等价于不缓存。 */
 const _memLexCache = new WeakMap();
-function _memLexIndex(msgs, rows){
-  const fp = rows.length + '|' + (rows[0] ? rows[0].mid : '') + '|' + (rows[rows.length - 1] ? rows[rows.length - 1].mid : '');
+function _memLexIndex(msgs, rows, midToEntry){
+  const fp = rows.length + '|' + (rows[0] ? rows[0].mid : '') + '|' + (rows[rows.length - 1] ? rows[rows.length - 1].mid : '')
+           + '|' + ((midToEntry && midToEntry.size) || 0);
   let c = _memLexCache.get(msgs);
   if(c && c.fp === fp) return c;
   const inv = new Map();
   const mt = new Map();   // mid → 原文（互证要用：数「这条记忆有几句原话提到过这个词」）
+  const rg = [];          // 每行的词集合：建跨记忆覆盖表要用（见 MEM_LEX_XDOC）
   for(const m of msgs){ if(m && m.mid && m.content) mt.set(String(m.mid), String(m.content).toLowerCase()); }
   for(let i = 0; i < rows.length; i++){
     const s = rows[i].t.replace(/[^\u4e00-\u9fa5a-z0-9]/g, '');
@@ -18080,8 +18096,25 @@ function _memLexIndex(msgs, rows){
       if(!arr){ arr = []; inv.set(g, arr); }
       arr.push(i);
     }
+    rg.push(seen);
   }
-  c = { fp: fp, inv: inv, mt: mt };
+  /* 跨记忆覆盖：先按【记忆】把它的全部原话词并成一个集合，再让每个词 +1。
+     按记忆去重而不是按行 —— 同一件事说十句，这不叫「泛」，那叫「主要话题」。 */
+  const xdf = new Map();
+  if(midToEntry && midToEntry.size){
+    const perEntry = new Map();
+    for(let i = 0; i < rows.length; i++){
+      const ids = midToEntry.get(rows[i].mid) || [];
+      for(const id of ids){
+        const k = String(id);
+        let s = perEntry.get(k);
+        if(!s){ s = new Set(); perEntry.set(k, s); }
+        for(const g of rg[i]) s.add(g);
+      }
+    }
+    for(const s of perEntry.values()) for(const g of s) xdf.set(g, (xdf.get(g) || 0) + 1);
+  }
+  c = { fp: fp, inv: inv, mt: mt, xdf: xdf };
   _memLexCache.set(msgs, c);
   return c;
 }
@@ -18141,9 +18174,16 @@ function memLexPath(userText, active, msgs){
   const n = rows.length;
   const cap = Math.max(2, Math.floor(n * MEM_LEX_MAX_DF));
   const gate = Math.max(3, Math.floor(n * MEM_LEX_GATE_DF));
-  const idx = _memLexIndex(msgs, rows);
+  const idx = _memLexIndex(msgs, rows, midToEntry);
+  /* 跨记忆泛词门槛（见 MEM_LEX_XDOC）：覆盖 ≥ xcap 条记忆的词不指向任何一条，当检索键没有意义。 */
+  const xcap = Math.max(4, Math.floor(active.length * MEM_LEX_XDOC));
   const usable = [];
   for(const g of qg){
+    /* 含数字的二字组（「5港」「6块」「8块」「20块」）不算证据：
+       她一天要买好几样东西，金额和数量在闲聊里遍地都是，而它们在全库里"罕见"只是因为
+       同一笔钱只会被说一两次 —— 稀有度判据在这里天然失效，只能整类排除。 */
+    if(MEM_LEX_NUMGATE && /[0-9]/.test(g)) continue;
+    if((idx.xdf.get(g) || 0) >= xcap) continue;
     const c = (idx.inv.get(g) || []).length;
     if(c >= 1 && c <= cap) usable.push({ g: g, c: c });
   }
@@ -18642,7 +18682,12 @@ function memProbeOpen(){
    所以 v2 的②测的不是「换说法能否想起」，而是「索引能不能查到它自己」。
    v3 改成**留出测试**：拿同一件事的【另一句】原话当问题，并把这一句从检索语料里拿掉，
    它才第一次真正测到泛化。另：视觉转写块不再当考题（它不是你说话，永远召不回＝假 miss）。 */
-const MEM_EVAL_VER = 3;
+/* ⚠️ v4（2026-11-22 傍晚）只改「怎么读」，不改召回：
+   v3 把「主题词题」和「背景词题」混在一起算 ②，58% 看起来像「一半想不起」，
+   其实里面有一批题问的是当天顺口说过的闲事，答案本身就不该是那条记忆。
+   v4 给每道 ② 题标 theme（线索词是否写在这条记忆的事件名/摘要里），两档分开报。
+   ⇒ 数字与 v3 不可比（题没变、算法没变，只是拆开算），基线自动作废。 */
+const MEM_EVAL_VER = 4;
 const MEM_EVAL_K = 8;          // 与真实注入的 MEM_RECALL_K 对齐：测的就是线上那一次召回
 const MEM_EVAL_NOISE_N = 20;   // 噪声组样本数
 const MEM_EVAL_MAX_Q = 200;    // 单组题量上限（手机耗时闸门）
@@ -18776,9 +18821,18 @@ function _memEvalBuild(entries, msgs, tags){
       }
       return best;
     });
+    /* ★ 线索词分两种，混在一起算分是 v3 最大的解释盲区（v4 拆开）：
+       「主题词」＝ 这个词写在这条记忆自己的事件名/摘要里（「冻柠茶」「四宝饭」「微波炉」）。
+         她换一句话再提它 ⇒ 应该想起这条，想不起就是召回的真问题。
+       「背景词」＝ 只在同批闲聊里出现过（那天顺口说到「老火汤」「清炒时蔬」）。
+         这种事她再提一次也未必该想起这条记忆 —— 拿它出题，答案本身就不成立。
+       v3 的 58% 里混着一批背景题，读起来像「召回只有一半」，其实是题目答不了。
+       所以每条题标 theme，报告里两档分开算，让她看清卡在哪。 */
+    const ownTxt = (String(e.event || '') + String(e.summary || '') + String(e.detail || '')).toLowerCase();
     for(let i = ok.length - 1; i >= 0; i--){      // 从最后一句往前，取第一句没被别的题占用的
       if(!useful[i] || held.has(ok[i].mid)) continue;
-      para.push({ q: ok[i].q.slice(0, 300), gold: [e.id], hold: ok[i].mid, clue: useful[i], kind: 'para' });
+      para.push({ q: ok[i].q.slice(0, 300), gold: [e.id], hold: ok[i].mid, clue: useful[i], kind: 'para',
+                  theme: ownTxt.indexOf(useful[i]) >= 0 });
       held.add(ok[i].mid);
       break;
     }
@@ -18860,9 +18914,21 @@ function _memEvalVerdict(s){
   }
   if(par.n){
     const p8 = _memEvalPct(par.h8);
-    if(par.h8 >= 0.7) t.push('② 换一句问同一件事，想起 ' + p8 + '：原话路在真泛化，不只是「原话原样」自命中。');
-    else if(par.h8 >= 0.4) t.push('② 换一句想起 ' + p8 + '（' + par.n + ' 题里 ' + Math.round(par.h8 * par.n) + ' 题）：同一件事两句话措辞差得远就捞不回一半。字符匹配到这儿基本到顶，再往上要语义。');
-    else t.push('② 换一句只有 ' + p8 + '：原话路主要靠「原话原样」自命中，换个说法就找不到 —— 这是字符匹配的天花板，不是参数没调好。');
+    const pt = s.paraTheme, pb = s.paraBg;
+    /* ★ 结论只按「主题词」那一档下（v4）：混在一起看的时候，一堆「那天顺口说过的闲事」
+       会把分数拖低，看起来像召回坏了，其实是题本身没有答案（见 _memEvalBuild 里的分档注释）。 */
+    if(pt && pt.n){
+      if(pt.h8 >= 0.8) t.push('② 她说起同一件事、句子里带着这条记忆的主题词时，想起 ' + _memEvalPct(pt.h8) + '（' + pt.n + ' 题）：原话路在真泛化，换个说法也记得住。');
+      else if(pt.h8 >= 0.5) t.push('② 主题词那档想起 ' + _memEvalPct(pt.h8) + '（' + pt.n + ' 题）：一半左右能捞回 —— 同一件事两句话措辞差得远时，字符匹配抓不住，这已经是字面匹配的天花板。');
+      else t.push('② 主题词那档只有 ' + _memEvalPct(pt.h8) + '（' + pt.n + ' 题）：连她自己说过的主题词都捞不回，这是真问题（闸门太紧，或标签和原话两边都漏）。');
+      if(pb && pb.n) t.push('↳ 另有 ' + pb.n + ' 题的问句只沾到那天的背景词（想起 ' + _memEvalPct(pb.h8) + '）：这档的「该想起」本来就不成立，不该算进故障。两档合起来才是 ' + p8 + '（' + par.n + ' 题）。');
+    }else if(par.h8 >= 0.7){
+      t.push('② 换一句问同一件事，想起 ' + p8 + '：原话路在真泛化，不只是「原话原样」自命中。');
+    }else if(par.h8 >= 0.4){
+      t.push('② 换一句想起 ' + p8 + '（' + par.n + ' 题里 ' + Math.round(par.h8 * par.n) + ' 题）：同一件事两句话措辞差得远就捞不回一半。字符匹配到这儿基本到顶，再往上要语义。');
+    }else{
+      t.push('② 换一句只有 ' + p8 + '：原话路主要靠「原话原样」自命中，换个说法就找不到 —— 这是字符匹配的天花板，不是参数没调好。');
+    }
     if(par.saved) t.push('↳ 其中 ' + par.saved + ' 题是「原话路」救回来的（标签路本来一个都命不中）—— 这一路值多少，看的就是这个数。');
     if(par.near) t.push('↳ 另有 ' + par.near + ' 题召回了别的条目：不是完全没反应，但也不是该想起的那条。');
   }else if(par && !par.n){
@@ -18932,9 +18998,12 @@ function _memEvalHtml(p, base){
       + '<b style="font-size:12px;">① 原话·带标签词</b>'
       + '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;line-height:1.6;">0 题 —— 没有一句原话含标签词，这组没法测。这本身就是个结论。</div></div>';
   }
+  const pt = s.paraTheme, pb = s.paraBg;
   const paNote = '真泛化：问句是「同一件事的另一句原话」，而且这一句已经从库里拿掉（不给它自匹配的机会）'
-    + ((s.para && s.para.saved) ? ('；其中 ' + s.para.saved + ' 题靠原话路想起') : '')
-    + ((s.para && s.para.near) ? ('；另有 ' + s.para.near + ' 题召回了别的条目') : '');
+    + ((pt && pt.n) ? ('<br>↳ 问句提到了这条记忆的<b>主题词</b> ' + pt.n + ' 题：hit@8 ' + _memEvalPct(pt.h8) + '（这一档答不中才算召回真问题）') : '')
+    + ((pb && pb.n) ? ('<br>↳ 问句只沾到那天的<b>背景词</b> ' + pb.n + ' 题：hit@8 ' + _memEvalPct(pb.h8) + '（这档答案本来就不是它，别拿它当故障）') : '')
+    + ((s.para && s.para.saved) ? ('<br>其中 ' + s.para.saved + ' 题是标签路一个都命不中、全靠原话路想起的') : '')
+    + ((s.para && s.para.near) ? ('；另有 ' + s.para.near + ' 题召回了别的条目（不是静默，但也不是该想起的那条）') : '');
   h += row('② 换一句问同一件事', s.para, bs && bs.para, paNote);
   if(!pn){
     h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
@@ -18948,6 +19017,9 @@ function _memEvalHtml(p, base){
       +   '<span style="font-size:10px;color:var(--ink-soft);">' + s.noise.n + ' 题</span></div>'
       + '<div style="font-size:11px;margin-top:3px;">误带出回忆 ' + s.noise.fired + ' 条 · '
       +   _memEvalPct(s.noise.rate) + _memEvalDelta(s.noise.rate, bs && bs.noise && bs.noise.rate) + '（越低越安静）</div>'
+      + (s.noise.by ? ('<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;line-height:1.6;">勾它的路：标签 '
+          + (s.noise.by.tag || 0) + ' 条 / 标签＋原话 ' + (s.noise.by.both || 0) + ' 条 / 纯原话 ' + (s.noise.by.lex || 0)
+          + ' 条 —— 标签勾的要你删标签或加限定，原话勾的是闸门的事</div>') : '')
       + '</div>';
   }else if(s.noise){
     // 不静默消失：0 题要说清是"样本不够"还是"没测"，否则会被当成这一组不存在
@@ -18971,6 +19043,8 @@ function _memEvalHtml(p, base){
         + '<div>问：' + escHtml(m.q) + '</div>'
         + '<div style="color:var(--ink-soft);">该想起：' + escHtml(m.event || m.summary || '（无事件名）')
         + ' · 它的标签 ' + escHtml(m.tags || '（无）')
+        + (m.clue ? (' · 线索词「' + escHtml(m.clue) + '」') : '')
+        + (m.theme === false ? '（只是背景，不是这条的主题）' : '')
         + (m.srcN ? (' · 另有 ' + (m.srcN - 1) + ' 句原话可作线索') : '') + '</div></div>';
     }
     h += '</div></details>';
@@ -19039,12 +19113,17 @@ async function memEvalRun(btn){
     for(const e of built.active) byId.set(e.id, e);
     const tagOf = built.tagOf;
     let fired = 0; const firedItems = []; const tagHits = new Map();
+    /* 按「哪条路勾的」分账：标签路要她动标签才治得了，原话路是参数/闸门的事。
+       不分账的话，她只能看到「17 条」，不知道该改哪儿（v3 那 17 条里其实一半是原话路）。 */
+    const firedBy = { tag: 0, both: 0, lex: 0 };
     for(let i = 0; i < built.noise.length; i++){
       const it = built.noise[i];
       let hits = [];
       try{ hits = await memMagnetRecall(it.q, MEM_EVAL_K, pre) || []; }catch(e){}
       if(hits.length){
         fired++;
+        const src0 = hits[0].src || 'tag';
+        firedBy[src0] = (firedBy[src0] || 0) + 1;
         // ⚠️ 罪魁标签必须用召回自己返回的 `hits`（它记录了这一条是靠哪些词命中的），
         //    不要拿原句再 indexOf 一遍反查：2026-11-22 叶子实测 8 句误召只认出 3 句的标签，
         //    因为 memExtractTriggers 还有「引号短语当触发词」这条路，反查完全看不到。
@@ -19053,7 +19132,7 @@ async function memEvalRun(btn){
         /* ⚠️ 只有标签命中时才有「勾它的词」；靠原话路进来的那批 ws 是空的，
            面板上就只剩一句「却带出：…」，她看不出是哪条路、凭什么 —— 等于没法判断该改什么。
            所以这里把来源和原话词一起写出来（11-22 夜：20 条噪声里有 12 条属于这种无标注的）。 */
-        const src = hits[0].src || 'tag';
+        const src = src0;
         const runs = (hits[0].lexRuns || hits[0].lexGrams || []).slice(0, 3);
         let why = (src === 'lex')
           ? ('原话「' + runs.join('」「') + '」')
@@ -19074,6 +19153,11 @@ async function memEvalRun(btn){
     const tagStr = id => (tagOf.get(id) || []).join(' / ');
     const tgStat = _memEvalStat(rp.ranks); tgStat.near = rp.near; tgStat.saved = rp.saved;
     const paStat = _memEvalStat(pa.ranks); paStat.near = pa.near; paStat.saved = pa.saved;
+    /* ② 拆两档：pa.ranks 与 built.para 同序（_memEvalScore 是按 items 顺序 push 的），
+       所以按下标取 theme 标记就能分组，不用改评分函数的签名。 */
+    const thR = [], bgR = [];
+    built.para.forEach((it, i)=>{ (it.theme ? thR : bgR).push(pa.ranks[i] || 0); });
+    const paTheme = _memEvalStat(thR), paBg = _memEvalStat(bgR);
     // 「原话覆盖率」仍按「这段原话里有没有它自己的标签词」统计（只数，不再拿这组去跑分）
     const unCount = built.untagged.length;
     const payload = {
@@ -19085,8 +19169,10 @@ async function memEvalRun(btn){
       stats: {
         tagged: tgStat,
         para: paStat,
+        paraTheme: paTheme,             // 线索词写在这条记忆的事件名/摘要里 ⇒ 真该想起
+        paraBg: paBg,                   // 只是那天顺口提过 ⇒ 答不中是题目的事
         untagged: { n: unCount },       // 只给「覆盖率」用
-        noise: { n: built.noise.length, fired, rate: built.noise.length ? fired / built.noise.length : 0, topTags },
+        noise: { n: built.noise.length, fired, rate: built.noise.length ? fired / built.noise.length : 0, topTags, by: firedBy },
         skip: built.skip,
         blobSkip: built.blobSkip,
         noTagEntries: built.noTagEntries
@@ -19094,7 +19180,8 @@ async function memEvalRun(btn){
       missPara: pa.miss.slice(0, 12).map(it => {
         const e = byId.get(it.gold[0]) || {};
         return { q: it.q, event: e.event || '', summary: String(e.summary || '').slice(0, 60),
-                 tags: tagStr(it.gold[0]), srcN: (Array.isArray(e.source_mids) ? e.source_mids.length : 0) };
+                 tags: tagStr(it.gold[0]), srcN: (Array.isArray(e.source_mids) ? e.source_mids.length : 0),
+                 theme: !!it.theme, clue: it.clue || '' };
       }),
       missTagged: rp.miss.slice(0, 8).map(it => {
         const e = byId.get(it.gold[0]) || {};
@@ -19124,7 +19211,8 @@ async function memEvalRestore(){
     }
     // 旧版考卷的数字和现在不同源（v1 拿摘要当问题、v2 拿原话原样问回去＝自命中），直接读会误导 ⇒ 让她重测
     if(p.v !== MEM_EVAL_VER){
-      el.innerHTML = '<span style="color:var(--ink-soft);">上次测的是旧版考卷（旧版的 ② 是「原话原样问回去」，必然自命中，分数虚高）。点右上「重新测」用新版跑一次。</span>';
+      el.innerHTML = '<span style="color:var(--ink-soft);">上次测的是旧版考卷（v' + (p.v || 1) + '，现在是 v' + MEM_EVAL_VER
+        + '）。旧版的 ② 和现在不同源（v2 是「原话原样问回去」＝必然自命中、v3 把背景题混进了主题题），拿来对比会误判。点右上「重新测」跑一次。</span>';
       return;
     }
     let base = await memKvGet(MEM_EVAL_BASE_KEY);
