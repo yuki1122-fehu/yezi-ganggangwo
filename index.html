@@ -16522,12 +16522,22 @@ const MEM_QUOTE_TERM_HIT = 3;     // 记忆自身的词（event / 标签）原�
      融合用 RRF：只吃排名不吃分数，两条路量纲不同也能并（这是敢并起来的唯一理由）。
    ⚠️ 每个旋钮都能单独关：MEM_LEX_ON=false 整路关掉；MEM_TAG_MIN_EVID=0 关掉区分度门槛。 */
 const MEM_LEX_ON = true;          // 原话路总开关
-const MEM_LEX_MAX_DF = 0.08;      // 二字组在候选原话里的出现率 >8% 视为泛词，直接丢（今天/觉得/什么）
+/* ⚠️ 2026-11-22 夜：真实库（1898 条对话）第一次跑，② 从 0→100%（168 题全靠它救回），
+   但 ③ 噪声从 40% 冲到 100% —— 20 句闲聊全勾出记忆。翻开明细全是同一类：
+   "反正/总而言之/不过/东西/准备/收拾" 这种口语功能词两两共现。
+   说明 8% 的 DF 上限在真实语料里太松（几百条原话里 8% 就是二三十句，"午饭""出发"都过得了闸），
+   而"两个泛词共现"的准入门槛太容易被满足。三刀一起下：上限收紧、加"至少一个词够独特"、相对强度抬高。 */
+const MEM_LEX_MAX_DF = 0.08;      // 泛词闸：二字组出现在 >8% 的候选原话里就丢（今天/觉得/什么/反正）
+const MEM_LEX_GATE_DF = 0.02;     // ★ 独特闸：命中词里 DF 最小的那个必须 ≤2%（「1 专名 + 1 泛词」放行，「2 个泛词」拒绝）
 const MEM_LEX_MIN_Q = 2;          // 至少要 2 个不同的词同时命中同一句，才算证据
-const MEM_LEX_RARE_DF = 3;        // 或者 1 个极罕见的词（全库 ≤3 句说过）—— 那是专名/独有的事，单独也算
 const MEM_LEX_QUOTA = 3;          // 原话路最多补 3 个位置（8 个位置里标签路仍是主体）
 const MEM_LEX_W = 0.55;           // RRF 里原话路的权重（标签路 = 1.0：它是高精度主力，不能反过来）
-const MEM_LEX_REL = 0.55;         // 相对强度：原话路只留「证据量 ≥ 最强那条 55%」的候选（绝对阈值换不了库，相对值可以）
+const MEM_LEX_REL = 0.60;         // 相对强度：原话路只留「证据量 ≥ 最强那条 60%」的候选（绝对阈值换不了库，相对值可以）
+/* ★ 停用词表：中文口语的功能词/泛词。它们在任何语境都出现，本身零区分度，
+   却能两两共现凑够「≥2 个词」的准入条件 —— 这是真实库里噪声的第一来源
+   （实测：20 句闲聊 20 句误召，全是「反正+不过」「准备+收拾」这种搭配）。
+   ⚠️ 只放「不承载事件内容」的词；「午饭/地铁/公司」这类场景词虽然也泛，但它们有时真是线索，交给 DF 闸处理。 */
+const MEM_LEX_STOP = new Set(('就是 什么 怎么 这个 那个 我们 你们 他们 她们 咱们 一个 一下 一点 有点 好像 觉得 知道 时候 已经 还有 不过 然后 因为 所以 但是 可是 如果 现在 今天 明天 昨天 上午 下午 晚上 中午 早上 出去 出来 回来 过来 起来 下来 进去 东西 事情 问题 办法 感觉 真的 确实 其实 反正 总之 算是 算了 没事 不用 不要 可以 应该 需要 可能 大概 一直 总是 老是 突然 刚刚 刚才 准备 收拾 打算 记得 忘记 喜欢 讨厌 开心 难过 高兴 自己 别人 大家 这样 那样 这么 那么 多少 几个 一次 一样 一起 不能 不会 不是 没有 还是 或者 而且 虽然 当然 只是 只有 曾经 以后 以前 左右 差不多 之类 什么 说的 说是 说了 一整天 半天 一下下').split(/\s+/).filter(Boolean));
 const MEM_RRF_K = 60;             // RRF 平滑常数，取标准值；只吃排名，不吃原始分数
 const MEM_TAG_IDF_FLOOR = 0.3;    // 标签区分度下限：1/sqrt(挂了几条记忆)，别让泛词直接归零
 const MEM_TAG_MIN_EVID = 0.5;     // 一条记忆的证据量门槛：单个泛词(≈0.3)不够，两个泛词(0.6)可以，单个专名(1.0)可以
@@ -17990,12 +18000,24 @@ function memTagPath(userText, liveTags, idMap){
    只扫「被某条活记忆引用过的气泡」：没被引用的气泡反查不出记忆，扫了也白扫。
    ⚠️ 门槛不能只数个数：中文一句话才十来个字，要求 3 个词共现几乎永不成立 ⇒
       「≥2 个不同词」或「1 个极罕见的词（全库 ≤3 句说过，那是专名）」二者之一即可。 */
+/* 系统注入的伪消息：视觉模型把图片逐字转成的 JSON 块，会被当成 user 气泡存下来。
+   它不是「她说过的话」，而且票据原文里全是商家名（McDonald's / 微波炉 / 三品烧肉），
+   词汇密度极高 ⇒ 原话路拿它当检索键，等于给每个商家名开了后门（实测 20 条噪声里占 2 条）。
+   噪声取样、原话检索两侧都要排掉。 */
+function memIsSysBlob(text){
+  const s = String(text || '');
+  if(!s) return true;
+  if(s.indexOf('【图片识别') >= 0 || s.indexOf('【视觉') >= 0) return true;
+  if(/"doc_type"|"raw_text"|"summary_zh"|"total_amount"|"line_items"/.test(s)) return true;
+  return false;
+}
 function memLexGrams(text){
   const s = String(text || '').replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '');
   const set = new Set();
   for(let i = 0; i + 1 < s.length; i++){
     const g = s.slice(i, i + 2).toLowerCase();
     if(/^[0-9]+$/.test(g)) continue;   // 纯数字（日期/金额/序号）没有区分度
+    if(MEM_LEX_STOP.has(g)) continue;  // 口语功能词：零区分度，却是「2 个词共现」最容易凑出来的一对
     set.add(g);
   }
   return set;
@@ -18020,6 +18042,16 @@ function memLexRuns(q, t, grams){
   // 去掉被更长片段包含的短片段（「招牌」已包含在「招牌的事」里就不再单独列）
   return out.filter(a => !out.some(b => b !== a && b.indexOf(a) >= 0));
 }
+/* DF 缓存：体检一次要跑两百多题，每题都重新统计几十个二字组各自出现在几行里 = O(题×词×行)。
+   真实库（1898 条对话）213 题实测 4.4 秒，手机上更慢。按「同一批 msgs 数组」缓存 gram→DF：
+   体检传的是同一个 pre.msgs 引用 ⇒ 第一题算、后面直接查表；真实对话每轮是新数组 ⇒ 等价于不缓存。 */
+const _memLexDfCache = new WeakMap();
+function _memLexDfTable(msgs, rows){
+  const fp = rows.length + '|' + (rows[0] ? rows[0].mid : '') + '|' + (rows[rows.length - 1] ? rows[rows.length - 1].mid : '');
+  let c = _memLexDfCache.get(msgs);
+  if(!c || c.fp !== fp){ c = { fp: fp, m: new Map() }; _memLexDfCache.set(msgs, c); }
+  return c.m;
+}
 function memLexPath(userText, active, msgs){
   if(!MEM_LEX_ON || !msgs || !msgs.length) return [];
   const midToEntry = new Map();
@@ -18038,34 +18070,50 @@ function memLexPath(userText, active, msgs){
   for(const m of msgs){
     if(!m || !m.mid || !m.content) continue;
     if(!midToEntry.has(String(m.mid))) continue;
+    if(memIsSysBlob(m.content)) continue;   // 视觉转写的 JSON 块不是她的话，却塞满商家名
     rows.push({ mid: String(m.mid), t: String(m.content).toLowerCase() });
   }
   if(!rows.length) return [];
   const cap = Math.max(2, Math.floor(rows.length * MEM_LEX_MAX_DF));
-  /* ⚠️ 「只需 1 个极罕见的词」这条捷径必须在语料够大时才成立：
-     实测小库（29 条消息）里「有点」「今天」只出现在 2-3 句 ⇒ 被当成罕见专名，
-     于是「我有点困了先睡」这种闲聊也会勾起回忆。语料小于 200 句时，「罕见」没有统计意义，
-     这条捷径直接关掉，老实要求 2 个词共现。 */
-  const allowRare = rows.length >= 200;
+  const gate = Math.max(3, Math.floor(rows.length * MEM_LEX_GATE_DF));
+  const dfTbl = _memLexDfTable(msgs, rows);
+  const dfOf = g => {
+    let v = dfTbl.get(g);
+    if(v === undefined){
+      v = 0;
+      for(const r of rows){ if(r.t.indexOf(g) >= 0) v++; }
+      dfTbl.set(g, v);
+    }
+    return v;
+  };
+  /* ⚠️ 原来这里有一条「1 个极罕见的词单独也算」的捷径（DF ≤ 3，专名当证据）。
+     2026-11-22 真实库实测证明它有害：她住在香港，「旺角」「迪士尼」「深水埗」在日常闲聊里也天天出现，
+     一句「还没到旺角呢，在巴士上」就能靠单个地名勾起一整条记忆。而单靠一个词的命中，
+     本质上分不清「说的是那件事」还是「只是提到了同一个地方」。已删 —— 一律要求 ≥2 个词。
+     产品判断：漏召她察觉不到，乱召她立刻察觉。 */
+  const allowRare = false;
   const usable = [];
   for(const g of qg){
-    let c = 0;
-    for(const r of rows){ if(r.t.indexOf(g) >= 0) c++; }
+    const c = dfOf(g);
     if(c >= 1 && c <= cap) usable.push({ g: g, c: c });
   }
   if(!usable.length) return [];
   const scored = [];
   for(const r of rows){
-    let sc = 0, cnt = 0, rare = false;
+    let sc = 0, cnt = 0, minC = 1e9;
     const grams = [];
     for(const u of usable){
       if(r.t.indexOf(u.g) < 0) continue;
       sc += Math.log((rows.length + 1) / (u.c + 0.5));   // idf：越罕见的词越值钱
       cnt++; grams.push(u.g);
-      if(u.c <= MEM_LEX_RARE_DF) rare = true;
+      if(u.c < minC) minC = u.c;
     }
     if(!cnt) continue;
-    if(cnt < MEM_LEX_MIN_Q && !(rare && allowRare)) continue;
+    if(cnt < MEM_LEX_MIN_Q && !allowRare) continue;
+    /* ★ 独特闸：命中词里最独特的那个也得足够独特（DF ≤ gate）。
+       真实库实测：噪声全是「反正+不过」「准备+收拾」这种两两泛词共现，
+       单靠数个数（≥2）和 8% 上限拦不住 ⇒ 要求至少一个词进得了「全库只几行说过」这一档。 */
+    if(minC > gate) continue;
     scored.push({ mid: r.mid, sc: sc, cnt: cnt, grams: grams, t: r.t });
   }
   if(!scored.length) return [];
@@ -18536,7 +18584,8 @@ function _memEvalPickNoise(msgs, used, n){
   const cand = (msgs || []).filter(m =>
     m && m.role === 'user' && m.mid && !used.has(String(m.mid)) &&
     String(m.content || '').trim().length >= 6 &&
-    String(m.content || '').indexOf('[图片]') < 0
+    String(m.content || '').indexOf('[图片]') < 0 &&
+    !memIsSysBlob(m.content)   // 视觉转写的 JSON 块不是「她的闲聊」，拿它当噪声题会冤枉原话路
   ).sort((a, b) => String(a.mid).localeCompare(String(b.mid)));
   if(!cand.length) return [];
   const step = Math.max(1, Math.floor(cand.length / n));
@@ -18853,7 +18902,17 @@ async function memEvalRun(btn){
         //    因为 memExtractTriggers 还有「引号短语当触发词」这条路，反查完全看不到。
         const ws = (hits[0].hits || []).slice();
         for(const w of ws) tagHits.set(w, (tagHits.get(w) || 0) + 1);
-        if(firedItems.length < 8) firedItems.push({ q: it.q, got: hits[0], why: ws.join(' / ') });
+        /* ⚠️ 只有标签命中时才有「勾它的词」；靠原话路进来的那批 ws 是空的，
+           面板上就只剩一句「却带出：…」，她看不出是哪条路、凭什么 —— 等于没法判断该改什么。
+           所以这里把来源和原话词一起写出来（11-22 夜：20 条噪声里有 12 条属于这种无标注的）。 */
+        const src = hits[0].src || 'tag';
+        const runs = (hits[0].lexRuns || hits[0].lexGrams || []).slice(0, 3);
+        const why = (src === 'lex')
+          ? ('原话「' + runs.join('」「') + '」')
+          : (src === 'both')
+            ? ('标签 ' + ws.join(' / ') + (runs.length ? (' ＋ 原话「' + runs.join('」「') + '」') : ''))
+            : ws.join(' / ');
+        if(firedItems.length < 8) firedItems.push({ q: it.q, got: hits[0], why: why, src: src });
       }
       if(i % 40 === 39) await new Promise(r => setTimeout(r, 0));
     }
