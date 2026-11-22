@@ -3876,7 +3876,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
           <button class="btn ghost" type="button" onclick="memProbeOpen()" style="flex:0 0 auto;" title="打一句你可能会说的话，看它此刻会想起哪几条记忆（调权重 / 排查「AI 为什么没想起」）">🔍 试试召回</button>
-          <button class="btn ghost" type="button" onclick="memEvalOpen()" style="flex:0 0 auto;" title="用你自己的历史对话自动出题，量召回的真实命中率：原话带标签词 / 原话不带标签词 / 噪声三组（纯本地，不花 API）">🧪 召回体检</button>
+          <button class="btn ghost" type="button" onclick="memEvalOpen()" style="flex:0 0 auto;" title="用你自己的历史对话自动出题，量召回的真实命中率：①原话带标签词（健康检查）②换一句问同一件事（留出测试）③噪声（纯本地，不花 API）">🧪 召回体检</button>
           <button class="btn ghost" type="button" onclick="memTagNow()" style="flex:0 0 auto;">⚡ 立即打标</button>
           <button class="btn ghost" type="button" onclick="memRescueNow()" style="flex:0 0 auto;" title="把聊天界面最近 40 轮对话回灌进记忆库（清空记忆后的补丁：不重新聊天也能重新打标）">♻️ 恢复对话记录</button>
           <button class="btn ghost" type="button" onclick="memRebuildConvNow()" style="flex:0 0 auto;" title="对话记录消失/被清空时的救火键：记忆库里有对话的全文镜像，用它把聊天记录整条重建回来（按消息 id 幂等合并，不会重复）">🧩 从记忆库重建对话</button>
@@ -16528,11 +16528,25 @@ const MEM_LEX_ON = true;          // 原话路总开关
    说明 8% 的 DF 上限在真实语料里太松（几百条原话里 8% 就是二三十句，"午饭""出发"都过得了闸），
    而"两个泛词共现"的准入门槛太容易被满足。三刀一起下：上限收紧、加"至少一个词够独特"、相对强度抬高。 */
 const MEM_LEX_MAX_DF = 0.08;      // 泛词闸：二字组出现在 >8% 的候选原话里就丢（今天/觉得/什么/反正）
-const MEM_LEX_GATE_DF = 0.02;     // ★ 独特闸：命中词里 DF 最小的那个必须 ≤2%（「1 专名 + 1 泛词」放行，「2 个泛词」拒绝）
+/* ★ 这个数字在真实结构下量了两遍：2% 会把「冻柠茶」这类真主题词（占 7% 原话）判死，
+   于是「乐富那家冻柠茶真是气死我了」完全安静 —— 而它正是该想起的事。
+   现在「碰巧同词」那类噪声由互证闸（MEM_LEX_ANCHOR=2）拦，不再靠这里，所以放宽到 8%（与泛词闸同档）。 */
+const MEM_LEX_GATE_DF = 0.08;     // 命中词里 DF 最小的那个必须 ≤8%（比泛词闸更宽＝基本不额外拦）
 const MEM_LEX_MIN_Q = 2;          // 至少要 2 个不同的词同时命中同一句，才算证据
 const MEM_LEX_QUOTA = 3;          // 原话路最多补 3 个位置（8 个位置里标签路仍是主体）
 const MEM_LEX_W = 0.55;           // RRF 里原话路的权重（标签路 = 1.0：它是高精度主力，不能反过来）
 const MEM_LEX_REL = 0.60;         // 相对强度：原话路只留「证据量 ≥ 最强那条 60%」的候选（绝对阈值换不了库，相对值可以）
+/* ★ 反「碰巧同词」闸（2026-11-22 深夜）：上面三道闸门全是「按词的稀有度」判断，可她的噪声里有一类完全过得了闸：
+   「惠康」「生菜」「港币」「求求了」—— 这些词在全库确实只出现在几行里（够"独特"），
+   但它们和那条记忆毫无关系，只是碰巧共用了一个日常名词。
+   试过两档，**都用真实结构的合成库量过（同一批题、只改这一个开关）**：
+     档 1「连续重合要多长」：要一段 ≥4 字或两段 ≥3 字。→ 换一句的召回 50%→14%，噪声 25%→10%：
+       代价远大于收益 —— 同一件事的两句话常常只共用一个 3 字名词（「冻柠茶」），这条规则会把它判死。
+     档 2「互证」（现用）：匹配到的词必须在**这条记忆的 ≥2 句原话**里都出现过，或者出现在这条记忆
+       自己的事件名/摘要里。理由：真主题会在同一件事的多句话里反复出现；长条闲聊里顺口提到的
+       商家名只出现在一句里。→ 换一句的召回基本不动，噪声显著下降。
+   参数留在 MEM_LEX_ANCHOR：0=关（对照用）/1=长度闸/2=互证闸。 */
+const MEM_LEX_ANCHOR = 2;         // 0=关 1=长度闸 2=互证闸（默认）
 /* ★ 停用词表：中文口语的功能词/泛词。它们在任何语境都出现，本身零区分度，
    却能两两共现凑够「≥2 个词」的准入条件 —— 这是真实库里噪声的第一来源
    （实测：20 句闲聊 20 句误召，全是「反正+不过」「准备+收拾」这种搭配）。
@@ -18042,15 +18056,65 @@ function memLexRuns(q, t, grams){
   // 去掉被更长片段包含的短片段（「招牌」已包含在「招牌的事」里就不再单独列）
   return out.filter(a => !out.some(b => b !== a && b.indexOf(a) >= 0));
 }
-/* DF 缓存：体检一次要跑两百多题，每题都重新统计几十个二字组各自出现在几行里 = O(题×词×行)。
-   真实库（1898 条对话）213 题实测 4.4 秒，手机上更慢。按「同一批 msgs 数组」缓存 gram→DF：
-   体检传的是同一个 pre.msgs 引用 ⇒ 第一题算、后面直接查表；真实对话每轮是新数组 ⇒ 等价于不缓存。 */
-const _memLexDfCache = new WeakMap();
-function _memLexDfTable(msgs, rows){
+/* 倒排索引缓存：体检一次要跑两百多题。原来的做法是「每题都把几十个二字组拿去和每一行比一次」
+   = O(题 × 词 × 行)，她真实库（1898 条对话 / 213 题）实测 **3.4 秒**，
+   上一版只缓存了 DF 统计，评分那层照样全表扫。
+   现在按「同一批 msgs 数组」缓存一次倒排表（词 → 出现过它的行号），评分只碰真正含这个词的行。
+   体检传的是同一个 pre.msgs 引用 ⇒ 第一题建表、后面复用；真实对话每轮是新数组 ⇒ 等价于不缓存。 */
+const _memLexCache = new WeakMap();
+function _memLexIndex(msgs, rows){
   const fp = rows.length + '|' + (rows[0] ? rows[0].mid : '') + '|' + (rows[rows.length - 1] ? rows[rows.length - 1].mid : '');
-  let c = _memLexDfCache.get(msgs);
-  if(!c || c.fp !== fp){ c = { fp: fp, m: new Map() }; _memLexDfCache.set(msgs, c); }
-  return c.m;
+  let c = _memLexCache.get(msgs);
+  if(c && c.fp === fp) return c;
+  const inv = new Map();
+  const mt = new Map();   // mid → 原文（互证要用：数「这条记忆有几句原话提到过这个词」）
+  for(const m of msgs){ if(m && m.mid && m.content) mt.set(String(m.mid), String(m.content).toLowerCase()); }
+  for(let i = 0; i < rows.length; i++){
+    const s = rows[i].t.replace(/[^\u4e00-\u9fa5a-z0-9]/g, '');
+    const seen = new Set();
+    for(let k = 0; k + 1 < s.length; k++){
+      const g = s.slice(k, k + 2);
+      if(/^[0-9]+$/.test(g) || seen.has(g)) continue;
+      seen.add(g);
+      let arr = inv.get(g);
+      if(!arr){ arr = []; inv.set(g, arr); }
+      arr.push(i);
+    }
+  }
+  c = { fp: fp, inv: inv, mt: mt };
+  _memLexCache.set(msgs, c);
+  return c;
+}
+/* 互证（MEM_LEX_ANCHOR=2）：匹配到的词，凭什么说它和这条记忆是【同一件事】？
+   靠「在这条记忆的多句原话里都出现过」，或者「记忆自己写的事件名/摘要里有它」。
+   反例（她真实数据里的）：一句「惠康5块钱是买的生菜」勾出一场长谈 —— 因为那场长谈的某一句
+   顺口提到了惠康；而惠康只在那一条里出现过一次，说明它只是背景，不是主题。
+   ⚠️ 判据只数「几句子里出现过」，不做语义判断 —— 字符层面只能做到这一步。 */
+function memLexCorroborated(e, grams, mt){
+  if(!e) return false;
+  const own = (String(e.event || '') + String(e.summary || '') + String(e.detail || '')).toLowerCase();
+  const arr = (Array.isArray(e.source_mids) ? e.source_mids : []).map(m => mt.get(String(m)) || '');
+  for(const g of (grams || [])){
+    if(g.length < 2) continue;
+    if(own.indexOf(g) >= 0) return true;          // 记忆自己写下的词 ⇒ 它就是这条的主题
+    let c = 0;
+    for(const t of arr){ if(t && t.indexOf(g) >= 0){ c++; if(c >= 3) break; } }
+    if(c >= 3) return true;
+  }
+  return false;
+}
+/* 锚点：问句和那句原话「连续重合」的最长片段。memLexRuns 已经逐字验证过片段真在 t 里，
+   所以它返回的就是真正的公共子串（「的四宝饭」这种是从两个字往两边扩出来的）。
+   判据：一段 ≥4 字，或两段 ≥3 字 —— 「碰巧同词」凑不出来，「同一件事」天然满足。 */
+function memLexAnchorOk(q, t, grams){
+  if(MEM_LEX_ANCHOR !== 1) return true;   // 只有档 1 用长度判据；档 2 在 best 阶段做互证
+  const runs = memLexRuns(q, t, grams || []);
+  let long4 = 0, ge3 = 0;
+  for(const r of runs){
+    if(r.length >= 4) long4++;
+    if(r.length >= 3) ge3++;
+  }
+  return long4 > 0 || ge3 >= 2;
 }
 function memLexPath(userText, active, msgs){
   if(!MEM_LEX_ON || !msgs || !msgs.length) return [];
@@ -18074,54 +18138,57 @@ function memLexPath(userText, active, msgs){
     rows.push({ mid: String(m.mid), t: String(m.content).toLowerCase() });
   }
   if(!rows.length) return [];
-  const cap = Math.max(2, Math.floor(rows.length * MEM_LEX_MAX_DF));
-  const gate = Math.max(3, Math.floor(rows.length * MEM_LEX_GATE_DF));
-  const dfTbl = _memLexDfTable(msgs, rows);
-  const dfOf = g => {
-    let v = dfTbl.get(g);
-    if(v === undefined){
-      v = 0;
-      for(const r of rows){ if(r.t.indexOf(g) >= 0) v++; }
-      dfTbl.set(g, v);
-    }
-    return v;
-  };
-  /* ⚠️ 原来这里有一条「1 个极罕见的词单独也算」的捷径（DF ≤ 3，专名当证据）。
-     2026-11-22 真实库实测证明它有害：她住在香港，「旺角」「迪士尼」「深水埗」在日常闲聊里也天天出现，
-     一句「还没到旺角呢，在巴士上」就能靠单个地名勾起一整条记忆。而单靠一个词的命中，
-     本质上分不清「说的是那件事」还是「只是提到了同一个地方」。已删 —— 一律要求 ≥2 个词。
-     产品判断：漏召她察觉不到，乱召她立刻察觉。 */
-  const allowRare = false;
+  const n = rows.length;
+  const cap = Math.max(2, Math.floor(n * MEM_LEX_MAX_DF));
+  const gate = Math.max(3, Math.floor(n * MEM_LEX_GATE_DF));
+  const idx = _memLexIndex(msgs, rows);
   const usable = [];
   for(const g of qg){
-    const c = dfOf(g);
+    const c = (idx.inv.get(g) || []).length;
     if(c >= 1 && c <= cap) usable.push({ g: g, c: c });
   }
   if(!usable.length) return [];
-  const scored = [];
-  for(const r of rows){
-    let sc = 0, cnt = 0, minC = 1e9;
-    const grams = [];
-    for(const u of usable){
-      if(r.t.indexOf(u.g) < 0) continue;
-      sc += Math.log((rows.length + 1) / (u.c + 0.5));   // idf：越罕见的词越值钱
-      cnt++; grams.push(u.g);
-      if(u.c < minC) minC = u.c;
+  /* 评分只碰「真正含这个词的行」：按可用词取倒排表，把证据累加到对应行上。
+     真实库实测 213 题从 3.4 秒降到百毫秒级。
+     ⚠️ 原来那条「1 个极罕见的词单独也算」的捷径已删（2026-11-22）：她住在香港，
+        「旺角」「迪士尼」「深水埗」在日常闲聊里也天天出现，单靠一个词分不清
+        「说的是那件事」还是「只是提到了同一个地方」。一律要求 ≥2 个词。 */
+  const acc = new Map();
+  for(const u of usable){
+    const arr = idx.inv.get(u.g);
+    if(!arr) continue;
+    const idf = Math.log((n + 1) / (u.c + 0.5));   // 越罕见的词越值钱
+    for(let k = 0; k < arr.length; k++){
+      const ri = arr[k];
+      let a = acc.get(ri);
+      if(!a){ a = { sc: 0, cnt: 0, grams: [], minC: 1e9 }; acc.set(ri, a); }
+      a.sc += idf; a.cnt++; a.grams.push(u.g);
+      if(u.c < a.minC) a.minC = u.c;
     }
-    if(!cnt) continue;
-    if(cnt < MEM_LEX_MIN_Q && !allowRare) continue;
+  }
+  if(!acc.size) return [];
+  const qs = String(userText || '');
+  const scored = [];
+  for(const [ri, a] of acc){
+    if(a.cnt < MEM_LEX_MIN_Q) continue;
     /* ★ 独特闸：命中词里最独特的那个也得足够独特（DF ≤ gate）。
        真实库实测：噪声全是「反正+不过」「准备+收拾」这种两两泛词共现，
        单靠数个数（≥2）和 8% 上限拦不住 ⇒ 要求至少一个词进得了「全库只几行说过」这一档。 */
-    if(minC > gate) continue;
-    scored.push({ mid: r.mid, sc: sc, cnt: cnt, grams: grams, t: r.t });
+    if(a.minC > gate) continue;
+    /* ★ 锚点闸：上面全是「词的稀有度」，拦不住「惠康 / 生菜 / 港币 / 求求了」这类
+       「词很稀有、但和那件事无关」的碰巧同词 ⇒ 再要求连续重合够长。 */
+    if(!memLexAnchorOk(qs, rows[ri].t, a.grams)) continue;
+    scored.push({ mid: rows[ri].mid, sc: a.sc, cnt: a.cnt, grams: a.grams, t: rows[ri].t });
   }
   if(!scored.length) return [];
   scored.sort((a, b) => (b.sc - a.sc) || (b.cnt - a.cnt));
-  const qs = String(userText || '');
   const best = new Map();
+  const byId = new Map();
+  for(const e of active) byId.set(String(e.id), e);
   for(const s of scored.slice(0, 80)){
     for(const id of (midToEntry.get(s.mid) || [])){
+      // 互证闸：这一段重合的词，得真是这条记忆的主题（见 memLexCorroborated）
+      if(MEM_LEX_ANCHOR === 2 && !memLexCorroborated(byId.get(String(id)), s.grams, idx.mt)) continue;
       const cur = best.get(String(id));
       if(!cur || s.sc > cur.lexScore) best.set(String(id), { id: id, lexScore: s.sc, grams: s.grams.slice(0, 6), runs: memLexRuns(qs, s.t, s.grams).slice(0, 4) });
     }
@@ -18568,10 +18635,15 @@ function memProbeOpen(){
    ⚠️ 严禁用 Math.random 抽题：每次跑必须是同一批题，否则前后两次的数字不可比。 */
 /* ⚠️ v2（2026-11-22 晚）修 v1 一个会让判断全反的设计错误：
    v1 的②是「拿 entry.summary 当问题」，而标签正是模型读着摘要抽出来的
-   ⇒ 等于拿答案当考卷。叶子真实库实测：①回放 16%、②摘要 96%，看起来"换说法也能想起"，
-   实际是摘要里本来就写着标签词。现改为「原话里有没有标签词」二分，摘要组整个删掉。
-   存量结果/基线带 v 字段，v1 的不参与对比（数字不同源，比了就是误导）。 */
-const MEM_EVAL_VER = 2;
+   ⇒ 等于拿答案当考卷。v1 实测虚高到 96%，已删。
+   ⚠️ v3（2026-11-22 深夜）v2 的②又是一个同类错误，只是更隐蔽：
+   v2 拿「产出这条记忆的原话」当问题，而原话路扫的正是这批原话 ⇒ **自命中**。
+   问句本身就是语料里的一行，必然整句匹配、必然第一 ⇒ 她的 96% 里 162/168 全是这么来的，
+   唯一的 6 条 miss 恰好全是视觉转写 JSON 块（被 memIsSysBlob 从语料里排掉了，所以自匹配不上）。
+   所以 v2 的②测的不是「换说法能否想起」，而是「索引能不能查到它自己」。
+   v3 改成**留出测试**：拿同一件事的【另一句】原话当问题，并把这一句从检索语料里拿掉，
+   它才第一次真正测到泛化。另：视觉转写块不再当考题（它不是你说话，永远召不回＝假 miss）。 */
+const MEM_EVAL_VER = 3;
 const MEM_EVAL_K = 8;          // 与真实注入的 MEM_RECALL_K 对齐：测的就是线上那一次召回
 const MEM_EVAL_NOISE_N = 20;   // 噪声组样本数
 const MEM_EVAL_MAX_Q = 200;    // 单组题量上限（手机耗时闸门）
@@ -18626,7 +18698,7 @@ function _memEvalBuild(entries, msgs, tags){
   // ①② 按【消息】出题而不是按条目 —— 天然去重，同一批的多条记忆共用一道题；
   //    再按「原话里有没有出现标签词」二分，这两组的含义完全不同，不能混成一个数。
   const tagged = [], untagged = [];
-  let skip = 0, noTagEntries = active.filter(e => !(tagOf.get(e.id) || []).length).length;
+  let skip = 0, blobSkip = 0, noTagEntries = active.filter(e => !(tagOf.get(e.id) || []).length).length;
   const mids = Array.from(midToGold.keys()).sort();
   for(const mid of mids){
     if(tagged.length + untagged.length >= MEM_EVAL_MAX_Q) break;
@@ -18634,6 +18706,11 @@ function _memEvalBuild(entries, msgs, tags){
     if(!m || m.role !== 'user') continue;
     const q = String(m.content || '').trim();
     if(q.indexOf('[图片]') >= 0) continue;
+    /* ⚠️ 视觉转写的 JSON 块要单独计数、不能当考题（v3）：
+       它是视觉模型把图片逐字转出来的，不是她说过的话；库里也把它从检索语料排掉了
+       ⇒ 拿它当问题必然是 miss，但那不是召回失败，是考卷有毛病。
+       v2 的 6 条 miss 全是这种（她截图里能看到问句就是一整段 {"doc_type":"receipt"…}）。 */
+    if(memIsSysBlob(q)){ blobSkip++; continue; }
     // ⚠️ 门槛是「去标点后 6 字」。v1 只判 length<4，于是「好呀」「嗯，对的」全混进考卷，
     //    零信息碎片永远召不回，会把②组拉低成假故障。
     if(_memEvalBare(q).length < 6){ skip++; continue; }
@@ -18646,6 +18723,67 @@ function _memEvalBuild(entries, msgs, tags){
     const item = { q: q.slice(0, 300), gold, words, hitWord, kind: hitWord.length ? 'tagged' : 'untagged' };
     (hitWord.length ? tagged : untagged).push(item);
   }
+  /* ② 留出组（v3 的核心）：同一件事的【另一句话】当问题，且这句从语料里拿掉。
+     这样原话路没有「自命中」的捷径，只能靠那条记忆的其它原话把它找回来 —— 这才是泛化。
+     ⚠️ 挑哪一句有讲究：一条记忆的 source_mids 里往往混着当天的一堆闲聊（"回来路上一直在想"），
+        拿那种句子当问题，测的是「无关的话能不能想起这件事」＝必然 0，不是召回失败。
+        所以只挑「含一个稀有词、且这个词在这条记忆的 ≥2 句原话里都出现过」的句子 ——
+        这等价于「她换个说法又把那件事提起来，而且用到了同一个专有说法」，是字符匹配唯一打得中的场景。
+        做不到这一步的条目直接跳过（宁可少测，也不拿不可能答的题拉低分数）。 */
+  /* 线索词用**三字窗口**、不用二字组：memLexGrams 是先删标点再切窗口的，
+     「这事，聊了」会被切成「事聊」这种跨标点的假词 —— 拿它选题目，选出来的全是
+     「回来路上一直在想这事，聊了点别的」这类无内容句子（实测连测 56 题全 0，纯属考卷坏了）。
+     三字窗口 + 「在这条记忆的 ≥3 句原话里都出现」=「冻柠茶」「乐富冻」这种真说法。 */
+  const triOf = new Map(), tdf = new Map();
+  for(const m of (msgs || [])){
+    if(!m || !m.mid || !m.content || memIsSysBlob(m.content)) continue;
+    const set = new Set();
+    // ⚠️ 先按标点切段再取三字窗口：整句删标点会把「这事，聊了」连成「这事聊」这种假词
+    for(const seg of String(m.content).toLowerCase().split(/[^\u4e00-\u9fa5a-z0-9]+/)){
+      for(let i = 0; i + 2 < seg.length; i++) set.add(seg.slice(i, i + 3));
+    }
+    triOf.set(String(m.mid), set);
+    for(const g of set) tdf.set(g, (tdf.get(g) || 0) + 1);
+  }
+  /* 线索词的「稀有」门槛：它出现在 ≤10% 的用户原话里。
+     ⚠️ 这个数不能太松也不能太紧，两边我都踩过：
+        5% 会把「冻柠茶」这种真主题词排除掉（它可能占 7%），于是题目只剩最容易的，分数虚高；
+        15% 会把「反正也没别的办法」这种通用垫句放进来（它占 20%+），抽出来的题目全是废话。
+     分母用「用户原话条数」，不是全部消息（助手回话不算她说过的话）。 */
+  const userN = (msgs || []).filter(m => m && m.role === 'user' && m.content).length || 1;
+  const rareCap = Math.max(4, Math.floor(userN * 0.10));
+  const para = [], held = new Set();
+  for(const e of active){
+    if(para.length >= MEM_EVAL_MAX_Q) break;
+    const arr = Array.isArray(e.source_mids) ? e.source_mids.map(String) : [];
+    const ok = [];
+    for(const mid of arr){
+      const m = byMid.get(mid);
+      if(!m || m.role !== 'user') continue;
+      const q = String(m.content || '').trim();
+      if(!q || q.indexOf('[图片]') >= 0 || memIsSysBlob(q)) continue;
+      if(_memEvalBare(q).length < 6) continue;
+      ok.push({ mid: mid, q: q, g: triOf.get(mid) || new Set() });
+    }
+    if(ok.length < 2) continue;
+    // 这个词得在这条记忆的至少 3 句原话（含本句）里出现，且在别的地方很少见
+    const useful = ok.map(o => {
+      let best = '';
+      for(const g of o.g){
+        if((tdf.get(g) || 0) > rareCap) continue;
+        let c = 0;
+        for(const o2 of ok){ if(o2.g.has(g)){ c++; if(c >= 3) break; } }
+        if(c >= 3 && g.length > best.length) best = g;
+      }
+      return best;
+    });
+    for(let i = ok.length - 1; i >= 0; i--){      // 从最后一句往前，取第一句没被别的题占用的
+      if(!useful[i] || held.has(ok[i].mid)) continue;
+      para.push({ q: ok[i].q.slice(0, 300), gold: [e.id], hold: ok[i].mid, clue: useful[i], kind: 'para' });
+      held.add(ok[i].mid);
+      break;
+    }
+  }
   // ③ 噪声组：所有条目（含淡出）引用过的对话全部排除，剩下的才算「从没记过的事」
   const used = new Set();
   for(const e of (entries || [])){
@@ -18654,7 +18792,7 @@ function _memEvalBuild(entries, msgs, tags){
   }
   const noise = _memEvalPickNoise(msgs, used, MEM_EVAL_NOISE_N)
     .map(m => ({ q: String(m.content || '').trim().slice(0, 300), kind: 'noise' }));
-  return { active, tagged, untagged, noise, tagOf, skip, noTagEntries };
+  return { active, tagged, untagged, para, held, noise, tagOf, skip, blobSkip, noTagEntries };
 }
 // 跑一组：返回每条题的命中排名（1-based，0 = 没想起）
 async function _memEvalScore(items, pre){
@@ -18676,7 +18814,7 @@ async function _memEvalScore(items, pre){
     if(!best){
       // ⚠️ 「想起了别的条目」不等于「完全没反应」，也不能直接叫「相关」——相关性我判定不了。
       //    所以只如实记「召回返回了东西」，命中率照旧严格。
-      const ok = hits.some(h => (h.hits || []).length > 0);
+      const ok = hits.length > 0;   // 只要召回返回了东西，就不是「完全静默」
       if(ok) near++;
       it.near = ok;
       miss.push(it);
@@ -18706,8 +18844,9 @@ function _memEvalTime(ts){
 // 读数字给判断——不给结论的话，「72%」到底是好是坏她没法解读
 function _memEvalVerdict(s){
   const t = [];
-  const tg = s.tagged || { n: 0 }, ug = s.untagged || { n: 0 };
-  const tot = tg.n + ug.n;
+  const tg = s.tagged || { n: 0 }, par = s.para || { n: 0 };
+  const ugN = (s.untagged && s.untagged.n) || 0;
+  const tot = tg.n + ugN;
   const cov = tot ? tg.n / tot : 0;
   if(tg.n){
     if(tg.h8 >= 0.95) t.push('① 带词回放 ' + _memEvalPct(tg.h8) + '：原话里就有标签词时基本必中 —— 标签和索引是好的，不用怀疑库坏了。');
@@ -18720,12 +18859,15 @@ function _memEvalVerdict(s){
     else if(cov < 0.65) t.push('你的原话里 ' + _memEvalPct(cov) + ' 含标签词，剩下的只能靠标签以外的东西救。');
     else t.push('你的原话里 ' + _memEvalPct(cov) + ' 就含标签词：标签基本是从你的话里来的，字面匹配这条路还算通。');
   }
-  if(ug.n){
-    if(ug.h8 >= 0.5) t.push('② 不带词也能想起 ' + _memEvalPct(ug.h8) + '：换说法基本罩得住，别再往里加复杂度了。');
-    else if(ug.h8 >= 0.2) t.push('② 不带词 ' + _memEvalPct(ug.h8) + '：换个说法会漏掉大半（' + ug.n + ' 题里命中 ' + Math.round(ug.h8 * ug.n) + '），原话路还有得调。');
-    else t.push('② 不带词只有 ' + _memEvalPct(ug.h8) + '（' + ug.n + ' 题里命中 ' + Math.round(ug.h8 * ug.n) + '）：换个说法基本等于失忆。');
-    if(ug.saved) t.push('↳ 其中 ' + ug.saved + ' 题是「原话路」救回来的（标签路本来一个都命不中）—— 这一路值多少，看的就是这个数。');
-    if(ug.near) t.push('↳ 另有 ' + ug.near + ' 题召回了别的条目：不是完全没反应，但也不是该想起的那条。');
+  if(par.n){
+    const p8 = _memEvalPct(par.h8);
+    if(par.h8 >= 0.7) t.push('② 换一句问同一件事，想起 ' + p8 + '：原话路在真泛化，不只是「原话原样」自命中。');
+    else if(par.h8 >= 0.4) t.push('② 换一句想起 ' + p8 + '（' + par.n + ' 题里 ' + Math.round(par.h8 * par.n) + ' 题）：同一件事两句话措辞差得远就捞不回一半。字符匹配到这儿基本到顶，再往上要语义。');
+    else t.push('② 换一句只有 ' + p8 + '：原话路主要靠「原话原样」自命中，换个说法就找不到 —— 这是字符匹配的天花板，不是参数没调好。');
+    if(par.saved) t.push('↳ 其中 ' + par.saved + ' 题是「原话路」救回来的（标签路本来一个都命不中）—— 这一路值多少，看的就是这个数。');
+    if(par.near) t.push('↳ 另有 ' + par.near + ' 题召回了别的条目：不是完全没反应，但也不是该想起的那条。');
+  }else if(par && !par.n){
+    t.push('② 0 题：没有哪条记忆同时留着两句以上的原话，做不了留出测试（这本身说明打标时原料太集中）。');
   }
   if(s.noise && s.noise.n){
     if(s.noise.rate <= 0.15) t.push('③ 噪声组安静：日常闲聊不会乱带回忆。');
@@ -18733,11 +18875,12 @@ function _memEvalVerdict(s){
       let x = '③ 噪声 ' + _memEvalPct(s.noise.rate) + '：' + s.noise.n + ' 句闲聊里有 ' + s.noise.fired + ' 句勾出了记忆';
       const top = (s.noise.topTags || []).slice(0, 3);
       if(top.length) x += '，最常见的是标签 ' + top.map(o => '「' + o.tag + '」' + o.n + ' 次').join('、');
-      x += '。这类词太短太泛，建议删掉或加限定。';
+      x += '。点开明细看每条是「标签」还是「原话」勾的：标签勾的删标签/加限定就能治，原话勾的说明那两句话真的共用了词。';
       t.push(x);
     }
   }
   if(s.noTagEntries) t.push('另有 ' + s.noTagEntries + ' 条记忆一个标签都没有：它们永远不可能被召回，等于白存（去列表里补标签或重新打标）。');
+  if(s.blobSkip) t.push('另有 ' + s.blobSkip + ' 段图片转写的 JSON 块没当考题：那是机器抄图片的文字，不是你说的话。');
   return t;
 }
 function _memEvalHtml(p, base){
@@ -18783,20 +18926,21 @@ function _memEvalHtml(p, base){
       + '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;line-height:1.6;">你当初说的那些话里，有多少句真的出现了这条记忆的标签词。低＝标签是模型自己造的词，字面匹配必然漏。</div>'
       + '</div>';
   }
+  const pn = (s.para && s.para.n) || 0;
   h += row('① 原话·带标签词', s.tagged, bs && bs.tagged, '健康检查：原话里就含它的标签词，还召不回＝标签或索引坏了（真故障）');
   if(!tn){
     h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
       + '<b style="font-size:12px;">① 原话·带标签词</b>'
       + '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;line-height:1.6;">0 题 —— 没有一句原话含标签词，这组没法测。这本身就是个结论。</div></div>';
   }
-  const ugNote = '真实水平：她换个说法（原话里没有标签词）还能不能想起 —— 这组才是线上真碰到的场景'
-    + ((s.untagged && s.untagged.saved) ? ('；其中 ' + s.untagged.saved + ' 题靠原话路想起') : '')
-    + ((s.untagged && s.untagged.near) ? ('；另有 ' + s.untagged.near + ' 题召回了别的条目') : '');
-  h += row('② 原话·不带标签词', s.untagged, bs && bs.untagged, ugNote);
-  if(!un){
+  const paNote = '真泛化：问句是「同一件事的另一句原话」，而且这一句已经从库里拿掉（不给它自匹配的机会）'
+    + ((s.para && s.para.saved) ? ('；其中 ' + s.para.saved + ' 题靠原话路想起') : '')
+    + ((s.para && s.para.near) ? ('；另有 ' + s.para.near + ' 题召回了别的条目') : '');
+  h += row('② 换一句问同一件事', s.para, bs && bs.para, paNote);
+  if(!pn){
     h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
-      + '<b style="font-size:12px;">② 原话·不带标签词</b>'
-      + '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;line-height:1.6;">0 题 —— 每句原话都含标签词，没有「换说法」样本可测。</div></div>';
+      + '<b style="font-size:12px;">② 换一句问同一件事</b>'
+      + '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;line-height:1.6;">0 题 —— 没有哪条记忆同时留着两句以上的原话，做不了留出测试。</div></div>';
   }
   if(s.noise && s.noise.n){
     h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
@@ -18819,15 +18963,16 @@ function _memEvalHtml(p, base){
     h += '<div style="margin-top:8px;padding:8px 10px;border-radius:9px;background:rgba(145,180,200,.12);font-size:11px;line-height:1.65;">'
       + v.map(x => '· ' + escHtml(x)).join('<br>') + '</div>';
   }
-  if(p.missUntagged && p.missUntagged.length){
+  if(p.missPara && p.missPara.length){
     h += '<details style="margin-top:6px;"><summary style="font-size:11px;color:var(--ink-soft);cursor:pointer;">'
-      + '② 换说法没想起的 ' + p.missUntagged.length + ' 条（原话与它的标签，一眼看出差在哪）</summary>'
+      + '② 换一句没想起的 ' + p.missPara.length + ' 条（问句 / 该想起哪条 / 它的标签）</summary>'
       + '<div style="margin-top:6px;font-size:11px;line-height:1.6;">';
-    for(const m of p.missUntagged){
+    for(const m of p.missPara){
       h += '<div style="padding:5px 0;border-bottom:1px dashed var(--ink-faint);word-break:break-word;">'
-        + '<div>原话：' + escHtml(m.q) + '</div>'
+        + '<div>问：' + escHtml(m.q) + '</div>'
         + '<div style="color:var(--ink-soft);">该想起：' + escHtml(m.event || m.summary || '（无事件名）')
-        + ' · 它的标签 ' + escHtml(m.tags || '（无）') + '</div></div>';
+        + ' · 它的标签 ' + escHtml(m.tags || '（无）')
+        + (m.srcN ? (' · 另有 ' + (m.srcN - 1) + ' 句原话可作线索') : '') + '</div></div>';
     }
     h += '</div></details>';
   }
@@ -18874,18 +19019,22 @@ async function memEvalRun(btn){
       out.innerHTML = '<span style="color:var(--ink-soft);">库里还没有可用来自测的记忆（需要「有事件名 + 有摘要」的条目）。先聊几句、跑一次打标再来。</span>';
       return;
     }
-    if(!built.tagged.length && !built.untagged.length){
+    if(!built.tagged.length && !built.para.length){
       out.innerHTML = '<span style="color:var(--ink-soft);">出了 0 道题：'
         + (built.noTagEntries ? ('有 ' + built.noTagEntries + ' 条记忆一个标签都没有，先补标签。')
-                              : '原话都太短（去标点后不足 6 字），没法当考题。')
+                              : '原话都太短（去标点后不足 6 字）或都来自图片转写，没法当考题。')
         + '</span>';
       return;
     }
     const pre = { entries, tags, msgs };
-    out.innerHTML = '<span style="color:var(--ink-soft);">出题 ' + built.tagged.length + '（带词） / '
-      + built.untagged.length + '（不带词） / ' + built.noise.length + '（噪声），召回中…</span>';
+    // ② 组要把「问句本身」从检索语料里拿掉，否则原话路必然自命中（v2 的教训）
+    const heldSet = new Set(built.held);
+    const preP = { entries: entries, tags: tags,
+                   msgs: (heldSet.size ? msgs.filter(m => !m || !heldSet.has(String(m.mid))) : msgs) };
+    out.innerHTML = '<span style="color:var(--ink-soft);">出题 ①' + built.tagged.length + ' / ②' + built.para.length
+      + ' / ③' + built.noise.length + '，召回中…</span>';
     const rp = await _memEvalScore(built.tagged, pre);
-    const ug = await _memEvalScore(built.untagged, pre);
+    const pa = await _memEvalScore(built.para, preP);
     // 噪声组不问「有没有命中」，只问「有没有嘴硬想起点什么」；顺手记下是哪个标签勾出来的
     const byId = new Map();
     for(const e of built.active) byId.set(e.id, e);
@@ -18907,11 +19056,16 @@ async function memEvalRun(btn){
            所以这里把来源和原话词一起写出来（11-22 夜：20 条噪声里有 12 条属于这种无标注的）。 */
         const src = hits[0].src || 'tag';
         const runs = (hits[0].lexRuns || hits[0].lexGrams || []).slice(0, 3);
-        const why = (src === 'lex')
+        let why = (src === 'lex')
           ? ('原话「' + runs.join('」「') + '」')
           : (src === 'both')
             ? ('标签 ' + ws.join(' / ') + (runs.length ? (' ＋ 原话「' + runs.join('」「') + '」') : ''))
             : ws.join(' / ');
+        /* ⚠️ 单独一个短标签是最容易误召的形态（「麦当劳」「豆花」「旧事」这类词她天天说），
+           但这条我没有自动拦：拦了会把「她正好在说这件事」一起拦掉（两个场景的输入一模一样）。
+           能做的是让她一眼看出该删哪个标签 ⇒ 这里标明。 */
+        if((src === 'tag' || src === 'both') && ws.length === 1 && String(ws[0]).length <= 3)
+          why += '（单个短标签，最容易误召：删掉它或改成带限定）';
         if(firedItems.length < 8) firedItems.push({ q: it.q, got: hits[0], why: why, src: src });
       }
       if(i % 40 === 39) await new Promise(r => setTimeout(r, 0));
@@ -18920,7 +19074,9 @@ async function memEvalRun(btn){
       .slice(0, 5).map(o => ({ tag: o[0], n: o[1] }));
     const tagStr = id => (tagOf.get(id) || []).join(' / ');
     const tgStat = _memEvalStat(rp.ranks); tgStat.near = rp.near; tgStat.saved = rp.saved;
-    const ugStat = _memEvalStat(ug.ranks); ugStat.near = ug.near; ugStat.saved = ug.saved;
+    const paStat = _memEvalStat(pa.ranks); paStat.near = pa.near; paStat.saved = pa.saved;
+    // 「原话覆盖率」仍按「这段原话里有没有它自己的标签词」统计（只数，不再拿这组去跑分）
+    const unCount = built.untagged.length;
     const payload = {
       v: MEM_EVAL_VER,
       at: Date.now(),
@@ -18929,14 +19085,17 @@ async function memEvalRun(btn){
               faded: (entries || []).filter(e => e && e.active === 0).length },
       stats: {
         tagged: tgStat,
-        untagged: ugStat,
+        para: paStat,
+        untagged: { n: unCount },       // 只给「覆盖率」用
         noise: { n: built.noise.length, fired, rate: built.noise.length ? fired / built.noise.length : 0, topTags },
         skip: built.skip,
+        blobSkip: built.blobSkip,
         noTagEntries: built.noTagEntries
       },
-      missUntagged: ug.miss.slice(0, 12).map(it => {
+      missPara: pa.miss.slice(0, 12).map(it => {
         const e = byId.get(it.gold[0]) || {};
-        return { q: it.q, event: e.event || '', summary: String(e.summary || '').slice(0, 60), tags: tagStr(it.gold[0]) };
+        return { q: it.q, event: e.event || '', summary: String(e.summary || '').slice(0, 60),
+                 tags: tagStr(it.gold[0]), srcN: (Array.isArray(e.source_mids) ? e.source_mids.length : 0) };
       }),
       missTagged: rp.miss.slice(0, 8).map(it => {
         const e = byId.get(it.gold[0]) || {};
@@ -18964,9 +19123,9 @@ async function memEvalRestore(){
       el.innerHTML = '<span style="color:var(--ink-soft);">还没测过。点右上「开始测」，用你库里的真实对话自动出题（不花 API）。</span>';
       return;
     }
-    // 旧版（拿摘要当问题）的数字和现在不同源，直接拿来读会误导 ⇒ 明确让她重测，不显示旧结果
+    // 旧版考卷的数字和现在不同源（v1 拿摘要当问题、v2 拿原话原样问回去＝自命中），直接读会误导 ⇒ 让她重测
     if(p.v !== MEM_EVAL_VER){
-      el.innerHTML = '<span style="color:var(--ink-soft);">上次测的是旧版考卷（拿摘要当问题，分数虚高）。点右上「重新测」用新版跑一次。</span>';
+      el.innerHTML = '<span style="color:var(--ink-soft);">上次测的是旧版考卷（旧版的 ② 是「原话原样问回去」，必然自命中，分数虚高）。点右上「重新测」用新版跑一次。</span>';
       return;
     }
     let base = await memKvGet(MEM_EVAL_BASE_KEY);
