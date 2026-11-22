@@ -3876,7 +3876,7 @@ textarea.jg-inp{min-height:52px;resize:vertical;}
         <div class="row" style="margin:10px 0 0;gap:8px;align-items:center;flex-wrap:wrap;">
           <button class="btn ghost" type="button" onclick="memView()" style="flex:0 0 auto;">📖 查看记忆</button>
           <button class="btn ghost" type="button" onclick="memProbeOpen()" style="flex:0 0 auto;" title="打一句你可能会说的话，看它此刻会想起哪几条记忆（调权重 / 排查「AI 为什么没想起」）">🔍 试试召回</button>
-          <button class="btn ghost" type="button" onclick="memEvalOpen()" style="flex:0 0 auto;" title="用你自己的历史对话自动出题，量出召回的真实命中率：回放 / 换种说法 / 噪声三组（纯本地，不花 API）">🧪 召回体检</button>
+          <button class="btn ghost" type="button" onclick="memEvalOpen()" style="flex:0 0 auto;" title="用你自己的历史对话自动出题，量召回的真实命中率：原话带标签词 / 原话不带标签词 / 噪声三组（纯本地，不花 API）">🧪 召回体检</button>
           <button class="btn ghost" type="button" onclick="memTagNow()" style="flex:0 0 auto;">⚡ 立即打标</button>
           <button class="btn ghost" type="button" onclick="memRescueNow()" style="flex:0 0 auto;" title="把聊天界面最近 40 轮对话回灌进记忆库（清空记忆后的补丁：不重新聊天也能重新打标）">♻️ 恢复对话记录</button>
           <button class="btn ghost" type="button" onclick="memRebuildConvNow()" style="flex:0 0 auto;" title="对话记录消失/被清空时的救火键：记忆库里有对话的全文镜像，用它把聊天记录整条重建回来（按消息 id 幂等合并，不会重复）">🧩 从记忆库重建对话</button>
@@ -18326,12 +18326,20 @@ function memProbeOpen(){
 /* ================= 召回体检（2026-11-22）=================
    起因：MEM_RECALL_K / MEM_BUDGET / 标签权重全靠手感，改完无法判断「变好还是变坏」。
    借鉴 AML Cycle 2 开源文本赛道第一 Resurface 的 eval/ruler：只测「该想起的有没有被想起」，
-   不测回答、不调 AI ⇒ 零 API 成本、纯本地。三组考卷由库内数据自动生成，无需手工标注：
-     ① 回放组：拿产出某条记忆的【用户原话】当问题 → 该记忆（及同批记忆）应被召回。
-        这是「最小可用性」，数字天然偏高（标签就是从这批话里抽的），用来看库/标签有没有坏。
-     ② 摘要组：拿记忆【自己的摘要】当问题 → 模拟「她换一种说法提起这件事」。真正有信息量的一组。
-     ③ 噪声组：拿【从没进过任何记忆】的日常话当问题 → 应该一条都想不起（测安静度）。
+   不测回答、不调 AI ⇒ 零 API 成本、纯本地。考卷全部由库内真实对话自动生成，无需手工标注：
+     ① 原话·带标签词：产出该记忆的用户原话，且原话里确实出现了它的标签词 → 应当必中。
+        这是【健康检查】：它还低就是标签没落库 / 被同词条目挤出前 8，是真 bug。
+     ② 原话·不带标签词：同一批原话，但一个标签词都没出现 → 这是【真实水平】。
+        线上召回只认标签字面（memMagnetRecall 里 indexOf），这组天生接近 0，
+        它的数字就是「加原话路能救回多少」的天花板。
+     ③ 噪声组：从没进过任何记忆的日常话 → 应该一条都想不起（测安静度）。
    ⚠️ 严禁用 Math.random 抽题：每次跑必须是同一批题，否则前后两次的数字不可比。 */
+/* ⚠️ v2（2026-11-22 晚）修 v1 一个会让判断全反的设计错误：
+   v1 的②是「拿 entry.summary 当问题」，而标签正是模型读着摘要抽出来的
+   ⇒ 等于拿答案当考卷。叶子真实库实测：①回放 16%、②摘要 96%，看起来"换说法也能想起"，
+   实际是摘要里本来就写着标签词。现改为「原话里有没有标签词」二分，摘要组整个删掉。
+   存量结果/基线带 v 字段，v1 的不参与对比（数字不同源，比了就是误导）。 */
+const MEM_EVAL_VER = 2;
 const MEM_EVAL_K = 8;          // 与真实注入的 MEM_RECALL_K 对齐：测的就是线上那一次召回
 const MEM_EVAL_NOISE_N = 20;   // 噪声组样本数
 const MEM_EVAL_MAX_Q = 200;    // 单组题量上限（手机耗时闸门）
@@ -18352,11 +18360,26 @@ function _memEvalPickNoise(msgs, used, n){
   for(let i = 0; i < cand.length && out.length < n; i += step) out.push(cand[i]);
   return out;
 }
+// 去标点空格后的字数：中文原话里「好呀」「嗯，对」这类零信息碎片不能当考题
+function _memEvalBare(s){
+  return String(s || '').replace(/[\s\u3000，。！？、,.!?~…\-—:：;；'"“”‘’()（）\[\]【】\/\\|*#$%&@+=<>^`]/g, '');
+}
 // 出题：全部来自库内数据，不需要手工标注
-function _memEvalBuild(entries, msgs){
+function _memEvalBuild(entries, msgs, tags){
   const active = (entries || []).filter(e => e && e.active === 1 && e.event && e.summary);
   const byMid = new Map();
   for(const m of (msgs || [])){ if(m && m.mid) byMid.set(String(m.mid), m); }
+  // 条目 → 标签词。线上召回就是拿这些词在用户话里 indexOf，所以这里必须用同一种字面包含判断，
+  // 不能换成"语义相近"——那样测的就不是线上真正跑的那条路了。
+  const tagOf = new Map();
+  for(const t of (tags || [])){
+    if(!t || !t.entry_id || !t.tag) continue;
+    const w = String(t.tag).trim();
+    if(!w) continue;
+    const k = t.entry_id;
+    if(!tagOf.has(k)) tagOf.set(k, []);
+    if(tagOf.get(k).indexOf(w) < 0) tagOf.get(k).push(w);
+  }
   // mid → 同批记忆的 id。一批打标可能产出多条，所以「想起其中任意一条」都算命中。
   const midToGold = new Map();
   for(const e of active){
@@ -18367,24 +18390,28 @@ function _memEvalBuild(entries, msgs){
       midToGold.get(key).push(e.id);
     }
   }
-  // ① 回放组：按【消息】出题而不是按条目 —— 天然去重，同一批的多条记忆共用一道题
-  const replay = [];
+  // ①② 按【消息】出题而不是按条目 —— 天然去重，同一批的多条记忆共用一道题；
+  //    再按「原话里有没有出现标签词」二分，这两组的含义完全不同，不能混成一个数。
+  const tagged = [], untagged = [];
+  let skip = 0, noTagEntries = active.filter(e => !(tagOf.get(e.id) || []).length).length;
   const mids = Array.from(midToGold.keys()).sort();
   for(const mid of mids){
-    if(replay.length >= MEM_EVAL_MAX_Q) break;
+    if(tagged.length + untagged.length >= MEM_EVAL_MAX_Q) break;
     const m = byMid.get(mid);
     if(!m || m.role !== 'user') continue;
     const q = String(m.content || '').trim();
-    if(q.length < 4 || q.indexOf('[图片]') >= 0) continue;
-    replay.push({ q: q.slice(0, 300), gold: midToGold.get(mid).slice(), kind: 'replay' });
-  }
-  // ② 摘要组：拿摘要当问题
-  const summary = [];
-  for(const e of active){
-    if(summary.length >= MEM_EVAL_MAX_Q) break;
-    const q = String(e.summary || '').trim();
-    if(q.length < 4) continue;
-    summary.push({ q: q.slice(0, 300), gold: [e.id], kind: 'summary' });
+    if(q.indexOf('[图片]') >= 0) continue;
+    // ⚠️ 门槛是「去标点后 6 字」。v1 只判 length<4，于是「好呀」「嗯，对的」全混进考卷，
+    //    零信息碎片永远召不回，会把②组拉低成假故障。
+    if(_memEvalBare(q).length < 6){ skip++; continue; }
+    const gold = midToGold.get(mid).slice();
+    const words = [];
+    for(const g of gold) for(const w of (tagOf.get(g) || [])) if(words.indexOf(w) < 0) words.push(w);
+    if(!words.length){ skip++; continue; }   // 该记忆一个标签都没有 ⇒ 永远召不回，别混进分数里
+    const low = q.toLowerCase();
+    const hitWord = words.filter(w => low.indexOf(w.toLowerCase()) >= 0);
+    const item = { q: q.slice(0, 300), gold, words, hitWord, kind: hitWord.length ? 'tagged' : 'untagged' };
+    (hitWord.length ? tagged : untagged).push(item);
   }
   // ③ 噪声组：所有条目（含淡出）引用过的对话全部排除，剩下的才算「从没记过的事」
   const used = new Set();
@@ -18394,11 +18421,18 @@ function _memEvalBuild(entries, msgs){
   }
   const noise = _memEvalPickNoise(msgs, used, MEM_EVAL_NOISE_N)
     .map(m => ({ q: String(m.content || '').trim().slice(0, 300), kind: 'noise' }));
-  return { active, replay, summary, noise };
+  return { active, tagged, untagged, noise, tagOf, skip, noTagEntries };
 }
 // 跑一组：返回每条题的命中排名（1-based，0 = 没想起）
 async function _memEvalScore(items, pre){
   const ranks = [], miss = [];
+  const tagIdx = new Map();
+  for(const t of ((pre && pre.tags) || [])){
+    if(!t || !t.entry_id || !t.tag) continue;
+    if(!tagIdx.has(t.entry_id)) tagIdx.set(t.entry_id, []);
+    tagIdx.get(t.entry_id).push(String(t.tag));
+  }
+  let near = 0;
   for(let i = 0; i < items.length; i++){
     const it = items[i];
     let hits = [];
@@ -18410,10 +18444,19 @@ async function _memEvalScore(items, pre){
       if(idx >= 0 && (!best || (idx + 1) < best)) best = idx + 1;
     }
     ranks.push(best);
-    if(!best) miss.push(it);
+    if(!best){
+      // ⚠️ 「想起了别的相关记忆」不能当成「完全失忆」：她一句原话可能对上同一批之外的条目
+      //    （实测：「金凤那家真的假的啊」召回了「金凤假店风波」，但 gold 是另一条）。
+      //    混在一起会把②组压成 0%，数字偏悲观 ⇒ 单列 near，命中率照旧严格。
+      const low = String(it.q || '').toLowerCase();
+      const ok = hits.some(h => (tagIdx.get(h.id) || []).some(w => low.indexOf(w.toLowerCase()) >= 0));
+      if(ok) near++;
+      it.near = ok;
+      miss.push(it);
+    }
     if(i % 40 === 39) await new Promise(r => setTimeout(r, 0)); // 让出主线程，手机上不假死
   }
-  return { ranks, miss };
+  return { ranks, miss, near };
 }
 function _memEvalStat(ranks){
   const n = ranks.length;
@@ -18436,28 +18479,38 @@ function _memEvalTime(ts){
 // 读数字给判断——不给结论的话，「72%」到底是好是坏她没法解读
 function _memEvalVerdict(s){
   const t = [];
-  if(s.replay.n){
-    if(s.replay.h8 >= 0.95) t.push('① 回放接近满分：库和标签是健康的，原话都召得回。');
-    else if(s.replay.h8 >= 0.8) t.push('① 回放 ' + _memEvalPct(s.replay.h8) + '：有小部分连原话都召不回，先查这些条目的标签是不是空/太少。');
-    // ⚠️ 回放低有两种完全不同的病因，混为一谈会指错方向（2026-11-22 压力测试踩到）：
-    //   标签「没有这个字」→ 真召不回；标签「太泛」→ 召得回但被同词的其它条目挤到 8 名以外。
-    //   判据：摘要组和回放组几乎一样差 ⇒ 泛化问题；摘要组明显更差 ⇒ 缺词问题。
-    else if(s.summary.n && Math.abs(s.summary.h8 - s.replay.h8) <= 0.08)
-      t.push('① 回放只有 ' + _memEvalPct(s.replay.h8) + '，且摘要组几乎一样：这不是「没命中」，是标签太泛 —— 同一个词挂在太多条记忆上，互相把对方挤出前 8。建议给标签加限定（「火锅」→「火锅·第一次」）。');
-    else
-      t.push('① 回放只有 ' + _memEvalPct(s.replay.h8) + '：连原话都召不回，问题在打标或标签缺失，不在权重。');
+  const tg = s.tagged || { n: 0 }, ug = s.untagged || { n: 0 };
+  const tot = tg.n + ug.n;
+  const cov = tot ? tg.n / tot : 0;
+  if(tg.n){
+    if(tg.h8 >= 0.95) t.push('① 带词回放 ' + _memEvalPct(tg.h8) + '：原话里就有标签词时基本必中 —— 标签和索引是好的，不用怀疑库坏了。');
+    else t.push('① 带词回放只有 ' + _memEvalPct(tg.h8) + '：原话里明明写着标签词却召不回，这是真故障（标签没落库 / 同词条目太多被挤出前 8）。展开最下面的明细看是哪几条。');
+  }else if(tot){
+    t.push('① 带词回放 0 题：你所有产出记忆的原话里，一次都没出现过它的标签词 —— 标签全是模型自己提炼的词，不是你说过的词。');
   }
-  if(s.summary.n){
-    const gap = s.replay.n ? (s.replay.h8 - s.summary.h8) : 0;
-    if(s.summary.h5 >= 0.7) t.push('② 摘要组 ≥70%：换个说法也基本能想起，召回算稳。');
-    else if(s.summary.h5 >= 0.45) t.push('② 摘要组 ' + _memEvalPct(s.summary.h5) + '：换说法会漏一部分，属于可优化区。');
-    else if(gap >= 0.15) t.push('② 摘要组 ' + _memEvalPct(s.summary.h5) + '，比回放低 ' + Math.round(gap * 100) + ' 个点：她就是换个说法才想不起 —— 这是加「原话路」最直接的依据。');
-    else t.push('② 摘要组和回放一样低：问题不在说法，在排序或标签互相挤，先治标签再加路。');
+  if(tot){
+    if(cov < 0.35) t.push('★ 关键数字：' + Math.round((1 - cov) * 100) + '% 的真实原话里不含任何标签词。线上召回只认标签字面，这些问法从设计上就不可能命中。');
+    else if(cov < 0.65) t.push('你的原话里 ' + _memEvalPct(cov) + ' 含标签词，剩下的只能靠标签以外的东西救。');
+    else t.push('你的原话里 ' + _memEvalPct(cov) + ' 就含标签词：标签基本是从你的话里来的，字面匹配这条路还算通。');
   }
-  if(s.noise.n){
+  if(ug.n){
+    const near = ug.near || 0;
+    const tail = near ? '；另有 ' + near + ' 题带回了别的相关记忆（不是完全失忆）' : '';
+    if(ug.h8 >= 0.5) t.push('② 不带词也能想起 ' + _memEvalPct(ug.h8) + '：靠的是同批多标签和泛词兜底，加原话路的收益有限，先别加复杂度。');
+    else if(ug.h8 >= 0.2) t.push('② 不带词 ' + _memEvalPct(ug.h8) + '：换个说法就漏掉大半（' + ug.n + ' 题里精确命中 ' + Math.round(ug.h8 * ug.n) + ' 题' + tail + '），原话路能补上一块。');
+    else t.push('② 不带词只有 ' + _memEvalPct(ug.h8) + '（' + ug.n + ' 题里精确命中 ' + Math.round(ug.h8 * ug.n) + ' 题' + tail + '）：换个说法基本等于失忆 —— 这是「加原话路」最硬的依据。');
+  }
+  if(s.noise && s.noise.n){
     if(s.noise.rate <= 0.15) t.push('③ 噪声组安静：日常闲聊不会乱带回忆。');
-    else t.push('③ 噪声组 ' + _memEvalPct(s.noise.rate) + ' 的话会带出记忆：标签可能过短或过泛。');
+    else{
+      let x = '③ 噪声 ' + _memEvalPct(s.noise.rate) + '：' + s.noise.n + ' 句闲聊里有 ' + s.noise.fired + ' 句勾出了记忆';
+      const top = (s.noise.topTags || []).slice(0, 3);
+      if(top.length) x += '，最常见的是标签 ' + top.map(o => '「' + o.tag + '」' + o.n + ' 次').join('、');
+      x += '。这类词太短太泛，建议删掉或加限定。';
+      t.push(x);
+    }
   }
+  if(s.noTagEntries) t.push('另有 ' + s.noTagEntries + ' 条记忆一个标签都没有：它们永远不可能被召回，等于白存（去列表里补标签或重新打标）。');
   return t;
 }
 function _memEvalHtml(p, base){
@@ -18490,8 +18543,32 @@ function _memEvalHtml(p, base){
       + '</div>';
   };
   h += '<div style="margin-top:8px;border-top:1px solid var(--ink-faint);">';
-  h += row('① 回放（原话当问题）', s.replay, bs && bs.replay, '最小可用性：连这句都想不起，说明标签/库坏了');
-  h += row('② 摘要（换种说法）', s.summary, bs && bs.summary, '模拟「她换个说法提起这件事」，最有参考价值');
+  // 覆盖率放最上面：它比任何命中率都更能说明「现在的召回方式够不够用」
+  const tn = (s.tagged && s.tagged.n) || 0, un = (s.untagged && s.untagged.n) || 0;
+  if(tn + un){
+    const cov = Math.round(tn / (tn + un) * 100);
+    h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
+      + '<div style="font-size:11px;line-height:1.75;">'
+      +   '<span style="display:inline-block;white-space:nowrap;"><b>原话覆盖率 ' + cov + '%</b></span>'
+      +   '<span style="display:inline-block;white-space:nowrap;margin-left:9px;color:var(--ink-soft);font-size:10px;">' + tn + ' / ' + (tn + un) + ' 句含标签词</span>'
+      + '</div>'
+      + '<div style="font-size:10px;color:var(--ink-soft);margin-top:2px;line-height:1.6;">你当初说的那些话里，有多少句真的出现了这条记忆的标签词。低＝标签是模型自己造的词，字面匹配必然漏。</div>'
+      + '</div>';
+  }
+  h += row('① 原话·带标签词', s.tagged, bs && bs.tagged, '健康检查：原话里就含它的标签词，还召不回＝标签或索引坏了（真故障）');
+  if(!tn){
+    h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
+      + '<b style="font-size:12px;">① 原话·带标签词</b>'
+      + '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;line-height:1.6;">0 题 —— 没有一句原话含标签词，这组没法测。这本身就是个结论。</div></div>';
+  }
+  const ugNote = '真实水平：她换个说法（原话里没有标签词）还能不能想起 —— 这组才是线上真碰到的场景'
+    + ((s.untagged && s.untagged.near) ? ('；其中 ' + s.untagged.near + ' 题想起了别的相关记忆') : '');
+  h += row('② 原话·不带标签词', s.untagged, bs && bs.untagged, ugNote);
+  if(!un){
+    h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
+      + '<b style="font-size:12px;">② 原话·不带标签词</b>'
+      + '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;line-height:1.6;">0 题 —— 每句原话都含标签词，没有「换说法」样本可测。</div></div>';
+  }
   if(s.noise && s.noise.n){
     h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
@@ -18513,38 +18590,39 @@ function _memEvalHtml(p, base){
     h += '<div style="margin-top:8px;padding:8px 10px;border-radius:9px;background:rgba(145,180,200,.12);font-size:11px;line-height:1.65;">'
       + v.map(x => '· ' + escHtml(x)).join('<br>') + '</div>';
   }
-  if(p.miss && p.miss.length){
+  if(p.missUntagged && p.missUntagged.length){
     h += '<details style="margin-top:6px;"><summary style="font-size:11px;color:var(--ink-soft);cursor:pointer;">'
-      + '② 组没想起的 ' + p.miss.length + ' 条（点开看是不是缺词）</summary>'
+      + '② 换说法没想起的 ' + p.missUntagged.length + ' 条（原话与它的标签，一眼看出差在哪）</summary>'
       + '<div style="margin-top:6px;font-size:11px;line-height:1.6;">';
-    for(const m of p.miss){
+    for(const m of p.missUntagged){
       h += '<div style="padding:5px 0;border-bottom:1px dashed var(--ink-faint);word-break:break-word;">'
-        + '<div>问：' + escHtml(m.q) + '</div>'
+        + '<div>原话：' + escHtml(m.q) + '</div>'
         + '<div style="color:var(--ink-soft);">该想起：' + escHtml(m.event || m.summary || '（无事件名）')
-        + ' · 标签 ' + escHtml(m.tags || '（无）') + '</div></div>';
+        + ' · 它的标签 ' + escHtml(m.tags || '（无）') + '</div></div>';
     }
     h += '</div></details>';
   }
-  if(p.missReplay && p.missReplay.length){
+  if(p.missTagged && p.missTagged.length){
     h += '<details style="margin-top:4px;"><summary style="font-size:11px;color:var(--ink-soft);cursor:pointer;">'
-      + '① 组连原话都没召回的 ' + p.missReplay.length + ' 条</summary>'
+      + '① 原话里有标签词却召不回的 ' + p.missTagged.length + ' 条（这属于真故障）</summary>'
       + '<div style="margin-top:6px;font-size:11px;line-height:1.6;">';
-    for(const m of p.missReplay){
+    for(const m of p.missTagged){
       h += '<div style="padding:5px 0;border-bottom:1px dashed var(--ink-faint);word-break:break-word;">'
         + '<div>原话：' + escHtml(m.q) + '</div>'
         + '<div style="color:var(--ink-soft);">对应记忆：' + escHtml(m.event || '（无事件名）')
-        + ' · 标签 ' + escHtml(m.tags || '（无）') + '</div></div>';
+        + ' · 命中的词 ' + escHtml(m.hitWord || '') + ' · 标签 ' + escHtml(m.tags || '（无）') + '</div></div>';
     }
     h += '</div></details>';
   }
   if(p.noiseFired && p.noiseFired.length){
     h += '<details style="margin-top:4px;"><summary style="font-size:11px;color:var(--ink-soft);cursor:pointer;">'
-      + '③ 组误带出的 ' + p.noiseFired.length + ' 条（点开看是哪句勾出来的）</summary>'
+      + '③ 组误带出的 ' + p.noiseFired.length + ' 条（点开看是哪句、被哪个标签勾出来的）</summary>'
       + '<div style="margin-top:6px;font-size:11px;line-height:1.6;">';
     for(const m of p.noiseFired){
       h += '<div style="padding:5px 0;border-bottom:1px dashed var(--ink-faint);word-break:break-word;">'
         + '<div>闲聊：' + escHtml(m.q) + '</div>'
-        + '<div style="color:var(--ink-soft);">却带出：' + escHtml((m.got && m.got.summary) || '') + '</div></div>';
+        + '<div style="color:var(--ink-soft);">却带出：' + escHtml((m.got && m.got.summary) || '')
+        + (m.why ? ('（勾它的词：' + escHtml(m.why) + '）') : '') + '</div></div>';
     }
     h += '</div></details>';
   }
@@ -18562,55 +18640,72 @@ async function memEvalRun(btn){
   const t0 = performance.now();
   try{
     const [entries, tags, msgs] = await Promise.all([memGetAll('entries'), memGetAll('tags'), memGetAll('messages')]);
-    const built = _memEvalBuild(entries, msgs);
+    const built = _memEvalBuild(entries, msgs, tags);
     if(!built.active.length){
       out.innerHTML = '<span style="color:var(--ink-soft);">库里还没有可用来自测的记忆（需要「有事件名 + 有摘要」的条目）。先聊几句、跑一次打标再来。</span>';
       return;
     }
+    if(!built.tagged.length && !built.untagged.length){
+      out.innerHTML = '<span style="color:var(--ink-soft);">出了 0 道题：'
+        + (built.noTagEntries ? ('有 ' + built.noTagEntries + ' 条记忆一个标签都没有，先补标签。')
+                              : '原话都太短（去标点后不足 6 字），没法当考题。')
+        + '</span>';
+      return;
+    }
     const pre = { entries, tags, msgs };
-    out.innerHTML = '<span style="color:var(--ink-soft);">出题 ' + built.replay.length + ' / ' + built.summary.length + ' / ' + built.noise.length + ' 道，召回中…</span>';
-    const rp = await _memEvalScore(built.replay, pre);
-    const sm = await _memEvalScore(built.summary, pre);
-    // 噪声组不问「有没有命中」，只问「有没有嘴硬想起点什么」
-    let fired = 0; const firedItems = [];
+    out.innerHTML = '<span style="color:var(--ink-soft);">出题 ' + built.tagged.length + '（带词） / '
+      + built.untagged.length + '（不带词） / ' + built.noise.length + '（噪声），召回中…</span>';
+    const rp = await _memEvalScore(built.tagged, pre);
+    const ug = await _memEvalScore(built.untagged, pre);
+    // 噪声组不问「有没有命中」，只问「有没有嘴硬想起点什么」；顺手记下是哪个标签勾出来的
+    const byId = new Map();
+    for(const e of built.active) byId.set(e.id, e);
+    const tagOf = built.tagOf;
+    let fired = 0; const firedItems = []; const tagHits = new Map();
     for(let i = 0; i < built.noise.length; i++){
       const it = built.noise[i];
       let hits = [];
       try{ hits = await memMagnetRecall(it.q, MEM_EVAL_K, pre) || []; }catch(e){}
-      if(hits.length){ fired++; if(firedItems.length < 8) firedItems.push({ q: it.q, got: hits[0] }); }
+      if(hits.length){
+        fired++;
+        const ws = (tagOf.get(hits[0].id) || []).filter(w => it.q.indexOf(w) >= 0);
+        for(const w of ws) tagHits.set(w, (tagHits.get(w) || 0) + 1);
+        if(firedItems.length < 8) firedItems.push({ q: it.q, got: hits[0], why: ws.join(' / ') });
+      }
       if(i % 40 === 39) await new Promise(r => setTimeout(r, 0));
     }
-    const byId = new Map();
-    for(const e of built.active) byId.set(e.id, e);
-    const tagOf = new Map();
-    for(const t of (tags || [])){
-      if(!t || !t.entry_id) continue;
-      if(!tagOf.has(t.entry_id)) tagOf.set(t.entry_id, []);
-      tagOf.get(t.entry_id).push(t.tag);
-    }
+    const topTags = Array.from(tagHits.entries()).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))
+      .slice(0, 5).map(o => ({ tag: o[0], n: o[1] }));
+    const tagStr = id => (tagOf.get(id) || []).join(' / ');
+    const tgStat = _memEvalStat(rp.ranks); tgStat.near = rp.near;
+    const ugStat = _memEvalStat(ug.ranks); ugStat.near = ug.near;
     const payload = {
+      v: MEM_EVAL_VER,
       at: Date.now(),
       dur: Math.round(performance.now() - t0),
       size: { entries: built.active.length, tags: (tags || []).length, msgs: (msgs || []).length,
               faded: (entries || []).filter(e => e && e.active === 0).length },
       stats: {
-        replay: _memEvalStat(rp.ranks),
-        summary: _memEvalStat(sm.ranks),
-        noise: { n: built.noise.length, fired, rate: built.noise.length ? fired / built.noise.length : 0 }
+        tagged: tgStat,
+        untagged: ugStat,
+        noise: { n: built.noise.length, fired, rate: built.noise.length ? fired / built.noise.length : 0, topTags },
+        skip: built.skip,
+        noTagEntries: built.noTagEntries
       },
-      miss: sm.miss.slice(0, 12).map(it => {
+      missUntagged: ug.miss.slice(0, 12).map(it => {
         const e = byId.get(it.gold[0]) || {};
-        return { q: it.q, event: e.event || '', summary: String(e.summary || '').slice(0, 60),
-                 tags: (tagOf.get(it.gold[0]) || []).join(' / ') };
+        return { q: it.q, event: e.event || '', summary: String(e.summary || '').slice(0, 60), tags: tagStr(it.gold[0]) };
       }),
-      missReplay: rp.miss.slice(0, 8).map(it => {
+      missTagged: rp.miss.slice(0, 8).map(it => {
         const e = byId.get(it.gold[0]) || {};
-        return { q: it.q, event: e.event || '', tags: (tagOf.get(it.gold[0]) || []).join(' / ') };
+        return { q: it.q, event: e.event || '', tags: tagStr(it.gold[0]), hitWord: (it.hitWord || []).join(' / ') };
       }),
       noiseFired: firedItems
     };
     await memKvSet(MEM_EVAL_KEY, payload);
-    out.innerHTML = _memEvalHtml(payload, await memKvGet(MEM_EVAL_BASE_KEY));
+    let base = await memKvGet(MEM_EVAL_BASE_KEY);
+    if(base && base.v !== MEM_EVAL_VER) base = null;   // 旧版考卷的基线不同源，不能拿来比差值
+    out.innerHTML = _memEvalHtml(payload, base);
   }catch(e){
     out.innerHTML = '<span style="color:var(--ink-soft);">体检失败：' + escHtml(String((e && e.message) || e)) + '</span>';
     console.warn('[mem] eval', e);
@@ -18627,7 +18722,14 @@ async function memEvalRestore(){
       el.innerHTML = '<span style="color:var(--ink-soft);">还没测过。点右上「开始测」，用你库里的真实对话自动出题（不花 API）。</span>';
       return;
     }
-    el.innerHTML = _memEvalHtml(p, await memKvGet(MEM_EVAL_BASE_KEY));
+    // 旧版（拿摘要当问题）的数字和现在不同源，直接拿来读会误导 ⇒ 明确让她重测，不显示旧结果
+    if(p.v !== MEM_EVAL_VER){
+      el.innerHTML = '<span style="color:var(--ink-soft);">上次测的是旧版考卷（拿摘要当问题，分数虚高）。点右上「重新测」用新版跑一次。</span>';
+      return;
+    }
+    let base = await memKvGet(MEM_EVAL_BASE_KEY);
+    if(base && base.v !== MEM_EVAL_VER) base = null;
+    el.innerHTML = _memEvalHtml(p, base);
   }catch(e){}
 }
 async function memEvalBaselineSave(){
