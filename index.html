@@ -18426,12 +18426,6 @@ function _memEvalBuild(entries, msgs, tags){
 // 跑一组：返回每条题的命中排名（1-based，0 = 没想起）
 async function _memEvalScore(items, pre){
   const ranks = [], miss = [];
-  const tagIdx = new Map();
-  for(const t of ((pre && pre.tags) || [])){
-    if(!t || !t.entry_id || !t.tag) continue;
-    if(!tagIdx.has(t.entry_id)) tagIdx.set(t.entry_id, []);
-    tagIdx.get(t.entry_id).push(String(t.tag));
-  }
   let near = 0;
   for(let i = 0; i < items.length; i++){
     const it = items[i];
@@ -18445,11 +18439,9 @@ async function _memEvalScore(items, pre){
     }
     ranks.push(best);
     if(!best){
-      // ⚠️ 「想起了别的相关记忆」不能当成「完全失忆」：她一句原话可能对上同一批之外的条目
-      //    （实测：「金凤那家真的假的啊」召回了「金凤假店风波」，但 gold 是另一条）。
-      //    混在一起会把②组压成 0%，数字偏悲观 ⇒ 单列 near，命中率照旧严格。
-      const low = String(it.q || '').toLowerCase();
-      const ok = hits.some(h => (tagIdx.get(h.id) || []).some(w => low.indexOf(w.toLowerCase()) >= 0));
+      // ⚠️ 「想起了别的条目」不等于「完全没反应」，也不能直接叫「相关」——相关性我判定不了。
+      //    所以只如实记「召回返回了东西」，命中率照旧严格。
+      const ok = hits.some(h => (h.hits || []).length > 0);
       if(ok) near++;
       it.near = ok;
       miss.push(it);
@@ -18495,7 +18487,7 @@ function _memEvalVerdict(s){
   }
   if(ug.n){
     const near = ug.near || 0;
-    const tail = near ? '；另有 ' + near + ' 题带回了别的相关记忆（不是完全失忆）' : '';
+    const tail = near ? '；另有 ' + near + ' 题召回了别的条目（不是完全没反应）' : '';
     if(ug.h8 >= 0.5) t.push('② 不带词也能想起 ' + _memEvalPct(ug.h8) + '：靠的是同批多标签和泛词兜底，加原话路的收益有限，先别加复杂度。');
     else if(ug.h8 >= 0.2) t.push('② 不带词 ' + _memEvalPct(ug.h8) + '：换个说法就漏掉大半（' + ug.n + ' 题里精确命中 ' + Math.round(ug.h8 * ug.n) + ' 题' + tail + '），原话路能补上一块。');
     else t.push('② 不带词只有 ' + _memEvalPct(ug.h8) + '（' + ug.n + ' 题里精确命中 ' + Math.round(ug.h8 * ug.n) + ' 题' + tail + '）：换个说法基本等于失忆 —— 这是「加原话路」最硬的依据。');
@@ -18562,7 +18554,7 @@ function _memEvalHtml(p, base){
       + '<div style="font-size:11px;color:var(--ink-soft);margin-top:3px;line-height:1.6;">0 题 —— 没有一句原话含标签词，这组没法测。这本身就是个结论。</div></div>';
   }
   const ugNote = '真实水平：她换个说法（原话里没有标签词）还能不能想起 —— 这组才是线上真碰到的场景'
-    + ((s.untagged && s.untagged.near) ? ('；其中 ' + s.untagged.near + ' 题想起了别的相关记忆') : '');
+    + ((s.untagged && s.untagged.near) ? ('；其中 ' + s.untagged.near + ' 题召回了别的条目') : '');
   h += row('② 原话·不带标签词', s.untagged, bs && bs.untagged, ugNote);
   if(!un){
     h += '<div style="padding:7px 0;border-bottom:1px solid var(--ink-faint);">'
@@ -18668,7 +18660,10 @@ async function memEvalRun(btn){
       try{ hits = await memMagnetRecall(it.q, MEM_EVAL_K, pre) || []; }catch(e){}
       if(hits.length){
         fired++;
-        const ws = (tagOf.get(hits[0].id) || []).filter(w => it.q.indexOf(w) >= 0);
+        // ⚠️ 罪魁标签必须用召回自己返回的 `hits`（它记录了这一条是靠哪些词命中的），
+        //    不要拿原句再 indexOf 一遍反查：2026-11-22 叶子实测 8 句误召只认出 3 句的标签，
+        //    因为 memExtractTriggers 还有「引号短语当触发词」这条路，反查完全看不到。
+        const ws = (hits[0].hits || []).slice();
         for(const w of ws) tagHits.set(w, (tagHits.get(w) || 0) + 1);
         if(firedItems.length < 8) firedItems.push({ q: it.q, got: hits[0], why: ws.join(' / ') });
       }
